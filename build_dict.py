@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""국립국어원 사전 세 종을 자모 분해해 하나의 SQLite 사전으로 적재한다.
+"""국립국어원 사전 세 종과 위키백과 제목을 자모 분해해 하나의 SQLite 사전으로 적재한다.
 
-    python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict --opendict dict/nikl/opendict
+    python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict --opendict dict/nikl/opendict \
+        --kowiki dict/kowiki/kowiki-20260901-page.sql.gz
 
 소스 (모두 선택, 최소 하나):
   --stdict   표준국어대사전 xls를 LibreOffice로 변환한 UTF-8 CSV 디렉터리
@@ -9,11 +10,14 @@
                  --outdir <csv_dir> dict/*.xls
   --krdict   한국어기초사전 LMF XML 디렉터리 (github.com/spellcheck-ko/korean-dict-nikl/krdict)
   --opendict 우리말샘 XML 디렉터리 (같은 저장소의 opendict)
+  --kowiki   한국어 위키백과 page.sql.gz (dumps.wikimedia.org/kowiki/<날짜>/). 일반 문서 제목 중
+             띄어 쓴 것만 '구'로 넣는다 — 공백 없는 제목은 65%가 인명이라 판정 공간을 무의미하게 넓힌다.
 
 같은 표기는 한 행으로 합치고 출처를 src 비트로 남긴다. 판정 사전은 넓게, 정답 풀은 src/level/pos로 좁히는 구조.
 """
 import argparse
 import csv
+import gzip
 import re
 import sqlite3
 from pathlib import Path
@@ -37,8 +41,12 @@ SPLIT = {
     "ㅟ": "ㅜㅣ", "ㅢ": "ㅡㅣ",
 }
 
-SRC_STDICT, SRC_KRDICT, SRC_OPENDICT = 1, 2, 4
+SRC_STDICT, SRC_KRDICT, SRC_OPENDICT, SRC_KOWIKI = 1, 2, 4, 8
 LEVEL_RANK = {"초급": 0, "중급": 1, "고급": 2}
+
+# MediaWiki page 테이블 INSERT 튜플의 앞부분: (page_id, page_namespace, 'page_title', page_is_redirect, ...
+WIKI_ROW = re.compile(r"\((\d+),(-?\d+),'((?:[^'\\]|\\.)*)',(\d),")
+WIKI_PAREN = re.compile(r"\s*\([^()]*\)$")  # '스트라이드 (음악)' 의 동음이의 꼬리
 
 HOMONYM = re.compile(r"\(\d+\)$")
 SPACES = re.compile(r"\s+")
@@ -143,18 +151,35 @@ def read_opendict(xml_dir):
             yield wi.findtext("word"), unit, si.findtext("pos"), None, dialect
 
 
+def read_kowiki(sql_gz):
+    with gzip.open(sql_gz, "rt", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if not line.startswith("INSERT INTO"):
+                continue
+            for m in WIKI_ROW.finditer(line):
+                # 일반 문서(ns0)만, 넘겨주기(오타·이형 표기)는 제외
+                if m.group(2) != "0" or m.group(4) == "1":
+                    continue
+                title = m.group(3).replace("_", " ").replace("\\'", "'").replace('\\"', '"')
+                word = normalize(WIKI_PAREN.sub("", title))
+                if word and " " in word:
+                    yield word, "구", None, None, False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("db")
     ap.add_argument("--stdict")
     ap.add_argument("--krdict")
     ap.add_argument("--opendict")
+    ap.add_argument("--kowiki", help="page.sql.gz 파일")
     args = ap.parse_args()
 
     sources = [
         (SRC_STDICT, args.stdict, read_stdict),
         (SRC_KRDICT, args.krdict, read_krdict),
         (SRC_OPENDICT, args.opendict, read_opendict),
+        (SRC_KOWIKI, args.kowiki, read_kowiki),
     ]
     if not any(d for _, d, _ in sources):
         ap.error("소스를 하나 이상 지정하세요")
@@ -200,7 +225,7 @@ def main():
             jamo          TEXT NOT NULL,       -- 자모 24종 열, 공백 제거
             jamo_len      INTEGER NOT NULL,
             distinct_jamo INTEGER NOT NULL,
-            src           INTEGER NOT NULL,    -- 비트: 1 표준국어대사전, 2 한국어기초사전, 4 우리말샘
+            src           INTEGER NOT NULL,    -- 비트: 1 표준국어대사전, 2 한국어기초사전, 4 우리말샘, 8 위키백과(구만)
             pos           TEXT,                -- 품사 (출처 중 먼저 나온 값)
             level         TEXT,                -- 한국어기초사전 등급: 초급 | 중급 | 고급
             dialect       INTEGER NOT NULL     -- 1: 우리말샘에 방언/북한어로만 등재
