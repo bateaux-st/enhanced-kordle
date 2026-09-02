@@ -35,6 +35,7 @@
 					class:p={m === 'p'}
 					class:a={m === 'a'}
 					class:filled={!m && j}
+					class:invalid={row.live && game.invalid}
 					class:cell-animation={!!j}
 				>
 					{j}
@@ -72,6 +73,9 @@
 	}
 	.filled {
 		border-color: var(--slate-400);
+	}
+	.invalid {
+		color: var(--red-400);
 	}
 	.c,
 	.p,

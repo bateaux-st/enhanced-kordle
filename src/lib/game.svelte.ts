@@ -1,4 +1,6 @@
 import type {
+	CheckRequest,
+	CheckResponse,
 	GameMode,
 	GuessResponse,
 	LengthMode,
@@ -64,6 +66,8 @@ export class Game {
 	rows = $state<string[]>([]);
 	marks = $state<Mark[][]>([]);
 	current = $state('');
+	/** n자를 다 채웠는데 사전에 없는 열이면 true — 제출 전에 빨간 글자로 알려준다. */
+	invalid = $state(false);
 	status = $state<Status>('loading');
 	answer = $state<string | null>(null);
 	stage = $state(1);
@@ -135,6 +139,7 @@ export class Game {
 		this.rows = [];
 		this.marks = [];
 		this.current = '';
+		this.invalid = false;
 		this.answer = null;
 
 		const source = this.config.mode === 'daily' ? 'daily' : 'random';
@@ -158,12 +163,27 @@ export class Game {
 
 	type(j: string) {
 		if (this.status !== 'playing' || this.busy) return;
-		if (this.current.length < this.n) this.current += j;
+		if (this.current.length < this.n) {
+			this.current += j;
+			if (this.current.length === this.n) void this.checkCurrent();
+		}
 	}
 
 	back() {
 		if (this.status !== 'playing' || this.busy) return;
 		this.current = this.current.slice(0, -1);
+		this.invalid = false;
+	}
+
+	private async checkCurrent() {
+		const jamo = this.current;
+		try {
+			const res = await post<CheckResponse>('/api/check', { jamo } satisfies CheckRequest);
+			// 응답이 오는 사이 지우고 다시 쳤을 수 있다 — 지금 입력과 같을 때만 반영한다.
+			if (this.current === jamo) this.invalid = !res.valid;
+		} catch {
+			/* 확인 실패는 제출 시 서버 판정이 다시 걸러준다 */
+		}
 	}
 
 	async submit() {
@@ -173,10 +193,16 @@ export class Game {
 			this.nudge();
 			return;
 		}
+		if (this.invalid) {
+			this.showToast('사전에 없는 단어입니다');
+			this.nudge();
+			return;
+		}
 		this.busy = true;
 		try {
 			const res = await post<GuessResponse>('/api/guess', { token: this.token, jamo: this.current });
 			if (!res.ok) {
+				this.invalid = true;
 				this.showToast('사전에 없는 단어입니다');
 				this.nudge();
 				return;
@@ -184,6 +210,7 @@ export class Game {
 			this.rows = [...this.rows, this.current];
 			this.marks = [...this.marks, res.marks];
 			this.current = '';
+			this.invalid = false;
 
 			if (res.marks.every((m) => m === 'c')) await this.finish(true);
 			else if (this.rows.length >= this.maxTries) await this.finish(false);

@@ -33,6 +33,14 @@ export interface GuessRequest {
 }
 export type GuessResponse = { ok: true; marks: Mark[] } | { ok: false; reason: 'invalid' };
 
+/** 제출 전 사전 유효성만 확인. 정답과 무관해 토큰이 없다. */
+export interface CheckRequest {
+	jamo: string;
+}
+export interface CheckResponse {
+	valid: boolean;
+}
+
 export interface RevealRequest {
 	token: string;
 }
