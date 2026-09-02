@@ -4,9 +4,10 @@ kordle.db
 # 원작 참고용 스냅샷
 kordle.html
 
-node_modules/
-.svelte-kit/
-build/
+node_modules
+/.svelte-kit
+/build
 .env
 .env.*
 !.env.example
+vite.config.ts.timestamp-*

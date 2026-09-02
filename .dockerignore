@@ -1,0 +1,9 @@
+node_modules
+.svelte-kit
+build
+dict
+.git
+.claude
+.env
+.env.*
+kordle.html

@@ -1,0 +1,62 @@
+/* 원작(Tailwind 기본 팔레트)의 색값을 그대로 옮겼다. */
+:root {
+	--slate-200: #e2e8f0;
+	--slate-300: #cbd5e1;
+	--slate-400: #94a3b8;
+	--slate-500: #64748b;
+	--slate-700: #334155;
+	--green-500: #22c55e;
+	--green-600: #16a34a;
+	--green-700: #15803d;
+	--yellow-500: #eab308;
+	--indigo-100: #e0e7ff;
+	--indigo-200: #c7d2fe;
+	--indigo-500: #6366f1;
+	--indigo-700: #4338ca;
+	--text: #111827;
+	--bg: #ffffff;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family:
+		ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
+		'Noto Sans KR', 'Malgun Gothic', sans-serif;
+	-webkit-tap-highlight-color: transparent;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+	border: 0;
+	background: none;
+	padding: 0;
+	cursor: pointer;
+}
+
+/* 원작 cell-animation: 자모가 들어올 때 살짝 튀는 효과 */
+@keyframes pop {
+	0% {
+		transform: scale(0.8);
+		opacity: 0;
+	}
+	40% {
+		transform: scale(1.1);
+		opacity: 1;
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+.cell-animation {
+	animation: pop 0.15s ease-out;
+}
