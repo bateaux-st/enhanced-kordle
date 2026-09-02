@@ -1,0 +1,12 @@
+# 원본 사전(269MB xls)과 빌드 산출물 DB(41MB)는 build_dict.py로 재생성한다
+dict/
+kordle.db
+# 원작 참고용 스냅샷
+kordle.html
+
+node_modules/
+.svelte-kit/
+build/
+.env
+.env.*
+!.env.example
