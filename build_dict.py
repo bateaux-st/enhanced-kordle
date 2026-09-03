@@ -44,8 +44,11 @@ SPLIT = {
 SRC_STDICT, SRC_KRDICT, SRC_OPENDICT, SRC_KOWIKI = 1, 2, 4, 8
 LEVEL_RANK = {"초급": 0, "중급": 1, "고급": 2}
 
-# MediaWiki page 테이블 INSERT 튜플의 앞부분: (page_id, page_namespace, 'page_title', page_is_redirect, ...
-WIKI_ROW = re.compile(r"\((\d+),(-?\d+),'((?:[^'\\]|\\.)*)',(\d),")
+# MediaWiki page 테이블 INSERT 튜플: (page_id, page_namespace, 'page_title', page_is_redirect, page_is_new,
+#   page_random, 'page_touched', 'page_links_updated'|NULL, page_latest, page_len, ...
+WIKI_ROW = re.compile(
+    r"\((\d+),(-?\d+),'((?:[^'\\]|\\.)*)',(\d),\d+,[\d.e-]+,'\d+',(?:'\d+'|NULL),\d+,(\d+),"
+)
 WIKI_PAREN = re.compile(r"\s*\([^()]*\)$")  # '스트라이드 (음악)' 의 동음이의 꼬리
 
 HOMONYM = re.compile(r"\(\d+\)$")
@@ -108,20 +111,33 @@ def iter_xml(path, tag):
             el.clear()
 
 
-# ---- 소스별 리더: (raw_word, unit, pos, level, dialect) 를 낸다 ----
+# ---- 소스별 리더: dict(word=원표기, unit, pos, level, dialect, senses, domains, wiki_len, flag_only) 를 낸다 ----
+
+SENSE_NO = re.compile(r"「\d+」")
+DOMAIN = re.compile(r"『([^』]+)』")
+# 고유명사 분야 — 정답 풀에서 제외한다
+PROPER_DOMAINS = {"인명", "지명", "책명", "고유명 일반"}
+
 
 def read_stdict(csv_dir):
     for path in sorted(Path(csv_dir).glob("*.csv")):
         with open(path, encoding="utf-8", newline="") as f:
             reader = csv.reader(f)
             header = next(reader)
-            i_word, i_unit = header.index("어휘"), header.index("구성 단위")
-            i_pos = header.index("품사") if "품사" in header else None
+            col = {name: header.index(name) for name in ("어휘", "구성 단위", "품사", "뜻풀이", "전문 분야")}
             for row in reader:
-                unit = row[i_unit]
-                if unit in ("단어", "구"):
-                    pos = row[i_pos] if i_pos is not None else None
-                    yield row[i_word], unit, pos, None, False
+                unit = row[col["구성 단위"]]
+                if unit not in ("단어", "구"):
+                    continue
+                dom = row[col["전문 분야"]]
+                yield dict(
+                    word=row[col["어휘"]], unit=unit, pos=row[col["품사"]],
+                    # 뜻풀이의 「n」 번호 수 = 뜻 개수. 없으면 단의어.
+                    senses=max(1, len(SENSE_NO.findall(row[col["뜻풀이"]]))),
+                    # 분야 표시가 없으면 일반어 → 빈 집합. 있으면 그 분야들.
+                    domains=set(DOMAIN.findall(dom)) if dom.strip() else set(),
+                    general=not dom.strip(),
+                )
 
 
 def read_krdict(xml_dir):
@@ -134,7 +150,8 @@ def read_krdict(xml_dir):
             if lemma is None:
                 continue
             level = f.get("vocabularyLevel")
-            yield lemma.get("val"), f["lexicalUnit"], f.get("partOfSpeech"), level if level in LEVEL_RANK else None, False
+            yield dict(word=lemma.get("val"), unit=f["lexicalUnit"], pos=f.get("partOfSpeech"),
+                       level=level if level in LEVEL_RANK else None)
 
 
 def read_opendict(xml_dir):
@@ -147,8 +164,8 @@ def read_opendict(xml_dir):
             elif unit != "구":
                 continue
             # 방언·북한어는 판정 사전에서 기본 제외하려고 표시만 해 둔다. 옛말은 옛한글이라 normalize에서 빠진다.
-            dialect = si.findtext("type") in ("방언", "북한어")
-            yield wi.findtext("word"), unit, si.findtext("pos"), None, dialect
+            yield dict(word=wi.findtext("word"), unit=unit, pos=si.findtext("pos"),
+                       dialect=si.findtext("type") in ("방언", "북한어"))
 
 
 def read_kowiki(sql_gz):
@@ -162,8 +179,53 @@ def read_kowiki(sql_gz):
                     continue
                 title = m.group(3).replace("_", " ").replace("\\'", "'").replace('\\"', '"')
                 word = normalize(WIKI_PAREN.sub("", title))
-                if word and " " in word:
-                    yield word, "구", None, None, False
+                if not word:
+                    continue
+                # 띄어 쓴 제목은 '구'로 새로 넣지만, 붙여 쓴 제목은 65%가 인명이라 새 행을 만들지 않고
+                # 이미 사전에 있는 단어에 "위키 문서 있음(길이)"만 표시한다 — 익숙함 신호로 쓴다.
+                yield dict(word=word, unit="구", wiki_len=int(m.group(5)), flag_only=" " not in word)
+
+
+class Entry:
+    __slots__ = ("unit", "src", "pos", "level", "dialect", "senses", "general", "proper", "wiki_len")
+
+    def __init__(self):
+        self.unit, self.src, self.pos, self.level = "구", 0, None, None
+        self.dialect, self.senses, self.general, self.proper, self.wiki_len = True, 0, False, False, None
+
+    def merge(self, bit, r):
+        # 같은 표기가 단어와 구 양쪽에 있으면 단어 쪽을 남긴다.
+        if r["unit"] == "단어":
+            self.unit = "단어"
+        self.src |= bit
+        if self.pos is None:
+            self.pos = clean_pos(r.get("pos"))
+        # 등급은 가장 쉬운 쪽을 남긴다 — "중급까지"처럼 상한으로 걸러 쓰기 위해.
+        lv = r.get("level")
+        if lv and (self.level is None or LEVEL_RANK[lv] < LEVEL_RANK[self.level]):
+            self.level = lv
+        # 일반어로 등재된 출처가 하나라도 있으면 방언 표시를 지운다.
+        self.dialect = self.dialect and r.get("dialect", False)
+        self.senses += r.get("senses", 0)
+        # 동형어 중 하나라도 분야 표시가 없으면 일반어로 본다. 고유명 분야는 하나라도 있으면 고유명사로.
+        self.general = self.general or r.get("general", False)
+        self.proper = self.proper or bool(r.get("domains", set()) & PROPER_DOMAINS)
+        if r.get("wiki_len") is not None:
+            self.wiki_len = max(self.wiki_len or 0, r["wiki_len"])
+
+    def familiar(self):
+        """익숙함 점수. 독립적인 출처 세 곳의 신호를 합친다 — 정답 풀은 이 값의 하한으로 고른다.
+        고유명사(인명·지명·책명)는 None. 표준국어대사전에 없는 표기도 None(정답 풀 후보가 아니다)."""
+        if self.proper or not (self.src & SRC_STDICT):
+            return None
+        score = {"초급": 4, "중급": 3, "고급": 2, None: 0}[self.level]
+        if self.wiki_len is not None and self.wiki_len >= 3000:
+            score += 2  # 짧은 문서는 동음이의 안내·토막글이 많아 3KB 이상만 인정
+        if self.senses >= 4:
+            score += 1
+        if not self.general:
+            score -= 1  # 전문 분야 표시만 있는 단어
+        return score
 
 
 def main():
@@ -184,34 +246,23 @@ def main():
     if not any(d for _, d, _ in sources):
         ap.error("소스를 하나 이상 지정하세요")
 
-    # word -> [unit, src, pos, level, all_dialect]
     words = {}
     for bit, d, reader in sources:
         if not d:
             continue
         total = 0
         before = len(words)
-        for raw, unit, pos, level, dialect in reader(d):
+        for r in reader(d):
             total += 1
-            word = normalize(raw)
+            word = normalize(r["word"])
             if word is None:
                 continue
-            pos = clean_pos(pos)
-            rec = words.get(word)
-            if rec is None:
-                words[word] = [unit, bit, pos, level, dialect]
-                continue
-            # 같은 표기가 단어와 구 양쪽에 있으면 단어 쪽을 남긴다.
-            if unit == "단어":
-                rec[0] = "단어"
-            rec[1] |= bit
-            if rec[2] is None:
-                rec[2] = pos
-            # 등급은 가장 쉬운 쪽을 남긴다 — "중급까지"처럼 상한으로 걸러 쓰기 위해.
-            if level and (rec[3] is None or LEVEL_RANK[level] < LEVEL_RANK[rec[3]]):
-                rec[3] = level
-            # 일반어로 등재된 출처가 하나라도 있으면 방언 표시를 지운다.
-            rec[4] = rec[4] and dialect
+            e = words.get(word)
+            if e is None:
+                if r.get("flag_only"):
+                    continue
+                e = words[word] = Entry()
+            e.merge(bit, r)
         print(f"{reader.__name__[5:]:8} 표제어 {total:>9,} → 신규 {len(words) - before:>8,} (누적 {len(words):,})")
 
     db = Path(args.db)
@@ -225,20 +276,24 @@ def main():
             jamo          TEXT NOT NULL,       -- 자모 24종 열, 공백 제거
             jamo_len      INTEGER NOT NULL,
             distinct_jamo INTEGER NOT NULL,
-            src           INTEGER NOT NULL,    -- 비트: 1 표준국어대사전, 2 한국어기초사전, 4 우리말샘, 8 위키백과(구만)
+            src           INTEGER NOT NULL,    -- 비트: 1 표준국어대사전, 2 한국어기초사전, 4 우리말샘, 8 위키백과
             pos           TEXT,                -- 품사 (출처 중 먼저 나온 값)
             level         TEXT,                -- 한국어기초사전 등급: 초급 | 중급 | 고급
-            dialect       INTEGER NOT NULL     -- 1: 우리말샘에 방언/북한어로만 등재
+            dialect       INTEGER NOT NULL,    -- 1: 우리말샘에 방언/북한어로만 등재
+            senses        INTEGER NOT NULL,    -- 표준국어대사전 뜻 개수(동형어 합산)
+            wiki_len      INTEGER,             -- 같은 제목의 위키백과 문서 길이(바이트), 없으면 NULL
+            familiar      INTEGER              -- 익숙함 점수(Entry.familiar). 고유명사·표준국어대사전 밖은 NULL
         );
     """)
     rows = []
-    for word, (unit, src, pos, level, dialect) in words.items():
+    for word, e in words.items():
         jamo = decompose(word)
-        rows.append((word, unit, len(word.replace(" ", "")), jamo, len(jamo), len(set(jamo)), src, pos, level, int(dialect)))
-    con.executemany("INSERT INTO words VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+        rows.append((word, e.unit, len(word.replace(" ", "")), jamo, len(jamo), len(set(jamo)),
+                     e.src, e.pos, e.level, int(e.dialect), e.senses, e.wiki_len, e.familiar()))
+    con.executemany("INSERT INTO words VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.executescript("""
         CREATE INDEX idx_jamo ON words(jamo);
-        CREATE INDEX idx_pool ON words(unit, jamo_len, src, dialect);
+        CREATE INDEX idx_pool ON words(unit, pos, jamo_len, familiar);
     """)
     con.commit()
     con.close()

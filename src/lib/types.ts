@@ -16,8 +16,8 @@ export const MODE_LABEL: Record<GameMode, string> = {
 // ---- API 계약 ----
 
 export interface NewGameRequest {
-	/** daily는 날짜로 정답이 정해지고, random은 매 호출 새 정답. */
-	source: 'daily' | 'random';
+	/** daily는 날짜로 정답이 정해지고 나머지는 매 호출 새 정답. 모드에 따라 정답 풀 범위도 달라진다. */
+	mode: GameMode;
 	/** 없으면 5~12에서 고른다(daily는 날짜 기준, random은 무작위). */
 	n?: number;
 }

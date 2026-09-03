@@ -142,12 +142,12 @@ export class Game {
 		this.invalid = false;
 		this.answer = null;
 
-		const source = this.config.mode === 'daily' ? 'daily' : 'random';
-		const res = await post<NewGameResponse>('/api/game', { source, n } satisfies NewGameRequest);
+		const mode = this.config.mode;
+		const res = await post<NewGameResponse>('/api/game', { mode, n } satisfies NewGameRequest);
 		this.token = res.token;
 		this.n = res.n;
 
-		if (source === 'daily') {
+		if (mode === 'daily') {
 			// 토큰이 날짜와 n을 함축하므로 저장 키로 쓰면 "오늘 이 길이" 진행만 정확히 복원된다.
 			const saved = load<DailySave | null>(`daily:${this.token}`, null);
 			if (saved) {

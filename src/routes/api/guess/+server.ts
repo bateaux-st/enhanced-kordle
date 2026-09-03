@@ -19,6 +19,6 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!isValidJamo(guess)) {
 		return json({ ok: false, reason: 'invalid' } satisfies GuessResponse);
 	}
-	const marks = judge(answerAt(answer.n, answer.idx).jamo, guess);
+	const marks = judge(answerAt(answer.t, answer.n, answer.idx).jamo, guess);
 	return json({ ok: true, marks } satisfies GuessResponse);
 };

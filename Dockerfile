@@ -1,5 +1,6 @@
-# kordle.db는 git에 없다(158MB, build_dict.py 산출물). 빌드 컨텍스트에 파일을 넣어 두고 빌드한다:
-#   python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict --opendict dict/nikl/opendict
+# kordle.db는 git에 없다(213MB, build_dict.py 산출물). 빌드 컨텍스트에 파일을 넣어 두고 빌드한다:
+#   python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict --opendict dict/nikl/opendict \
+#       --kowiki dict/kowiki/kowiki-20260901-page.sql.gz
 #   docker build -t n-kordle .
 FROM node:22-alpine AS build
 WORKDIR /app

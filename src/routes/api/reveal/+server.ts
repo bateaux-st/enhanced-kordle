@@ -10,6 +10,6 @@ export const POST: RequestHandler = async ({ request }) => {
 	const answer = body && typeof body.token === 'string' ? decodeToken(body.token) : null;
 	if (!answer) error(400, 'bad token');
 
-	const res: RevealResponse = { word: answerAt(answer.n, answer.idx).word };
+	const res: RevealResponse = { word: answerAt(answer.t, answer.n, answer.idx).word };
 	return json(res);
 };
