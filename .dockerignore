@@ -7,3 +7,6 @@ dict
 .env
 .env.*
 kordle.html
+*.db
+__pycache__
+compose.yaml
