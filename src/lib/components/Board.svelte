@@ -29,6 +29,7 @@
 		<div class="row" class:shake={row.live && game.shake}>
 			{#each row.jamo as j, i (i)}
 				{@const m = row.marks[i]}
+				{@const hint = row.live && !j ? game.hints[i] : undefined}
 				<div
 					class="cell"
 					class:c={m === 'c'}
@@ -36,9 +37,10 @@
 					class:a={m === 'a'}
 					class:filled={!m && j}
 					class:invalid={row.live && game.invalid}
+					class:hint={!!hint}
 					class:cell-animation={!!j}
 				>
-					{j}
+					{j || hint || ''}
 				</div>
 			{/each}
 		</div>
@@ -76,6 +78,12 @@
 	}
 	.invalid {
 		color: var(--red-400);
+	}
+	/* 힌트로 밝혀진 칸 — 입력 전에는 흐리게, 노란 점선 테두리 */
+	.hint {
+		color: var(--slate-300);
+		border-style: dashed;
+		border-color: var(--yellow-500);
 	}
 	.c,
 	.p,

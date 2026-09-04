@@ -10,21 +10,39 @@
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import HelpModal from '$lib/components/HelpModal.svelte';
 	import StatsModal from '$lib/components/StatsModal.svelte';
+	import ClimbModal from '$lib/components/ClimbModal.svelte';
 
 	const game = new Game();
-	let panel = $state<Panel | null>(null);
+	let panel = $state<Panel | 'climb' | null>(null);
+	// 포기는 실수 방지로 두 번 눌러 확정. 첫 클릭 후 3초 안에 다시 눌러야 한다.
+	let confirmGiveUp = $state(false);
+	let confirmTimer: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(() => {
 		void game.newGame();
 	});
 
-	// 데일리가 끝나면 원작처럼 통계를 바로 띄운다. 타일 애니메이션이 끝날 여유만 준다.
+	// 데일리가 끝나면 원작처럼 통계를, 등반이 끝나면(실패 또는 완주) 피라미드를 띄운다. 타일 애니메이션이 끝날 여유만 준다.
 	$effect(() => {
-		if (game.config.mode === 'daily' && (game.status === 'won' || game.status === 'lost')) {
-			const t = setTimeout(() => (panel = 'stats'), 1200);
-			return () => clearTimeout(t);
-		}
+		if (game.status !== 'won' && game.status !== 'lost') return;
+		let next: typeof panel = null;
+		if (game.config.mode === 'daily') next = 'stats';
+		else if (isClimb(game.config.mode) && (game.status === 'lost' || finishedClimb)) next = 'climb';
+		if (!next) return;
+		const t = setTimeout(() => (panel = next), 1200);
+		return () => clearTimeout(t);
 	});
+
+	function giveUp() {
+		if (!confirmGiveUp) {
+			confirmGiveUp = true;
+			clearTimeout(confirmTimer);
+			confirmTimer = setTimeout(() => (confirmGiveUp = false), 3000);
+			return;
+		}
+		confirmGiveUp = false;
+		void game.giveUp();
+	}
 
 	function onkey(k: string) {
 		if (k === 'Enter') void game.submit();
@@ -72,6 +90,10 @@
 
 	<div class="actions">
 		<button onclick={() => (panel = 'mode')}>모드 바꾸기</button>
+		{#if game.status === 'playing'}
+			<button onclick={() => game.hint()} title="노란 자모 하나의 실제 위치를 알려줍니다">힌트</button>
+			<button class:danger={confirmGiveUp} onclick={giveUp}>{confirmGiveUp ? '정말 포기?' : '포기'}</button>
+		{/if}
 		{#if over}
 			{#if game.config.mode === 'daily'}
 				<button onclick={() => (panel = 'stats')}>통계</button>
@@ -100,6 +122,8 @@
 	<HelpModal onclose={() => (panel = null)} />
 {:else if panel === 'stats'}
 	<StatsModal {game} onclose={() => (panel = null)} />
+{:else if panel === 'climb'}
+	<ClimbModal {game} onrestart={() => { panel = null; void game.newGame(); }} onclose={() => (panel = null)} />
 {/if}
 
 <style>
@@ -138,6 +162,10 @@
 	}
 	.actions .primary:hover {
 		background: #3730a3;
+	}
+	.actions .danger {
+		background: var(--red-400);
+		color: #fff;
 	}
 	.toast {
 		position: fixed;

@@ -41,6 +41,15 @@ export interface CheckResponse {
 	valid: boolean;
 }
 
+/** 힌트: 정답에서 이 자모가 처음 나오는 칸(0-based). 노란 판정을 받은 자모에 대해 쓴다. */
+export interface HintRequest {
+	token: string;
+	jamo: string;
+}
+export interface HintResponse {
+	pos: number;
+}
+
 export interface RevealRequest {
 	token: string;
 }

@@ -3,6 +3,8 @@ import type {
 	CheckResponse,
 	GameMode,
 	GuessResponse,
+	HintRequest,
+	HintResponse,
 	LengthMode,
 	Mark,
 	NewGameRequest,
@@ -43,6 +45,7 @@ interface DailySave {
 	marks: Mark[][];
 	status: Status;
 	answer: string | null;
+	hints?: Record<number, string>;
 }
 
 const emptyStats = (): Stats => ({ played: 0, won: 0, streak: 0, maxStreak: 0, dist: [] });
@@ -70,7 +73,11 @@ export class Game {
 	invalid = $state(false);
 	status = $state<Status>('loading');
 	answer = $state<string | null>(null);
+	/** 힌트로 밝혀진 칸: 위치 → 자모. 입력 행에 흐리게 미리 보여준다. */
+	hints = $state<Record<number, string>>({});
 	stage = $state(1);
+	/** 이번 등반에서 클리어한 정답들 — 종료 시 피라미드로 보여준다. */
+	climbWords = $state<string[]>([]);
 	bestStage = $state(0);
 	stats = $state<Stats>(emptyStats());
 	busy = $state(false);
@@ -124,6 +131,7 @@ export class Game {
 	/** 스테이지 1부터(등반) 또는 새 단어로 시작. */
 	async newGame() {
 		this.stage = 1;
+		this.climbWords = [];
 		await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
 	}
 
@@ -141,6 +149,7 @@ export class Game {
 		this.current = '';
 		this.invalid = false;
 		this.answer = null;
+		this.hints = {};
 
 		const mode = this.config.mode;
 		const res = await post<NewGameResponse>('/api/game', { mode, n } satisfies NewGameRequest);
@@ -155,6 +164,7 @@ export class Game {
 				this.marks = saved.marks;
 				this.status = saved.status;
 				this.answer = saved.answer;
+				this.hints = saved.hints ?? {};
 				return;
 			}
 		}
@@ -183,6 +193,39 @@ export class Game {
 			if (this.current === jamo) this.invalid = !res.valid;
 		} catch {
 			/* 확인 실패는 제출 시 서버 판정이 다시 걸러준다 */
+		}
+	}
+
+	/** 노란 판정을 받은 자모 하나의 실제 첫 위치를 알려준다. 슈퍼겁쟁이용. */
+	async hint() {
+		if (this.status !== 'playing' || this.busy) return;
+		const known = new Set(Object.values(this.hints));
+		const jamo = Object.entries(this.keyStates).find(([j, m]) => m === 'p' && !known.has(j))?.[0];
+		if (!jamo) {
+			this.showToast('힌트를 줄 노란 자모가 없습니다');
+			return;
+		}
+		this.busy = true;
+		try {
+			const { pos } = await post<HintResponse>('/api/hint', { token: this.token, jamo } satisfies HintRequest);
+			this.hints = { ...this.hints, [pos]: jamo };
+			this.showToast(`${jamo}은(는) ${pos + 1}번째 칸`, 2500);
+			if (this.config.mode === 'daily') this.saveDaily();
+		} catch {
+			this.showToast('서버에 연결할 수 없습니다');
+		} finally {
+			this.busy = false;
+		}
+	}
+
+	/** 포기 — 패배로 기록하고 정답을 공개한다. */
+	async giveUp() {
+		if (this.status !== 'playing' || this.busy) return;
+		this.busy = true;
+		try {
+			await this.finish(false);
+		} finally {
+			this.busy = false;
 		}
 	}
 
@@ -233,9 +276,12 @@ export class Game {
 		this.answer = word;
 
 		this.recordStats(won, this.rows.length);
-		if (isClimb(this.config.mode) && won && this.stage > this.bestStage) {
-			this.bestStage = this.stage;
-			save(`best:${configKey(this.config)}`, this.bestStage);
+		if (isClimb(this.config.mode) && won) {
+			this.climbWords = [...this.climbWords, word];
+			if (this.stage > this.bestStage) {
+				this.bestStage = this.stage;
+				save(`best:${configKey(this.config)}`, this.bestStage);
+			}
 		}
 		if (this.config.mode === 'daily') this.saveDaily();
 
@@ -264,7 +310,9 @@ export class Game {
 	}
 
 	private saveDaily() {
-		const snap: DailySave = { rows: this.rows, marks: this.marks, status: this.status, answer: this.answer };
+		const snap: DailySave = {
+			rows: this.rows, marks: this.marks, status: this.status, answer: this.answer, hints: this.hints
+		};
 		save(`daily:${this.token}`, snap);
 		// 지난 날짜 진행은 다시 열 일이 없으니 지운다.
 		removeWhere((k) => k.startsWith('daily:') && k !== `daily:${this.token}`);
