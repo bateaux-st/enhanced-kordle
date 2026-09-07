@@ -11,8 +11,9 @@ import type {
 	NewGameResponse,
 	RevealResponse
 } from './types';
-import { MAX_N } from './jamo';
+import { MAX_N, MIN_N } from './jamo';
 import { load, removeWhere, save } from './storage';
+import { todayKST } from './day';
 
 export interface ModeConfig {
 	mode: GameMode;
@@ -38,14 +39,24 @@ export const MAX_TRIES = 10;
 
 export const lengthKey = (l: LengthMode) => (l.kind === 'fixed' ? `fixed-${l.n}` : 'random');
 export const configKey = (c: ModeConfig) => `${c.mode}:${lengthKey(c.length)}`;
-export const isClimb = (m: GameMode) => m === 'climb-streak' || m === 'climb-length';
+export const isClimb = (m: GameMode) => m === 'climb-streak' || m === 'climb-length' || m === 'daily-climb';
+/** 날짜로 정답이 정해지고 하루 한 번인 모드 — 시도 횟수 고정, 진행 저장·복원. */
+export const isDaily = (m: GameMode) => m === 'daily' || m === 'daily-climb';
 
+/** 데일리 계열의 한 판 진행. 키는 daily:<날짜>:<토큰> — 토큰이 n·풀·정답을 함축한다. */
 interface DailySave {
 	rows: string[];
 	marks: Mark[][];
 	status: Status;
 	answer: string | null;
 	hints?: Record<number, string>;
+}
+
+/** 일일 등반의 코스 진행(어느 스테이지까지 왔나). 키는 dclimb:<날짜>. 스테이지별 판은 DailySave에 있다. */
+interface DailyClimbSave {
+	stage: number;
+	n: number;
+	climbWords: string[];
 }
 
 const emptyStats = (): Stats => ({ played: 0, won: 0, streak: 0, maxStreak: 0, dist: [] });
@@ -84,7 +95,7 @@ export class Game {
 	toast = $state<string | null>(null);
 	shake = $state(false);
 
-	maxTries = $derived(this.config.mode === 'daily' ? DAILY_TRIES : this.settingTries);
+	maxTries = $derived(isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries);
 
 	/** 자모별로 지금까지 받은 최고 판정 — 키보드 색에 쓴다. */
 	keyStates = $derived.by(() => {
@@ -128,18 +139,29 @@ export class Game {
 		save('settings', { maxTries: this.settingTries });
 	}
 
-	/** 스테이지 1부터(등반) 또는 새 단어로 시작. */
+	/** 스테이지 1부터(등반) 또는 새 단어로 시작. 일일 등반은 오늘 진행이 있으면 그 스테이지부터. */
 	async newGame() {
 		this.stage = 1;
 		this.climbWords = [];
+		if (this.config.mode === 'daily-climb') {
+			// 코스는 항상 5자에서 시작해 12자까지 — 모두 같은 코스여야 데일리다.
+			const saved = load<DailyClimbSave | null>(`dclimb:${todayKST()}`, null);
+			if (saved) {
+				this.stage = saved.stage;
+				this.climbWords = saved.climbWords;
+			}
+			await this.begin(saved?.n ?? MIN_N);
+			return;
+		}
 		await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
 	}
 
 	/** 등반 모드에서 클리어 후 다음 스테이지. 길이 상승은 n+1, 연속 클리어는 같은 규칙으로 재추첨. */
 	async nextStage() {
 		this.stage += 1;
-		if (this.config.mode === 'climb-length') await this.begin(this.n + 1);
+		if (this.config.mode === 'climb-length' || this.config.mode === 'daily-climb') await this.begin(this.n + 1);
 		else await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
+		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
 	}
 
 	private async begin(n?: number) {
@@ -156,9 +178,9 @@ export class Game {
 		this.token = res.token;
 		this.n = res.n;
 
-		if (mode === 'daily') {
-			// 토큰이 날짜와 n을 함축하므로 저장 키로 쓰면 "오늘 이 길이" 진행만 정확히 복원된다.
-			const saved = load<DailySave | null>(`daily:${this.token}`, null);
+		if (isDaily(mode)) {
+			// 토큰이 n·풀·정답을 함축하므로 날짜와 묶어 키로 쓰면 "오늘 이 판" 진행만 정확히 복원된다.
+			const saved = load<DailySave | null>(this.dailyKey(), null);
 			if (saved) {
 				this.rows = saved.rows;
 				this.marks = saved.marks;
@@ -210,7 +232,7 @@ export class Game {
 			const { pos } = await post<HintResponse>('/api/hint', { token: this.token, jamo } satisfies HintRequest);
 			this.hints = { ...this.hints, [pos]: jamo };
 			this.showToast(`${jamo}은(는) ${pos + 1}번째 칸`, 2500);
-			if (this.config.mode === 'daily') this.saveDaily();
+			if (isDaily(this.config.mode)) this.saveDaily();
 		} catch {
 			this.showToast('서버에 연결할 수 없습니다');
 		} finally {
@@ -257,7 +279,7 @@ export class Game {
 
 			if (res.marks.every((m) => m === 'c')) await this.finish(true);
 			else if (this.rows.length >= this.maxTries) await this.finish(false);
-			else if (this.config.mode === 'daily') this.saveDaily();
+			else if (isDaily(this.config.mode)) this.saveDaily();
 		} catch {
 			this.showToast('서버에 연결할 수 없습니다');
 		} finally {
@@ -283,7 +305,8 @@ export class Game {
 				save(`best:${configKey(this.config)}`, this.bestStage);
 			}
 		}
-		if (this.config.mode === 'daily') this.saveDaily();
+		if (isDaily(this.config.mode)) this.saveDaily();
+		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
 
 		if (won) {
 			if (this.config.mode === 'climb-length' && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
@@ -309,12 +332,23 @@ export class Game {
 		save(`stats:${this.config.mode}`, s);
 	}
 
+	private dailyKey() {
+		return `daily:${todayKST()}:${this.token}`;
+	}
+
 	private saveDaily() {
 		const snap: DailySave = {
 			rows: this.rows, marks: this.marks, status: this.status, answer: this.answer, hints: this.hints
 		};
-		save(`daily:${this.token}`, snap);
-		// 지난 날짜 진행은 다시 열 일이 없으니 지운다.
-		removeWhere((k) => k.startsWith('daily:') && k !== `daily:${this.token}`);
+		save(this.dailyKey(), snap);
+		// 지난 날짜 진행은 다시 열 일이 없으니 지운다. 오늘 것은 데일리·일일 등반 여러 판이 공존하니 남긴다.
+		const today = `daily:${todayKST()}:`;
+		removeWhere((k) => k.startsWith('daily:') && !k.startsWith(today));
+	}
+
+	private saveDailyClimb() {
+		const key = `dclimb:${todayKST()}`;
+		save(key, { stage: this.stage, n: this.n, climbWords: this.climbWords } satisfies DailyClimbSave);
+		removeWhere((k) => k.startsWith('dclimb:') && k !== key);
 	}
 }

@@ -3,7 +3,8 @@ import type { RequestHandler } from './$types';
 import { MIN_N, MAX_N } from '$lib/jamo';
 import type { NewGameRequest, NewGameResponse } from '$lib/types';
 import { answerCount, POOL_THRESHOLD } from '$lib/server/dict';
-import { encodeToken, randomIndex, seededIndex, todayKST } from '$lib/server/token';
+import { encodeToken, randomIndex, seededIndex } from '$lib/server/token';
+import { todayKST } from '$lib/day';
 
 const SPAN = MAX_N - MIN_N + 1;
 
@@ -17,11 +18,12 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	let n: number;
 	let idx: number;
-	if (body.mode === 'daily') {
+	if (body.mode === 'daily' || body.mode === 'daily-climb') {
 		// n을 안 고른 데일리는 날짜로 n까지 정한다. 시드에 n을 섞어 "오늘의 6자"와 "오늘의 7자"가 서로 다른 단어가 되게 한다.
+		// 일일 등반은 시드에 모드를 섞어 데일리 n자와 다른 단어가 나오게 한다 — 안 그러면 등반 6자가 데일리 6자의 스포일러다.
 		const day = todayKST();
 		n = body.n ?? MIN_N + seededIndex(`n:${day}`, SPAN);
-		idx = seededIndex(`${day}:${n}`, answerCount(t, n));
+		idx = seededIndex(`${day}:${n}${body.mode === 'daily-climb' ? ':climb' : ''}`, answerCount(t, n));
 	} else {
 		n = body.n ?? MIN_N + randomIndex(SPAN);
 		idx = randomIndex(answerCount(t, n));

@@ -41,8 +41,3 @@ export function seededIndex(seed: string, max: number): number {
 export function randomIndex(max: number): number {
 	return randomInt(max);
 }
-
-/** 오늘 날짜(KST) — 데일리 단어의 경계는 한국 자정이다. */
-export function todayKST(): string {
-	return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
-}

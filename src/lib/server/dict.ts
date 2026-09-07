@@ -7,6 +7,7 @@ import type { GameMode } from '$lib/types';
 // 순서는 rowid로 고정해 (n, threshold, idx)가 항상 같은 단어를 가리키게 한다.
 export const POOL_THRESHOLD: Record<GameMode, number> = {
 	daily: 3,
+	'daily-climb': 3,
 	'climb-length': 3,
 	endless: 2,
 	'climb-streak': 2

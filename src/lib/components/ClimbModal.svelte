@@ -1,12 +1,16 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
+	import Countdown from './Countdown.svelte';
 	import type { Game } from '$lib/game.svelte';
 	import { MAX_N } from '$lib/jamo';
 
-	let { game, onrestart, onclose }: { game: Game; onrestart: () => void; onclose: () => void } = $props();
+	// onrestart가 없으면 일일 등반 — 오늘은 끝났으니 다시 시작 대신 다음 코스까지 카운트다운.
+	let { game, onrestart, onclose }: { game: Game; onrestart?: () => void; onclose: () => void } = $props();
 
 	const cleared = $derived(game.climbWords.length);
-	const complete = $derived(game.config.mode === 'climb-length' && game.status === 'won' && game.n === MAX_N);
+	const complete = $derived(
+		(game.config.mode === 'climb-length' || game.config.mode === 'daily-climb') && game.status === 'won' && game.n === MAX_N
+	);
 	// 스테이지 1이 꼭대기. 길이 상승 모드에서는 5자→12자로 내려가며 자연히 피라미드가 된다.
 	// 실패한 스테이지는 쌓지 않는다 — 정답은 토스트·통계에서 따로 공개된다.
 	const title = $derived(complete ? `${MAX_N}자 완주!` : cleared ? `스테이지 ${cleared}까지 올랐습니다` : '첫 스테이지에서 멈췄습니다');
@@ -32,7 +36,11 @@
 		<div class="answer">멈춘 곳의 정답: <b>{game.answer}</b></div>
 	{/if}
 
-	<button class="restart" onclick={onrestart}>{complete ? '다시 등반' : '처음부터'}</button>
+	{#if onrestart}
+		<button class="restart" onclick={onrestart}>{complete ? '다시 등반' : '처음부터'}</button>
+	{:else}
+		<Countdown />
+	{/if}
 </Modal>
 
 <style>

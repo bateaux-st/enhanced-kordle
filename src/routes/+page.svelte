@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Game, isClimb, type ModeConfig } from '$lib/game.svelte';
+	import { Game, isClimb, isDaily, type ModeConfig } from '$lib/game.svelte';
 	import { CODE_TO_JAMO, MAX_N } from '$lib/jamo';
 	import { MODE_LABEL } from '$lib/types';
 	import Header, { type Panel } from '$lib/components/Header.svelte';
@@ -68,9 +68,13 @@
 		game.setConfig(c);
 	}
 
-	const lengthText = $derived(game.config.length.kind === 'fixed' ? `${game.config.length.n}자` : '랜덤');
+	const lengthText = $derived(
+		game.config.mode === 'daily-climb' ? '5→12자' : game.config.length.kind === 'fixed' ? `${game.config.length.n}자` : '랜덤'
+	);
 	const over = $derived(game.status === 'won' || game.status === 'lost');
-	const finishedClimb = $derived(game.config.mode === 'climb-length' && game.status === 'won' && game.n === MAX_N);
+	const finishedClimb = $derived(
+		(game.config.mode === 'climb-length' || game.config.mode === 'daily-climb') && game.status === 'won' && game.n === MAX_N
+	);
 </script>
 
 <svelte:window {onkeydown} />
@@ -101,6 +105,8 @@
 				<button class="primary" onclick={() => game.newGame()}>다음 단어</button>
 			{:else if game.status === 'won' && !finishedClimb}
 				<button class="primary" onclick={() => game.nextStage()}>다음 스테이지</button>
+			{:else if game.config.mode === 'daily-climb'}
+				<button onclick={() => (panel = 'climb')}>결과</button>
 			{:else}
 				<button class="primary" onclick={() => game.newGame()}>
 					{finishedClimb ? '다시 등반' : '처음부터'}
@@ -123,7 +129,11 @@
 {:else if panel === 'stats'}
 	<StatsModal {game} onclose={() => (panel = null)} />
 {:else if panel === 'climb'}
-	<ClimbModal {game} onrestart={() => { panel = null; void game.newGame(); }} onclose={() => (panel = null)} />
+	<ClimbModal
+		{game}
+		onrestart={isDaily(game.config.mode) ? undefined : () => { panel = null; void game.newGame(); }}
+		onclose={() => (panel = null)}
+	/>
 {/if}
 
 <style>

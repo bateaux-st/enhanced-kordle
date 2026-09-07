@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import { MIN_N, MAX_N } from '$lib/jamo';
-	import { MODE_LABEL, type GameMode } from '$lib/types';
+	import { MODE_LABEL, type GameMode, type LengthMode } from '$lib/types';
 	import type { ModeConfig } from '$lib/game.svelte';
 
 	let { config, onstart, onclose }: { config: ModeConfig; onstart: (c: ModeConfig) => void; onclose: () => void } =
@@ -9,6 +9,7 @@
 
 	const MODES: { id: GameMode; desc: string }[] = [
 		{ id: 'daily', desc: '하루에 한 단어. 모두 같은 문제, 6회 고정.' },
+		{ id: 'daily-climb', desc: `하루에 한 코스. ${MIN_N}자에서 ${MAX_N}자까지 모두 같은 순서, 6회 고정.` },
 		{ id: 'endless', desc: '끝없이 새 단어. 통계만 쌓입니다.' },
 		{ id: 'climb-streak', desc: '연속으로 맞힌 스테이지 수를 올립니다. 실패하면 1로.' },
 		{ id: 'climb-length', desc: `맞힐 때마다 한 자모씩 길어져 ${MAX_N}자까지. 실패하면 처음으로.` }
@@ -22,9 +23,13 @@
 	let pick = $state<number | 'random'>(config.length.kind === 'fixed' ? config.length.n : 'random');
 
 	const lengthTitle = $derived(mode === 'climb-length' ? '시작 길이' : '자모 수');
+	// 일일 등반은 코스가 고정(5→12)이라 길이를 고를 게 없다.
+	const pickable = $derived(mode !== 'daily-climb');
 
 	function start() {
-		onstart({ mode, length: pick === 'random' ? { kind: 'random' } : { kind: 'fixed', n: pick } });
+		const length: LengthMode =
+			!pickable ? { kind: 'fixed', n: MIN_N } : pick === 'random' ? { kind: 'random' } : { kind: 'fixed', n: pick };
+		onstart({ mode, length });
 	}
 </script>
 
@@ -41,13 +46,15 @@
 		{/each}
 	</div>
 
-	<div class="len-title">{lengthTitle}</div>
-	<div class="lens">
-		<button class:on={pick === 'random'} onclick={() => (pick = 'random')}>랜덤</button>
-		{#each NS as n (n)}
-			<button class:on={pick === n} onclick={() => (pick = n)}>{n}</button>
-		{/each}
-	</div>
+	{#if pickable}
+		<div class="len-title">{lengthTitle}</div>
+		<div class="lens">
+			<button class:on={pick === 'random'} onclick={() => (pick = 'random')}>랜덤</button>
+			{#each NS as n (n)}
+				<button class:on={pick === n} onclick={() => (pick = n)}>{n}</button>
+			{/each}
+		</div>
+	{/if}
 
 	<button class="start" onclick={start}>시작</button>
 </Modal>

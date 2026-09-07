@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
-	import { isClimb, type Game } from '$lib/game.svelte';
+	import Countdown from './Countdown.svelte';
+	import { isClimb, isDaily, type Game } from '$lib/game.svelte';
 	import { MODE_LABEL } from '$lib/types';
 
 	let { game, onclose }: { game: Game; onclose: () => void } = $props();
@@ -13,21 +14,8 @@
 		return Array.from({ length: len }, (_, i) => ({ n: i + 1, v: s.dist[i] ?? 0, w: ((s.dist[i] ?? 0) / max) * 100 }));
 	});
 	const lengthText = $derived(
-		game.config.length.kind === 'fixed' ? `${game.config.length.n}자` : '랜덤'
+		game.config.mode === 'daily-climb' ? '5→12자' : game.config.length.kind === 'fixed' ? `${game.config.length.n}자` : '랜덤'
 	);
-
-	// 데일리 종료 후 다음 단어까지 — 경계는 서버와 같은 KST 자정.
-	let now = $state(Date.now());
-	$effect(() => {
-		const t = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(t);
-	});
-	const countdown = $derived.by(() => {
-		const kst = new Date(now + 9 * 3600_000);
-		const left = 86400 - (kst.getUTCHours() * 3600 + kst.getUTCMinutes() * 60 + kst.getUTCSeconds());
-		const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), sec = left % 60;
-		return [h, m, sec].map((x) => String(x).padStart(2, '0')).join(':');
-	});
 </script>
 
 <Modal title="통계" {onclose}>
@@ -60,8 +48,8 @@
 		<div class="answer">
 			{game.status === 'won' ? '정답' : '이번 정답'}: <b>{game.answer ?? '…'}</b>
 		</div>
-		{#if game.config.mode === 'daily'}
-			<div class="next">다음 단어까지 <b>{countdown}</b></div>
+		{#if isDaily(game.config.mode)}
+			<Countdown />
 		{/if}
 	{/if}
 </Modal>
@@ -121,14 +109,8 @@
 	.bar.hit {
 		background: var(--green-500);
 	}
-	.answer,
-	.next {
+	.answer {
 		margin-top: 0.75rem;
 		text-align: center;
-	}
-	.next {
-		margin-top: 0.25rem;
-		color: var(--slate-500);
-		font-size: 0.85rem;
 	}
 </style>
