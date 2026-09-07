@@ -29,6 +29,25 @@ docker compose up -d --build     # http://localhost:3000
 
 `kordle.db`는 이미지에 넣지 않고 볼륨으로 마운트한다. 사전을 다시 만들면 `docker compose restart`만 하면 된다.
 
+### 시놀로지 NAS에 배포
+
+`main`에 push되면 GitHub Actions가 이미지를 `ghcr.io/bateaux-st/enhanced-kordle:latest`로 올린다(`.github/workflows/image.yml`). NAS는 빌드하지 않고 이 이미지를 받는다.
+
+1. **패키지를 공개로** (처음 한 번) — GitHub → 프로필 → Packages → `enhanced-kordle` → Package settings → Change visibility → Public. 비공개면 NAS에서 `docker login ghcr.io`가 필요하다.
+2. **폴더 준비** — File Station에서 `docker/kordle` 폴더를 만들고 세 파일을 넣는다:
+   - `compose.yaml` ← [`deploy/nas/compose.yaml`](deploy/nas/compose.yaml)
+   - `.env` ← `KORDLE_SECRET=<임의의 긴 문자열>` 한 줄 (`openssl rand -base64 32`)
+   - `kordle.db` ← [Releases](../../releases)의 `kordle.db.gz`를 받아 풀기. SSH라면:
+     ```bash
+     cd /volume1/docker/kordle
+     wget https://github.com/bateaux-st/enhanced-kordle/releases/latest/download/kordle.db.gz
+     gunzip kordle.db.gz
+     ```
+3. **Container Manager → 프로젝트 → 생성** — 이름 `kordle`, 경로 `/docker/kordle`, "기존 docker-compose.yml 사용" 선택 → 실행. `http://<NAS IP>:3000`에서 확인.
+4. **외부 노출** — 제어판 → 외부 액세스 → DDNS에서 `xxx.synology.me` 등록 → 로그인 포털 → 고급 → 리버스 프록시: 소스 `kordle.xxx.synology.me:443`(HTTPS) → 대상 `localhost:3000`. 보안 → 인증서에서 Let's Encrypt 발급 후 그 도메인에 지정. 공유기에서 443을 NAS로 포워딩.
+
+**업데이트**: 코드가 바뀌면 Container Manager → 프로젝트 → `kordle` → 작업 → 빌드(이미지 pull) 후 재시작. 사전만 바뀌면 `kordle.db`를 교체하고 컨테이너 재시작.
+
 ### 로컬 개발
 
 ```bash

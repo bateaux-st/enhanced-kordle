@@ -1,0 +1,11 @@
+# 시놀로지 NAS(Container Manager) 배포용. 빌드하지 않고 ghcr.io 이미지를 받는다.
+# 같은 폴더에 .env(KORDLE_SECRET=...)와 kordle.db를 둔다 — README "NAS에 배포" 참고.
+services:
+  kordle:
+    image: ghcr.io/bateaux-st/enhanced-kordle:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./kordle.db:/data/kordle.db:ro
