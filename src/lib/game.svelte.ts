@@ -86,6 +86,8 @@ export class Game {
 	answer = $state<string | null>(null);
 	/** 힌트로 밝혀진 칸: 위치 → 자모. 입력 행에 흐리게 미리 보여준다. */
 	hints = $state<Record<number, string>>({});
+	/** 힌트는 한 판에 한 번. hints가 비어 있지 않으면 이미 쓴 것 — 데일리 복원 시에도 그대로 이어진다. */
+	hintUsed = $derived(Object.keys(this.hints).length > 0);
 	stage = $state(1);
 	/** 이번 등반에서 클리어한 정답들 — 종료 시 피라미드로 보여준다. */
 	climbWords = $state<string[]>([]);
@@ -218,11 +220,14 @@ export class Game {
 		}
 	}
 
-	/** 노란 판정을 받은 자모 하나의 실제 첫 위치를 알려준다. 슈퍼겁쟁이용. */
+	/** 노란 판정을 받은 자모 하나의 실제 첫 위치를 알려준다. 한 판에 한 번. 슈퍼겁쟁이용. */
 	async hint() {
 		if (this.status !== 'playing' || this.busy) return;
-		const known = new Set(Object.values(this.hints));
-		const jamo = Object.entries(this.keyStates).find(([j, m]) => m === 'p' && !known.has(j))?.[0];
+		if (this.hintUsed) {
+			this.showToast('힌트는 한 판에 한 번입니다');
+			return;
+		}
+		const jamo = Object.entries(this.keyStates).find(([, m]) => m === 'p')?.[0];
 		if (!jamo) {
 			this.showToast('힌트를 줄 노란 자모가 없습니다');
 			return;

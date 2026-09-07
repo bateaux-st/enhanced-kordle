@@ -29,7 +29,8 @@
 		if (game.config.mode === 'daily') next = 'stats';
 		else if (isClimb(game.config.mode) && (game.status === 'lost' || finishedClimb)) next = 'climb';
 		if (!next) return;
-		const t = setTimeout(() => (panel = next), 1200);
+		// 그 사이 사용자가 다른 모달을 열었으면 덮지 않는다.
+		const t = setTimeout(() => (panel ??= next), 1200);
 		return () => clearTimeout(t);
 	});
 
@@ -95,7 +96,9 @@
 	<div class="actions">
 		<button onclick={() => (panel = 'mode')}>모드 바꾸기</button>
 		{#if game.status === 'playing'}
-			<button onclick={() => game.hint()} title="노란 자모 하나의 실제 위치를 알려줍니다">힌트</button>
+			<button onclick={() => game.hint()} disabled={game.hintUsed} title="노란 자모 하나의 실제 위치를 알려줍니다 (한 판에 한 번)">
+				{game.hintUsed ? '힌트 사용함' : '힌트'}
+			</button>
 			<button class:danger={confirmGiveUp} onclick={giveUp}>{confirmGiveUp ? '정말 포기?' : '포기'}</button>
 		{/if}
 		{#if over}
@@ -176,6 +179,13 @@
 	.actions .danger {
 		background: var(--red-400);
 		color: #fff;
+	}
+	.actions button:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.actions button:disabled:hover {
+		background: var(--indigo-100);
 	}
 	.toast {
 		position: fixed;
