@@ -33,7 +33,7 @@ docker compose up -d --build     # http://localhost:3000
 
 `main`에 push되면 GitHub Actions가 이미지를 `ghcr.io/bateaux-st/enhanced-kordle:latest`로 올린다(`.github/workflows/image.yml`). NAS는 빌드하지 않고 이 이미지를 받는다.
 
-1. **패키지를 공개로** (처음 한 번) — GitHub → 프로필 → Packages → `enhanced-kordle` → Package settings → Change visibility → Public. 비공개면 NAS에서 `docker login ghcr.io`가 필요하다.
+1. **이미지 확인** — 레포가 공개라 이미지도 공개로 올라간다(`docker manifest inspect ghcr.io/bateaux-st/enhanced-kordle:latest`가 로그인 없이 된다). 레포를 비공개로 바꾸면 NAS에서 `docker login ghcr.io`가 필요하다.
 2. **폴더 준비** — File Station에서 `docker/kordle` 폴더를 만들고 세 파일을 넣는다:
    - `compose.yaml` ← [`deploy/nas/compose.yaml`](deploy/nas/compose.yaml)
    - `.env` ← `KORDLE_SECRET=<임의의 긴 문자열>` 한 줄 (`openssl rand -base64 32`)
