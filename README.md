@@ -30,10 +30,10 @@ npx wrangler d1 create kordle               # 출력된 database_id를 wrangler.
 python3 export_d1.py kordle.db d1/          # kordle.db → D1 임포트용 SQL (아래 "사전 만들기")
 d1/import.sh --remote                       # 약 56만 + 3.6만 행, 몇 분
 npx wrangler secret put KORDLE_SECRET       # 임의의 긴 문자열 (openssl rand -base64 32)
-pnpm deploy                                 # → https://enhanced-kordle.<계정>.workers.dev
+pnpm run deploy                                 # → https://enhanced-kordle.<계정>.workers.dev
 ```
 
-이후 코드가 바뀌면 `pnpm deploy`만. 사전이 바뀌면 `export_d1.py` → `d1/import.sh --remote`.
+이후 코드가 바뀌면 `pnpm run deploy`만. 사전이 바뀌면 `export_d1.py` → `d1/import.sh --remote`.
 
 커스텀 도메인은 Cloudflare 대시보드 → Workers → 설정 → 도메인 및 경로에서 붙인다(DNS·TLS 무료).
 

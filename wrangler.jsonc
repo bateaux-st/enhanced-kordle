@@ -7,7 +7,7 @@
 	// 사전. export_d1.py 산출물을 `wrangler d1 execute kordle --file=...`로 넣는다 (README "사전 만들기").
 	// database_id는 `wrangler d1 create kordle` 출력값으로 바꾼다. 로컬(--local) 개발은 placeholder로도 된다.
 	"d1_databases": [
-		{ "binding": "DB", "database_name": "kordle", "database_id": "00000000-0000-0000-0000-000000000000" }
+		{ "binding": "DB", "database_name": "kordle", "database_id": "49c1a78d-3a43-45ef-bdaf-e683f8bc8bb5" }
 	],
 	// KORDLE_SECRET은 `wrangler secret put KORDLE_SECRET` (로컬은 .dev.vars)
 	"observability": { "enabled": true }
