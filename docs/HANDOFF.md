@@ -69,6 +69,7 @@
 사전 원본과 `kordle.db`는 git 밖이라 **메인 체크아웃 `~/projects/kordle/`에만** 있다. `.herdr/worktrees/...` 같은 워크트리에서 `build_dict.py`/`export_d1.py`를 그대로 치면 `dict/`·`kordle.db`가 없어 실패한다. 둘 중 하나:
 - 사전 작업은 `cd ~/projects/kordle`에서 한다 (코드 변경은 워크트리, 데이터 작업은 메인 — 이 문서의 명령은 전부 메인 체크아웃 기준 상대경로).
 - 또는 워크트리에서 `ln -s ~/projects/kordle/dict dict && ln -s ~/projects/kordle/kordle.db kordle.db` (둘 다 gitignore 대상이라 커밋에 안 잡힌다).
+- **`export_d1.py`나 `build_dict.py` 자체를 고치는 작업이면 심링크 방식으로 워크트리 안에서** 한다. 워크트리에서 스크립트를 고치고 메인 체크아웃에서 실행하면 수정 전 스크립트가 돈다.
 
 로컬 원본 데이터(git 밖, `~/projects/kordle/`):
 - `kordle.db` 213MB — 사전 빌드 산출물. 없으면 §8로 재생성(≈1분)
@@ -202,6 +203,7 @@ python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
 | 코드 변경 직후 API가 400/500, 데이터는 안 건드렸음 | 코드 회귀 | `wrangler rollback` → 로컬에서 재현 |
 | `pool t=… idx<N`만 실패, 다른 건 통과 | `smoke.py POOL_SIZE`가 사전과 안 맞음 | 사전을 바꿨으면 `export_d1.py` 출력으로 `POOL_SIZE` 갱신. **장애 아님** |
 | `daily 토큰 형식 (t=…)`/`모드 → 풀 t=…`만 실패 | `smoke.py EXPECTED_T`가 `dict.ts`와 안 맞음 | 임계값을 바꿨으면 smoke 갱신. **장애 아님** |
+| `check ㅅㅅㅏㄴㅅㅑㄷㅏㅣㅁ valid=True`(위키 케이스) 같은 **특정 단어**만 실패, 직전에 사전을 갱신했음 | 새 원본에서 그 표제어가 사라졌거나(위키 문서 삭제·개명) 리다이렉트가 됨 | `sqlite3 kordle.db "SELECT src, dialect FROM words WHERE word='싼샤 댐'"`로 확인. 사전에 없으면 소스 변화 — smoke 케이스를 다른 대표 단어로 교체(**장애 아님**). 사전에 있는데 API가 false면 임포트 문제 → 재임포트 |
 | 데일리 정답이 어제와 다른 단어가 됐다(사용자 신고) | 사전 재임포트/풀 조건 변경으로 `idx`가 가리키는 단어가 바뀜 | **정상**(§4.3). 자정 지나면 사라진다 |
 | 사용자에게 "서버에 연결할 수 없습니다" 토스트, 새 게임은 됨 | 시크릿 교체 또는 토큰 형식 변경으로 **옛 토큰 무효** | 정상 부작용. 새 게임 시작하면 해결 |
 | 구버전으로 롤백했더니 어떤 사용자만 "서버에 연결할 수 없습니다" | 그 사용자의 `localStorage config.mode`가 롤백된 코드에 없는 모드 → 서버 400 | 사용자가 "모드 바꾸기"로 다른 모드를 고르면 복구. 롤백 전에 고려할 것 |
@@ -212,20 +214,34 @@ python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
 
 ```bash
 cd ~/projects/kordle                                    # 데이터는 메인 체크아웃에만 있다 (§3)
+
+# (위키만 갱신하는 경우) 새 덤프 받기 — 날짜 디렉터리는 https://dumps.wikimedia.org/kowiki/ 에서 고른다
+D=20261001
+wget -O dict/kowiki/kowiki-$D-page.sql.gz https://dumps.wikimedia.org/kowiki/$D/kowiki-$D-page.sql.gz
+gunzip -t dict/kowiki/kowiki-$D-page.sql.gz && ls -la dict/kowiki/   # 무결성. 크기는 110~130MB가 정상, 부분 다운로드면 gunzip -t 실패
+
 cp kordle.db kordle.$(date +%F).db                       # 이전 사전 보존 — D1 복구 재료 (*.db는 gitignore)
 python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict \
-    --opendict dict/nikl/opendict --kowiki dict/kowiki/kowiki-YYYYMMDD-page.sql.gz   # ≈1분
+    --opendict dict/nikl/opendict --kowiki dict/kowiki/kowiki-$D-page.sql.gz   # ≈1분. 소스별 행 수를 찍는다
+python3 scripts/dict_stats.py kordle.db   # §9 기준 수치 재측정 → 아래 "정상 변화 범위"와 비교 → §9 갱신
 python3 export_d1.py kordle.db d1/        # ≈10초, 19MB SQL. 마지막에 smoke.py용 POOL_SIZE 블록을 출력한다
-#   → scripts/smoke.py 의 POOL_SIZE 를 그 출력으로 교체, docs/HANDOFF.md §9 기준 수치도 갱신
-d1/import.sh --local && pnpm dev && python3 scripts/smoke.py http://localhost:5173   # 로컬 검증
+#   → scripts/smoke.py 의 POOL_SIZE 를 그 출력으로 교체
+
+d1/import.sh --local                      # 로컬 D1
+pnpm dev &                                # 별도 터미널이면 & 없이. 기동 메시지가 뜬 뒤
+python3 scripts/smoke.py http://localhost:5173
+kill %1                                   # (백그라운드로 띄웠으면)
+
 d1/import.sh --remote                     # ≈10초. schema.sql이 DROP TABLE → 그 사이 운영은 빈 사전
 python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
-git commit -am "사전 YYYY-MM-DD: ..." && git push   # smoke 통과 후. 커밋 대상은 smoke.py·HANDOFF 수치(사전 파일은 git 밖)
+git add scripts/smoke.py docs/HANDOFF.md  # 사전 파일은 git 밖. -am 으로 무관한 변경을 같이 담지 않는다
+git commit -m "사전 YYYY-MM-DD: 위키 덤프 $D" && git push
 ```
 
 - 재임포트 후 **그날 데일리 정답이 바뀔 수 있다**(§4.3). 자정 직후 권장.
-- 서버 코드는 바뀌지 않으므로 `pnpm run deploy`는 **불필요**. Worker는 D1의 내용을 즉시 본다.
-- **정상 변화 범위** — 다음은 장애가 아니다: 위키 덤프만 바꿨으면 `src&1`(표준국어대사전) 350,600은 그대로여야 하고, `valid`는 소폭(수천) 증가, `pool` 크기는 `familiar`의 위키 신호가 움직여 각 (t,n)에서 **±수 %** 변한다. 표준국어대사전 xls를 다시 변환했는데 350,600이 아니면 그쪽(csv 변환)이 잘못된 것. 어느 (t,n) 풀이 절반 이하로 줄거나 두 배가 되면 `Entry.familiar()`나 소스 파일 누락을 의심한다.
+- 서버 코드는 바뀌지 않으므로 `pnpm check`·`pnpm run deploy`는 **불필요**. Worker는 D1의 내용을 즉시 본다.
+- 국립국어원 원본(krdict·opendict)은 저장소 `master`를 raw로 받은 것이라 **재다운로드하면 최신 덤프가 되어 같은 버전을 보장하지 못한다.** 로컬 `dict/nikl/`을 지우지 말 것. 재다운로드했다면 수치가 달라지는 것이 정상이고, 그 경우 §9와 `POOL_SIZE`를 새 값으로 갱신한다(2026-06 덤프: krdict `creationDate 2026/06/19`, opendict `lastBuildDate 20260602`).
+- **정상 변화 범위** — `dict_stats.py` 출력을 §9와 비교한다. 위키 덤프만 바꿨으면: `src&1` 350,600 **불변**(다르면 xls→csv 변환 문제), `dialect=1` 불변에 가까움, `valid`는 위키 띄어 쓴 제목 증감분만큼(수백~수천), `pool`은 `familiar`의 위키 신호(3KB 경계를 넘나드는 문서)만 움직여 각 (t,n)에서 **±5% 안**이 예상 범위다 — 첫 갱신이라 실측치는 없으니, 첫 갱신 때 실제 변화율을 여기에 적어 범위를 확정한다. 어느 (t,n)이 ±15%를 넘거나 `src&1`이 바뀌면 멈추고 원인(소스 파일 누락·변환 오류·`Entry.familiar()` 변경)을 찾는다.
 
 ### 6.4 시크릿 교체
 
@@ -243,10 +259,11 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 ### 6.6 정답 풀 임계값 변경 (예: 데일리 T 3→4)
 
 1. `export_d1.py`의 `THRESHOLDS`에 새 값을 **추가**한다 — `(2, 3)` → `(2, 3, 4)`. 기존 값을 빼면 그 t를 쓰는 다른 모드가 `pool miss` 500을 낸다. 쓰지 않게 된 t는 나중에 지워도 되지만 남겨둬도 비용은 D1 30MB에 몇 MB 더일 뿐이다.
-2. `python3 export_d1.py kordle.db d1/` → `d1/import.sh --remote` **먼저**. 새 t의 행이 D1에 있어야 새 코드가 안전하다. 옛 코드는 새 행을 안 보므로 순서상 무해.
-3. `src/lib/server/dict.ts POOL_THRESHOLD`에서 해당 모드만 바꾼다.
-4. `scripts/smoke.py`: `EXPECTED_T`(모드→t), `POOL_SIZE`(export 출력 블록으로 교체). `MODE_FOR_T`는 `EXPECTED_T`에서 자동 유도되지만 새 t를 쓰는 비데일리 모드가 하나도 없으면 `next()`가 실패한다 — 그 경우 데일리 모드로 매핑을 직접 넣는다.
-5. `pnpm check` → `pnpm run deploy` → smoke. 통과 후 `README.md`(정답 풀 표)·`docs/HANDOFF.md` §4.2·§9 수치 갱신 → 커밋·push.
+2. `python3 export_d1.py kordle.db d1/` → `d1/import.sh --remote` **먼저**. 새 t의 행이 D1에 있어야 새 코드가 안전하다. 옛 코드는 새 행을 안 보므로 순서상 무해. (이 작업은 `export_d1.py`를 고치므로 §3의 심링크 방식으로 워크트리 안에서 한다.)
+3. `src/lib/server/dict.ts POOL_THRESHOLD`에서 해당 모드만 바꾼다. `build_dict.py` 재실행은 필요 없다(사전은 그대로, 풀만 다시 펼침).
+4. `scripts/smoke.py`: `EXPECTED_T`(모드→t), `POOL_SIZE`(export 출력 블록으로 교체). `MODE_FOR_T`는 `EXPECTED_T`에서 자동 유도되지만 새 t를 쓰는 비데일리 모드가 하나도 없으면 `next()`가 실패한다 — 그 경우 데일리 모드로 매핑을 직접 넣는다. **갱신된 smoke는 코드 배포 전에 운영에 치면 `EXPECTED_T` 검사가 실패한다** — 정상. 배포 후에 친다.
+5. `pnpm check` → `pnpm run deploy` → smoke. 통과 후 `README.md`(정답 풀 문단)·`docs/HANDOFF.md` §4.2·§5.2(임계값 문장)·§9 갱신 → 커밋·push.
+   코드 배포가 실패하거나 smoke가 깨져 `wrangler rollback`하는 경우 D1의 새 t 행은 **남겨둔다** — 옛 코드는 그 행을 참조하지 않으니 무해하고, 재시도 때 재임포트가 필요 없다.
 6. 부작용: 그날 데일리 정답이 바뀐다(다른 t의 풀이라 `idx`가 다른 단어). 이미 플레이한 사용자는 저장 키에 토큰이 들어 있어 **새 판처럼 보인다**(진행 초기화). 장애 아님. 자정 직후에 하면 아무도 못 느낀다.
 
 ### 6.7 새 게임 모드 추가 체크리스트
@@ -299,6 +316,8 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 
 ## 9. 기준 수치 (회귀 판정용, 2026-09-03 사전)
 
+`python3 scripts/dict_stats.py kordle.db`가 아래 표와 같은 항목을 같은 순서로 출력한다. 사전을 다시 만들면 그 출력으로 이 표를 갱신한다. `D1 크기`는 `npx wrangler d1 info kordle`, 빌드 시간은 `time`으로.
+
 | 항목 | 값 |
 |---|---|
 | `words` 행 | 1,206,211 |
@@ -307,9 +326,9 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 | `pool` 합계 | 36,366 (t=2: 24,791 / t=3: 11,575) |
 | `pool` t=3 n별 (5..12) | 3061 · 3562 · 1389 · 1427 · 1191 · 506 · 273 · 166 |
 | `pool` t=2 n별 (5..12) | 4893 · 6975 · 3093 · 3847 · 3260 · 1415 · 826 · 482 |
-| `dialect=1` | 140,401 |
+| `dialect=1` | 139,268 |
 | `familiar` 분포(명사 후보) | NULL 200,948 · −1 66,165 · 0 77,794 · 1 11,265 · 2 13,216 · 3 6,562 · 4 2,671 · 5 1,647 · 6 550 · 7 145 |
-| D1 크기 | ≈30MB. 임포트 ≈10초 |
+| D1 크기 | 22.7MB (`wrangler d1 info kordle`). 임포트 ≈10초 |
 | 빌드 시간 | `build_dict.py` ≈56초, `export_d1.py` ≈10초, `vite build` ≈3초 |
 
 빠른 단어 확인: `고양이` familiar 5(초급+위키), `컴퓨터` 5, `순량` 1, `니나놋집` 0, `세종` NULL(인명), `뒤처리되다` pos=동사.

@@ -93,7 +93,7 @@ D1에는 `words` 전체(120만 행)가 아니라 두 테이블만 올린다 — 
 | 전문 분야 표시 | −1 |
 | 인명 · 지명 · 책명 | 제외 |
 
-하루 1개 · 등반 길이 상승은 `≥3`(약 1.2만), 랜덤 무한 · 등반 연속 클리어는 `≥2`(약 2.5만). 임계값은 `src/lib/server/dict.ts`의 `POOL_THRESHOLD`(같은 값이 `export_d1.py`의 `THRESHOLDS`에도 있어야 한다), 가중치는 `build_dict.py`의 `Entry.familiar()`.
+하루 1개 · 일일 등반 · 등반 길이 상승은 `≥3`(약 1.2만), 랜덤 무한 · 등반 연속 클리어는 `≥2`(약 2.5만). 임계값은 `src/lib/server/dict.ts`의 `POOL_THRESHOLD`(같은 값이 `export_d1.py`의 `THRESHOLDS`에도 있어야 한다), 가중치는 `build_dict.py`의 `Entry.familiar()`.
 
 ## 구조
 
