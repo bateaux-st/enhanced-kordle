@@ -35,7 +35,7 @@ npx wrangler secret put KORDLE_SECRET       # 임의의 긴 문자열 (openssl r
 pnpm run deploy                                 # → https://enhanced-kordle.<계정>.workers.dev
 ```
 
-이후 코드가 바뀌면 `pnpm run deploy`만. 사전이 바뀌면 `export_d1.py` → `d1/import.sh --remote`.
+이후 코드가 바뀌면 `pnpm run deploy`만. 사전이 바뀌면 `export_d1.py` → `d1/import.sh --remote`(코드 배포는 불필요). 자세한 절차와 실패 시 판단은 `docs/HANDOFF.md` §6.
 
 커스텀 도메인은 Cloudflare 대시보드 → Workers → 설정 → 도메인 및 경로에서 붙인다(DNS·TLS 무료).
 

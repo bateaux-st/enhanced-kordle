@@ -45,10 +45,11 @@
 | `src/lib/server/token.ts` | HMAC 토큰, 시드 해시 (Web Crypto) | payload 형식 `n.t.idx` |
 | `src/lib/server/judge.ts` | 워들 2-pass 판정 | 순수 함수. 바꾸면 게임 규칙이 바뀐다 |
 | `src/lib/server/env.ts` | `platform.env`에서 D1·시크릿 | Workers 밖에서 불리면 500 |
-| `src/routes/api/*/+server.ts` | 5개 엔드포인트 | 전부 `async`, `platform` 필수 |
+| `src/routes/api/*/+server.ts` | 5개 엔드포인트 (`game`·`check`·`guess`·`hint`·`reveal`) | 전부 `async`, `platform` 필수. 서버가 받는 모드 allowlist는 별도 목록이 아니라 **`POOL_THRESHOLD`의 키**다(`body.mode in POOL_THRESHOLD`, 아니면 400) |
 | `src/routes/+page.ts` | `ssr=false, prerender=true` | 둘 다 있어야 정적 셸이 나온다 |
 | `src/lib/game.svelte.ts` | 클라이언트 상태 머신(`Game` 클래스) | localStorage 스키마(§7) |
-| `src/lib/components/*` | Board, Keyboard, 모달 5종, Countdown | 원작 꼬들 Tailwind 팔레트 값을 CSS 변수로 옮김 |
+| `src/routes/+page.svelte` | 화면 조립, 물리 키보드, 하단 액션 버튼(힌트·포기·다음 단어/스테이지·결과), 종료 시 자동 모달 | 모드별 종료 후 버튼 분기가 여기 있다 |
+| `src/lib/components/` | `Board` `Keyboard` `Header` `Modal` `ModeModal`(모드 선택) `SettingsModal` `HelpModal` `StatsModal`(통계) `ClimbModal`(등반 결과 피라미드) `Countdown` — 모두 `.svelte` | 원작 꼬들 Tailwind 팔레트 값을 `src/app.css` CSS 변수로 옮김 |
 | `scripts/smoke.py` | 배포 후 회귀 검증 | 사전을 다시 만들면 `POOL_SIZE` 갱신 |
 
 ## 3. 계정·자격·환경
@@ -63,9 +64,17 @@
 | 시크릿 | `KORDLE_SECRET` | `wrangler secret put`으로만 존재. 값은 어디에도 기록되어 있지 않다 — **분실해도 재생성하면 되지만 진행 중 게임이 전부 무효** |
 | 로컬 도구 | Node 22.17, pnpm 10.28, wrangler 4.129, Python 3.10, LibreOffice(`soffice`) | Node 22.13+ 필수(과거 `node:sqlite` 때 요건; 지금은 Workers라 빌드에만 필요) |
 
+### 데이터 경로 규칙 (워크트리에서 작업할 때)
+
+사전 원본과 `kordle.db`는 git 밖이라 **메인 체크아웃 `~/projects/kordle/`에만** 있다. `.herdr/worktrees/...` 같은 워크트리에서 `build_dict.py`/`export_d1.py`를 그대로 치면 `dict/`·`kordle.db`가 없어 실패한다. 둘 중 하나:
+- 사전 작업은 `cd ~/projects/kordle`에서 한다 (코드 변경은 워크트리, 데이터 작업은 메인 — 이 문서의 명령은 전부 메인 체크아웃 기준 상대경로).
+- 또는 워크트리에서 `ln -s ~/projects/kordle/dict dict && ln -s ~/projects/kordle/kordle.db kordle.db` (둘 다 gitignore 대상이라 커밋에 안 잡힌다).
+
 로컬 원본 데이터(git 밖, `~/projects/kordle/`):
 - `kordle.db` 213MB — 사전 빌드 산출물. 없으면 §8로 재생성(≈1분)
-- `dict/*.xls` 표준국어대사전 원본 15개(270MB), `dict/stdict/*.csv` 변환본, `dict/nikl/{krdict,opendict}/*.xml`(2.1GB), `dict/kowiki/kowiki-20260901-page.sql.gz`(117MB)
+- `dict/1582087_*.xls` 표준국어대사전 원본 15개(270MB, 2026-08 내려받음), `dict/stdict/*.csv` 변환본 15개
+- `dict/nikl/krdict/001.xml`~`011.xml`(11개, 370MB), `dict/nikl/opendict/0050000.xml`~`1200000.xml` + `1204559.xml`(25개, 1.8GB) — spellcheck-ko/korean-dict-nikl 2026-06 덤프
+- `dict/kowiki/kowiki-20260901-page.sql.gz`(117MB)
 - 이 파일들이 없는 환경에서는 §8의 다운로드 절차부터. **`git clone`으로 korean-dict-nikl을 받으면 5분 넘게 걸려 타임아웃된다** — raw 파일 직접 다운로드.
 
 ## 4. 불변 규칙 — 깨지면 어떻게 되는가
@@ -176,22 +185,47 @@ python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
 
 `wrangler login`이 안 된 환경이면 먼저 `npx wrangler login`(브라우저) 또는 `CLOUDFLARE_API_TOKEN` 환경변수.
 
-### 6.2 롤백
+### 6.2 롤백과 "smoke가 깨졌을 때" 판단표
 
-`npx wrangler deployments list` → `npx wrangler rollback <version-id>`. 코드만 되돌린다. **D1 데이터는 되돌리지 않는다** — 사전 재임포트를 되돌리려면 이전 `kordle.db`로 `export_d1.py` → 재임포트.
+코드와 데이터는 따로 되돌린다.
+- **코드**: `npx wrangler deployments list` → `npx wrangler rollback <version-id>`. D1은 건드리지 않는다.
+- **D1 데이터**: 되돌리는 명령이 없다. 이전 `kordle.db`(§6.3의 보존본)로 `export_d1.py` → `d1/import.sh --remote`가 검증된 복구 경로. `npx wrangler d1 export kordle --remote --output <파일>`로 스냅샷(40MB, 한 행씩 INSERT)을 받아둘 수는 있지만 그 파일로 되살리는 절차는 **검증되지 않았다**(DROP 없이 CREATE만 들어 있고 60만 문장이라 분할 필요).
 
-### 6.3 사전 갱신
+배포 직후 `scripts/smoke.py`가 깨지면 **먼저 어느 검사가 깨졌는지 보고** 아래에서 찾는다. 전부 롤백하는 게 정답인 경우는 드물다.
+
+| 증상 | 뜻 | 조치 |
+|---|---|---|
+| 페이지 `000`/SSL 오류, 모두 실패 | 신규 `workers.dev` 서브도메인 TLS 발급 중, 또는 네트워크 | 1~2분 후 재시도. 서브도메인을 안 바꿨다면 네트워크 |
+| 모두 `403` | UA 봇 필터 | 스크립트 UA 확인. **장애 아님** |
+| `check`/`guess` 판정만 실패, 직전에 `import.sh --remote`를 돌렸음 | DROP→INSERT 사이 빈 사전 | 30초 후 1회 재시도. 계속 실패면 `import.sh --remote`를 **처음부터** 다시(파일 단위로 순차 실행되어 중간 실패는 부분 상태를 남긴다; `schema.sql`이 DROP이라 재실행이 곧 초기화) |
+| `game`이 200인데 `guess`/`reveal`/`hint`가 500 (`pool miss`) | `dict.ts POOL_THRESHOLD`의 t가 D1 `pool`에 없음 | 코드가 아니라 **데이터** 불일치. `export_d1.py THRESHOLDS` 확인 → 재임포트. 코드 롤백으로는 안 고쳐진다(옛 코드가 다른 t를 쓰면 그건 고쳐질 수 있으나 원인 해결이 아님) |
+| 코드 변경 직후 API가 400/500, 데이터는 안 건드렸음 | 코드 회귀 | `wrangler rollback` → 로컬에서 재현 |
+| `pool t=… idx<N`만 실패, 다른 건 통과 | `smoke.py POOL_SIZE`가 사전과 안 맞음 | 사전을 바꿨으면 `export_d1.py` 출력으로 `POOL_SIZE` 갱신. **장애 아님** |
+| `daily 토큰 형식 (t=…)`/`모드 → 풀 t=…`만 실패 | `smoke.py EXPECTED_T`가 `dict.ts`와 안 맞음 | 임계값을 바꿨으면 smoke 갱신. **장애 아님** |
+| 데일리 정답이 어제와 다른 단어가 됐다(사용자 신고) | 사전 재임포트/풀 조건 변경으로 `idx`가 가리키는 단어가 바뀜 | **정상**(§4.3). 자정 지나면 사라진다 |
+| 사용자에게 "서버에 연결할 수 없습니다" 토스트, 새 게임은 됨 | 시크릿 교체 또는 토큰 형식 변경으로 **옛 토큰 무효** | 정상 부작용. 새 게임 시작하면 해결 |
+| 구버전으로 롤백했더니 어떤 사용자만 "서버에 연결할 수 없습니다" | 그 사용자의 `localStorage config.mode`가 롤백된 코드에 없는 모드 → 서버 400 | 사용자가 "모드 바꾸기"로 다른 모드를 고르면 복구. 롤백 전에 고려할 것 |
+
+`pnpm check → deploy → smoke` 순서라 smoke 실패 시점에는 이미 운영에 나가 있다. 사용자가 몇 명뿐인 토이라 감수하는 것이지만, 크게 바꿀 때는 `pnpm dev` + `python3 scripts/smoke.py http://localhost:5173`으로 로컬 D1에서 먼저 돌린다.
+
+### 6.3 사전 갱신 (사전만 바뀌면 코드 배포는 필요 없다)
 
 ```bash
+cd ~/projects/kordle                                    # 데이터는 메인 체크아웃에만 있다 (§3)
+cp kordle.db kordle.$(date +%F).db                       # 이전 사전 보존 — D1 복구 재료 (*.db는 gitignore)
 python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict \
     --opendict dict/nikl/opendict --kowiki dict/kowiki/kowiki-YYYYMMDD-page.sql.gz   # ≈1분
-python3 export_d1.py kordle.db d1/                                                    # ≈10초, 19MB SQL
-d1/import.sh --local && pnpm dev   # 로컬 검증
-d1/import.sh --remote              # ≈10초. schema.sql이 DROP TABLE → 그 사이 서비스는 빈 사전
-python3 scripts/smoke.py https://...   # POOL_SIZE가 바뀌었으면 smoke.py 먼저 갱신
+python3 export_d1.py kordle.db d1/        # ≈10초, 19MB SQL. 마지막에 smoke.py용 POOL_SIZE 블록을 출력한다
+#   → scripts/smoke.py 의 POOL_SIZE 를 그 출력으로 교체, docs/HANDOFF.md §9 기준 수치도 갱신
+d1/import.sh --local && pnpm dev && python3 scripts/smoke.py http://localhost:5173   # 로컬 검증
+d1/import.sh --remote                     # ≈10초. schema.sql이 DROP TABLE → 그 사이 운영은 빈 사전
+python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
+git commit -am "사전 YYYY-MM-DD: ..." && git push   # smoke 통과 후. 커밋 대상은 smoke.py·HANDOFF 수치(사전 파일은 git 밖)
 ```
 
-재임포트 후 **그날 데일리 정답이 바뀔 수 있다**(§4.3). 자정 직후 권장.
+- 재임포트 후 **그날 데일리 정답이 바뀔 수 있다**(§4.3). 자정 직후 권장.
+- 서버 코드는 바뀌지 않으므로 `pnpm run deploy`는 **불필요**. Worker는 D1의 내용을 즉시 본다.
+- **정상 변화 범위** — 다음은 장애가 아니다: 위키 덤프만 바꿨으면 `src&1`(표준국어대사전) 350,600은 그대로여야 하고, `valid`는 소폭(수천) 증가, `pool` 크기는 `familiar`의 위키 신호가 움직여 각 (t,n)에서 **±수 %** 변한다. 표준국어대사전 xls를 다시 변환했는데 350,600이 아니면 그쪽(csv 변환)이 잘못된 것. 어느 (t,n) 풀이 절반 이하로 줄거나 두 배가 되면 `Entry.familiar()`나 소스 파일 누락을 의심한다.
 
 ### 6.4 시크릿 교체
 
@@ -205,6 +239,35 @@ python3 export_d1.py kordle.db d1/ && d1/import.sh --local     # .wrangler/state
 pnpm dev            # vite dev — adapter-cloudflare가 platform.env를 로컬 D1로 에뮬레이션
 pnpm preview        # wrangler dev — 실제 workerd 런타임
 ```
+
+### 6.6 정답 풀 임계값 변경 (예: 데일리 T 3→4)
+
+1. `export_d1.py`의 `THRESHOLDS`에 새 값을 **추가**한다 — `(2, 3)` → `(2, 3, 4)`. 기존 값을 빼면 그 t를 쓰는 다른 모드가 `pool miss` 500을 낸다. 쓰지 않게 된 t는 나중에 지워도 되지만 남겨둬도 비용은 D1 30MB에 몇 MB 더일 뿐이다.
+2. `python3 export_d1.py kordle.db d1/` → `d1/import.sh --remote` **먼저**. 새 t의 행이 D1에 있어야 새 코드가 안전하다. 옛 코드는 새 행을 안 보므로 순서상 무해.
+3. `src/lib/server/dict.ts POOL_THRESHOLD`에서 해당 모드만 바꾼다.
+4. `scripts/smoke.py`: `EXPECTED_T`(모드→t), `POOL_SIZE`(export 출력 블록으로 교체). `MODE_FOR_T`는 `EXPECTED_T`에서 자동 유도되지만 새 t를 쓰는 비데일리 모드가 하나도 없으면 `next()`가 실패한다 — 그 경우 데일리 모드로 매핑을 직접 넣는다.
+5. `pnpm check` → `pnpm run deploy` → smoke. 통과 후 `README.md`(정답 풀 표)·`docs/HANDOFF.md` §4.2·§9 수치 갱신 → 커밋·push.
+6. 부작용: 그날 데일리 정답이 바뀐다(다른 t의 풀이라 `idx`가 다른 단어). 이미 플레이한 사용자는 저장 키에 토큰이 들어 있어 **새 판처럼 보인다**(진행 초기화). 장애 아님. 자정 직후에 하면 아무도 못 느낀다.
+
+### 6.7 새 게임 모드 추가 체크리스트
+
+`GameMode`는 서버·클라이언트가 같은 타입을 쓴다. 빠뜨리기 쉬운 순서로:
+
+| 위치 | 할 것 |
+|---|---|
+| `src/lib/types.ts` | `GameMode` 유니언에 id 추가(영문 kebab, 예 `practice`), `MODE_LABEL`에 표시명 |
+| `src/lib/server/dict.ts` | `POOL_THRESHOLD`에 값 — 이게 곧 서버 allowlist. 기존 t(2 또는 3)를 쓰면 D1 재임포트 불필요, 새 t면 §6.6 |
+| `src/lib/game.svelte.ts` | `isDaily`(날짜 시드·6회·저장복원 대상인가), `isClimb`(스테이지·피라미드 대상인가)에 넣을지 판단. 통계는 `recordStats()`(played/won/streak/dist), 등반 최고 기록은 `finish()` 안 `bestStage` — 제외하려면 여기서 모드로 분기 |
+| `src/routes/api/game/+server.ts` | `daily`·`daily-climb`만 날짜 시드, 나머지는 랜덤. 날짜 시드 모드를 추가하면 시드 문자열에 모드를 섞어 다른 데일리와 정답이 겹치지 않게 |
+| `src/lib/components/ModeModal.svelte` | `MODES` 배열에 설명. 길이 선택 UI를 숨길 모드면 `pickable` |
+| `src/routes/+page.svelte` | 종료 후 하단 버튼 분기(`다음 단어`/`다음 스테이지`/`결과`/`통계`), 자동 모달 `$effect` |
+| `StatsModal.svelte` / `ClimbModal.svelte` | 통계 표시·카운트다운(`isDaily`)·피라미드(`isClimb`) 조건이 맞는지 |
+| `scripts/smoke.py` | `EXPECTED_T`에 모드 추가(자동으로 §4 검사에 포함) |
+| `README.md`·`docs/HANDOFF.md` | 모드 수, §4.4, §7 |
+
+힌트 로직 계약(바꿀 때 참고): 대상 자모 = `keyStates`에서 `p`인 첫 자모(노란 자모가 없으면 "힌트를 줄 노란 자모가 없습니다" 토스트 — 정상 동작), 서버는 그 자모의 정답 내 **첫 위치**를 줌, `hints[pos] = jamo`로 기록, `hintUsed = hints가 비어 있지 않음`으로 1회 제한. 무제한으로 바꾸려면 `hintUsed` 판정을 모드로 분기하고 이미 밝힌 자모는 `known`에서 제외(9/4 커밋 이전 코드가 그렇게 돼 있었다: `Object.values(hints)`를 known 집합으로).
+
+"통계에 안 잡히게"처럼 범위가 여러 가지로 읽히는 요청(저장 안 함 / 표시만 안 함 / streak·dist·best 중 일부)은 **구현 전에 사용자에게 범위를 확인**한다.
 
 ## 7. 클라이언트 저장 스키마 (localStorage, 접두 `nkordle:`)
 
@@ -261,6 +324,9 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 - **dev 서버(`vite dev`)의 `Tsconfig not found`** — 워크트리 등 하위 디렉터리에서 실행할 때 상위 체크아웃의 `tsconfig.json`을 집는 rolldown 문제. 상위에도 `pnpm install`이 되어 있으면 사라진다.
 - `git clone spellcheck-ko/korean-dict-nikl` 은 히스토리가 커서 5분 넘게 걸린다. raw 다운로드.
 - `svelte-check` 경고 `state_referenced_locally`는 모달 초기값 캡처가 의도된 곳에 `// svelte-ignore` 주석이 있다. 지우지 말 것.
+- **smoke는 API만 본다.** 힌트 횟수·통계 반영·모달 같은 클라이언트 동작은 smoke 통과와 무관하다. UI를 바꿨으면 `pnpm dev`로 브라우저에서 직접 확인한다(브라우저 자동화 시 `window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyG', ...}))`로 자모 입력 가능 — 두벌식 `code` 매핑).
+- **랜덤 모드는 매 요청 다른 토큰**이 정상이다. 결정론 검사는 데일리 계열에만 의미가 있다.
+- 워크트리(`.herdr/worktrees/...`)에서 `kordle.db`/`dict/`가 안 보이는 것은 정상 — 메인 체크아웃에만 있다(§3).
 
 ## 11. 하지 않기로 한 것 / 제거한 것
 
@@ -268,6 +334,8 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 - GitHub Pages 정적 전환 — 사전 2MB를 브라우저에 실어야 하고 정답이 노출된다. Cloudflare가 무료이면서 서버를 유지할 수 있어 택하지 않음.
 - GitHub Actions 자동 배포 — 아직 없음. 필요하면 `cloudflare/wrangler-action` + `CLOUDFLARE_API_TOKEN` 레포 시크릿.
 - 공유(이모지 격자 복사), 다크 모드, 계정/서버 저장 — 요청되지 않음.
+
+작업 완료 기준: `pnpm check` 0 errors → 배포(또는 재임포트) → `scripts/smoke.py` 통과 → **그 다음에** 커밋·`git push`. smoke가 깨진 회차는 커밋하지 않는다(실패한 수정이 히스토리에 잘못된 의도로 남는다). 문서만 바뀐 커밋은 예외.
 
 ## 12. 타임라인 (결정 연대기)
 

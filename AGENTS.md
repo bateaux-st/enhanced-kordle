@@ -8,11 +8,23 @@
 
 운영: https://enhanced-kordle.bateaux.workers.dev · 배포는 수동 `pnpm run deploy`.
 
+## 두 가지 작업 흐름 — 어느 쪽인지 먼저 정한다
+
+| | 코드 변경 (UI·API·규칙) | 사전 변경 (원본 갱신·`familiar`·풀 조건) |
+|---|---|---|
+| 어디서 | 워크트리 어디서나 | **`~/projects/kordle`** — 원본 `dict/`·`kordle.db`는 거기에만 있다 (HANDOFF §3) |
+| 절차 | `pnpm check` → `pnpm run deploy` → smoke | `cp kordle.db kordle.$(date +%F).db` → `build_dict.py` → `export_d1.py` → `smoke.py POOL_SIZE` 갱신 → `d1/import.sh --local` + 로컬 smoke → `d1/import.sh --remote` → 운영 smoke (HANDOFF §6.3) |
+| 배포 | `pnpm run deploy` 필요 | **불필요** — Worker는 D1을 즉시 본다 |
+| 둘 다 바뀌면 | **D1 먼저**, 코드 나중 (HANDOFF §6.6) | |
+
+smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. 통과 → 커밋·push. 깨지면 **HANDOFF §6.2 판단표**로 원인을 분류한다 — 대부분 롤백이 정답이 아니다(UA 403, 임포트 직후 10초, `POOL_SIZE`/`EXPECTED_T` 미갱신은 장애가 아님). 깨진 회차는 커밋하지 않는다.
+
 ## 반드시
 
-- 변경 후 `pnpm check`(0 errors) → `pnpm run deploy` → `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev` 통과까지가 한 작업이다. smoke가 깨지면 그 회차는 커밋하지 않는다.
-- 정답 풀 조건(`familiar` 임계값, 후보 SQL)을 바꾸면 **`src/lib/server/dict.ts`의 `POOL_THRESHOLD`와 `export_d1.py`의 `POOL`/`THRESHOLDS`를 함께** 고치고, `python3 export_d1.py kordle.db d1/` → `d1/import.sh --remote` → `scripts/smoke.py`의 `POOL_SIZE` 갱신. 한쪽만 바꾸면 `pool miss` 500.
-- 새 게임 모드를 추가하면 `types.ts`(`GameMode`, `MODE_LABEL`), `dict.ts`(`POOL_THRESHOLD`), `game.svelte.ts`(`isClimb`/`isDaily`), `ModeModal`을 모두 건드린다.
+- 정답 풀 조건(`familiar` 임계값, 후보 SQL)을 바꾸면 **`src/lib/server/dict.ts`의 `POOL_THRESHOLD`와 `export_d1.py`의 `POOL`/`THRESHOLDS`를 함께** 고친다. `THRESHOLDS`는 값을 **추가**한다(빼면 그 t를 쓰는 다른 모드가 `pool miss` 500). 런북: HANDOFF §6.6.
+- 새 게임 모드는 HANDOFF §6.7 체크리스트대로 — `types.ts`, `dict.ts`(`POOL_THRESHOLD`가 곧 서버 allowlist), `game.svelte.ts`(`isClimb`/`isDaily`, 통계), `api/game`, `ModeModal.svelte`, `+page.svelte` 버튼 분기, `smoke.py EXPECTED_T`.
+- `scripts/smoke.py`의 기대값 셋(`EXPECTED_T`, `POOL_SIZE`, `MODE_FOR_T`)은 코드·사전과 짝이다. 사전이나 임계값을 바꾸면 같은 커밋에서 갱신한다. `POOL_SIZE`는 `export_d1.py`가 마지막에 출력하는 블록을 붙인다.
+- 요청의 범위가 여러 가지로 읽히면(예: "통계에 안 잡히게" — 저장 안 함인지 표시만 안 함인지) **구현 전에 사용자에게 확인**한다. 자료에 없는 결정을 추측으로 메우지 않는다.
 - D1 조회는 PK 한 행으로만 짠다(`valid.jamo`, `pool(t,n,idx)`, `pool_meta(t,n)`). `COUNT`·`OFFSET`·범위 스캔 금지 — 읽은 행 수가 무료 한도다.
 - 운영 URL을 스크립트로 칠 때 `User-Agent`를 브라우저처럼 넣는다. Python 기본 UA는 Cloudflare가 403을 준다 — **장애가 아니다**.
 - 커밋 메시지에 AI 생성 표기(Co-Authored-By 등)를 넣지 않는다. author 이메일은 레포 로컬 설정(`bateaux.st@gmail.com`)을 따른다.
@@ -32,10 +44,13 @@
 ```bash
 pnpm check                                                    # 타입·svelte 검사
 pnpm dev                                                      # 로컬 (D1은 .wrangler/state, d1/import.sh --local 필요)
+python3 scripts/smoke.py http://localhost:5173                # 로컬 smoke
 pnpm run deploy                                               # 빌드 + wrangler deploy  (pnpm deploy 아님)
 python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
-npx wrangler deployments list && npx wrangler rollback <id>   # 코드 롤백 (D1 데이터는 되돌리지 않음)
+npx wrangler deployments list && npx wrangler rollback <id>   # 코드 롤백 (D1 데이터는 되돌리지 않음 — HANDOFF §6.2)
 ```
+
+smoke는 **API만** 검증한다. 힌트 횟수·통계·모달 같은 UI 동작은 `pnpm dev`로 브라우저에서 직접 본다.
 
 ## 코드 스타일
 

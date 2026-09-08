@@ -62,7 +62,7 @@ def main(db_path, out_dir):
     print(f"valid: {len(rows):,}행 → {-(-len(rows) // ROWS_PER_FILE)}개 파일")
 
     # pool + pool_meta
-    total = 0
+    sizes = {}
     with open(out / "pool.sql", "w", encoding="utf-8") as f:
         for t in THRESHOLDS:
             for n in range(MIN_N, MAX_N + 1):
@@ -75,9 +75,15 @@ def main(db_path, out_dir):
                         f"({t},{n},{bi + k},{q(w)},{q(j)})" for k, (w, j) in enumerate(items[bi:bi + BATCH])
                     )
                     f.write(f"INSERT INTO pool VALUES {vals};\n")
-                total += len(items)
-    print(f"pool: {total:,}행 (t={THRESHOLDS}, n={MIN_N}..{MAX_N})")
+                sizes[(t, n)] = len(items)
+    print(f"pool: {sum(sizes.values()):,}행 (t={THRESHOLDS}, n={MIN_N}..{MAX_N})")
     print("크기:", ", ".join(f"{p.name} {p.stat().st_size / 2**20:.1f}MB" for p in sorted(out.iterdir())))
+
+    # scripts/smoke.py 의 POOL_SIZE 에 그대로 붙일 수 있는 형태. 사전이나 풀 조건이 바뀌면 이 출력으로 갱신한다.
+    print("\nscripts/smoke.py POOL_SIZE = {")
+    for t in THRESHOLDS:
+        print("    " + ", ".join(f"({t}, {n}): {sizes[(t, n)]}" for n in range(MIN_N, MAX_N + 1)) + ",")
+    print("}")
 
 
 if __name__ == "__main__":

@@ -17,12 +17,20 @@ import urllib.request
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:5173").rstrip("/")
 HDR = {"content-type": "application/json", "User-Agent": "Mozilla/5.0 (smoke)"}
 
-# 정답 풀 크기 (t, n) → count. export_d1.py 실행 시 pool_meta에 들어가는 값과 같아야 한다.
-# 사전(kordle.db)을 다시 만들면 바뀌므로 그때 함께 갱신한다. 2026-09-03 사전 기준.
+# ---- 기대값. 아래 셋은 서버 코드·export_d1.py와 짝이다. 바꿀 때 함께 바꾼다. ----
+
+# 모드별 정답 풀 임계값. src/lib/server/dict.ts POOL_THRESHOLD 와 같아야 한다.
+EXPECTED_T = {"daily": 3, "daily-climb": 3, "climb-length": 3, "endless": 2, "climb-streak": 2}
+
+# 정답 풀 크기 (t, n) → count. `python3 export_d1.py kordle.db d1/` 가 마지막에 이 블록을 그대로 출력한다 — 복사해 붙인다.
+# 사전(kordle.db)이나 풀 조건이 바뀌면 바뀐다. 2026-09-03 사전 기준.
 POOL_SIZE = {
-    (3, 5): 3061, (3, 6): 3562, (3, 7): 1389, (3, 8): 1427, (3, 9): 1191, (3, 10): 506, (3, 11): 273, (3, 12): 166,
     (2, 5): 4893, (2, 6): 6975, (2, 7): 3093, (2, 8): 3847, (2, 9): 3260, (2, 10): 1415, (2, 11): 826, (2, 12): 482,
+    (3, 5): 3061, (3, 6): 3562, (3, 7): 1389, (3, 8): 1427, (3, 9): 1191, (3, 10): 506, (3, 11): 273, (3, 12): 166,
 }
+
+# 풀 크기 검사에 쓸 대표 모드: 임계값 t를 쓰는 모드 중 랜덤(비데일리)인 것 하나. 새 t가 생기면 여기도 추가.
+MODE_FOR_T = {t: next(m for m, tt in EXPECTED_T.items() if tt == t and not m.startswith("daily")) for t in set(EXPECTED_T.values())}
 
 failures = []
 
@@ -73,21 +81,22 @@ check("check 4자모 이하 → 400", st == 400)
 # 3. 데일리 결정론 — 같은 요청 두 번이면 같은 토큰(정답), 데일리와 일일 등반은 다른 정답
 tokens = [post("game", {"mode": "daily", "n": 6})[1]["token"] for _ in range(2)]
 check("daily n=6 두 번 호출 → 같은 토큰", tokens[0] == tokens[1])
-check("daily 토큰 형식 n.t.idx.sig (t=3)", tokens[0].split(".")[:2] == ["6", "3"], tokens[0])
+check(f"daily 토큰 형식 n.t.idx.sig (t={EXPECTED_T['daily']})", tokens[0].split(".")[:2] == ["6", str(EXPECTED_T["daily"])], tokens[0])
 climb = post("game", {"mode": "daily-climb", "n": 6})[1]["token"]
 check("daily-climb n=6 은 daily n=6 과 다른 정답", climb.split(".")[2] != tokens[0].split(".")[2])
 st, r = post("game", {"mode": "daily"})
 check("daily n 미지정 → 5..12 안에서 결정", st == 200 and 5 <= r["n"] <= 12)
 
 # 4. 모드별 풀 임계값
-for mode, t in (("daily", 3), ("daily-climb", 3), ("climb-length", 3), ("endless", 2), ("climb-streak", 2)):
+for mode, t in EXPECTED_T.items():
     st, r = post("game", {"mode": mode, "n": 8})
     check(f"{mode} → 풀 t={t}", st == 200 and r["token"].split(".")[1] == str(t))
+st, _ = post("game", {"mode": "no-such-mode", "n": 8})
+check("알 수 없는 mode → 400", st == 400)
 
 # 5. 풀 크기 — idx가 pool_meta 범위 안인지 (랜덤이라 상한만 확인), 그리고 마지막 idx가 조회되는지
 for (t, n), size in POOL_SIZE.items():
-    mode = "endless" if t == 2 else "climb-length"
-    st, r = post("game", {"mode": mode, "n": n})
+    st, r = post("game", {"mode": MODE_FOR_T[t], "n": n})
     idx = int(r["token"].split(".")[2])
     check(f"pool t={t} n={n} idx<{size}", idx < size, f"idx={idx}")
 
