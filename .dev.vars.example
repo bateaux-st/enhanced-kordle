@@ -1,0 +1,2 @@
+# 로컬 개발용 시크릿. .dev.vars 로 복사해 쓴다. 운영은 `wrangler secret put KORDLE_SECRET`.
+KORDLE_SECRET=change-me

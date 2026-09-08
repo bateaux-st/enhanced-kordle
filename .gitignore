@@ -9,9 +9,11 @@ node_modules
 /build
 .env
 .env.*
-!.env.example
+.dev.vars
+.wrangler/
 vite.config.ts.timestamp-*
 __pycache__/
 
 # Claude Code 워크트리
 .claude/
+d1/*.sql

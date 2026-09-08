@@ -19,53 +19,42 @@
 
 ## 실행
 
-### Docker Compose (배포)
+Cloudflare Workers + D1에서 돈다. 서버가 무상태(진행은 브라우저 localStorage, 정답은 서명 토큰)라 엣지 어디서 실행돼도 같고, 잠들지 않는다. 무료 한도(하루 10만 요청, D1 읽기 500만 행)로 충분하다.
+
+### 배포 (처음 한 번)
 
 ```bash
-cp .env.example .env            # KORDLE_SECRET을 임의 값으로 (openssl rand -base64 32)
-# kordle.db를 준비한다 — 아래 "사전 만들기"
-docker compose up -d --build     # http://localhost:3000
+pnpm install
+npx wrangler login                          # Cloudflare 계정 (무료, 카드 불필요)
+npx wrangler d1 create kordle               # 출력된 database_id를 wrangler.jsonc에 넣는다
+python3 export_d1.py kordle.db d1/          # kordle.db → D1 임포트용 SQL (아래 "사전 만들기")
+d1/import.sh --remote                       # 약 56만 + 3.6만 행, 몇 분
+npx wrangler secret put KORDLE_SECRET       # 임의의 긴 문자열 (openssl rand -base64 32)
+pnpm deploy                                 # → https://enhanced-kordle.<계정>.workers.dev
 ```
 
-`kordle.db`는 이미지에 넣지 않고 볼륨으로 마운트한다. 사전을 다시 만들면 `docker compose restart`만 하면 된다.
+이후 코드가 바뀌면 `pnpm deploy`만. 사전이 바뀌면 `export_d1.py` → `d1/import.sh --remote`.
 
-### 시놀로지 NAS에 배포
-
-`main`에 push되면 GitHub Actions가 이미지를 `ghcr.io/bateaux-st/enhanced-kordle:latest`로 올린다(`.github/workflows/image.yml`). NAS는 빌드하지 않고 이 이미지를 받는다.
-
-1. **이미지 확인** — 레포가 공개라 이미지도 공개로 올라간다(`docker manifest inspect ghcr.io/bateaux-st/enhanced-kordle:latest`가 로그인 없이 된다). 레포를 비공개로 바꾸면 NAS에서 `docker login ghcr.io`가 필요하다.
-2. **폴더 준비** — File Station에서 `docker/kordle` 폴더를 만들고 세 파일을 넣는다:
-   - `compose.yaml` ← [`deploy/nas/compose.yaml`](deploy/nas/compose.yaml)
-   - `.env` ← `KORDLE_SECRET=<임의의 긴 문자열>` 한 줄 (`openssl rand -base64 32`)
-   - `kordle.db` ← [Releases](../../releases)의 `kordle.db.gz`를 받아 풀기. SSH라면:
-     ```bash
-     cd /volume1/docker/kordle
-     wget https://github.com/bateaux-st/enhanced-kordle/releases/latest/download/kordle.db.gz
-     gunzip kordle.db.gz
-     ```
-3. **Container Manager → 프로젝트 → 생성** — 이름 `kordle`, 경로 `/docker/kordle`, "기존 docker-compose.yml 사용" 선택 → 실행. `http://<NAS IP>:3000`에서 확인.
-4. **외부 노출** — 제어판 → 외부 액세스 → DDNS에서 `xxx.synology.me` 등록 → 로그인 포털 → 고급 → 리버스 프록시: 소스 `kordle.xxx.synology.me:443`(HTTPS) → 대상 `localhost:3000`. 보안 → 인증서에서 Let's Encrypt 발급 후 그 도메인에 지정. 공유기에서 443을 NAS로 포워딩.
-
-**업데이트**: 코드가 바뀌면 Container Manager → 프로젝트 → `kordle` → 작업 → 빌드(이미지 pull) 후 재시작. 사전만 바뀌면 `kordle.db`를 교체하고 컨테이너 재시작.
+커스텀 도메인은 Cloudflare 대시보드 → Workers → 설정 → 도메인 및 경로에서 붙인다(DNS·TLS 무료).
 
 ### 로컬 개발
 
 ```bash
 pnpm install
-pnpm dev                          # http://localhost:5173
+cp .dev.vars.example .dev.vars              # KORDLE_SECRET
+python3 export_d1.py kordle.db d1/ && d1/import.sh --local   # 로컬 D1 (.wrangler/state)
+pnpm dev                                    # http://localhost:5173 — D1은 로컬 에뮬레이션
+pnpm preview                                # wrangler dev: 실제 Workers 런타임으로 확인
 ```
 
-Node 22.13 이상이 필요하다 (내장 `node:sqlite`를 쓴다. 네이티브 모듈 없음).
-
-| 환경변수 | 기본값 | 뜻 |
+| 설정 | 어디에 | 뜻 |
 |---|---|---|
-| `KORDLE_SECRET` | `dev-only-secret` | 정답 토큰 서명 키. 바꾸면 진행 중 게임이 전부 무효가 된다 |
-| `KORDLE_DB` | `kordle.db` | 사전 DB 경로 |
-| `PORT` | `3000` | 서버 포트 |
+| `KORDLE_SECRET` | `wrangler secret` / `.dev.vars` | 정답 토큰 서명 키. 바꾸면 진행 중 게임이 전부 무효가 된다 |
+| `DB` | `wrangler.jsonc` d1_databases | 사전 D1 바인딩 |
 
 ## 사전 만들기
 
-`kordle.db`(약 210MB)는 저장소에 없다. 원본 네 종을 받아 `build_dict.py`로 만든다.
+`kordle.db`(약 210MB)는 저장소에 없다. 원본 네 종을 받아 `build_dict.py`로 만들고, 서버가 쓰는 부분만 `export_d1.py`로 D1에 넣는다.
 
 | 소스 | 받는 곳 | 형식 | 크기 |
 |---|---|---|---|
@@ -88,6 +77,8 @@ python3 build_dict.py kordle.db \
 
 약 1분. 소스는 각각 선택이라 표준국어대사전만으로도 만들 수 있다.
 
+D1에는 `words` 전체(120만 행)가 아니라 두 테이블만 올린다 — 판정용 자모열 `valid`(56만 행)와 정답 풀을 `(임계값, n, idx) → 단어`로 미리 펼친 `pool`(3.6만 행). D1은 읽은 행 수로 한도를 세므로 모든 조회를 PK 한 행으로 만든 것이다. 합쳐서 약 30MB.
+
 ### 정답 풀
 
 판정은 전체 사전(방언·북한어 제외)으로 넓게, 정답은 좁게 고른다. 정답 후보는 표준국어대사전 명사에 **익숙함 점수**(`familiar`)를 매겨 임계값 이상만 쓴다.
@@ -100,14 +91,16 @@ python3 build_dict.py kordle.db \
 | 전문 분야 표시 | −1 |
 | 인명 · 지명 · 책명 | 제외 |
 
-하루 1개 · 등반 길이 상승은 `≥3`(약 1.2만), 랜덤 무한 · 등반 연속 클리어는 `≥2`(약 2.5만). 임계값은 `src/lib/server/dict.ts`의 `POOL_THRESHOLD`, 가중치는 `build_dict.py`의 `Entry.familiar()`.
+하루 1개 · 등반 길이 상승은 `≥3`(약 1.2만), 랜덤 무한 · 등반 연속 클리어는 `≥2`(약 2.5만). 임계값은 `src/lib/server/dict.ts`의 `POOL_THRESHOLD`(같은 값이 `export_d1.py`의 `THRESHOLDS`에도 있어야 한다), 가중치는 `build_dict.py`의 `Entry.familiar()`.
 
 ## 구조
 
 ```
-build_dict.py            사전 빌드 (자모 분해 · 4소스 병합 · familiar 점수)
-src/lib/server/dict.ts   사전 조회 · 정답 풀
-src/lib/server/token.ts  정답을 (n, 임계값, idx)로 HMAC 서명 — 서버는 무상태
+build_dict.py            사전 빌드 (자모 분해 · 4소스 병합 · familiar 점수) → kordle.db
+export_d1.py             kordle.db → D1용 SQL (valid · pool · pool_meta)
+wrangler.jsonc           Workers 설정 (D1 바인딩, 정적 자산)
+src/lib/server/dict.ts   D1 조회 · 정답 풀 임계값
+src/lib/server/token.ts  정답을 (n, 임계값, idx)로 HMAC 서명 (Web Crypto) — 서버는 무상태
 src/lib/server/judge.ts  워들 판정
 src/routes/api/          game · guess · check · hint · reveal
 src/lib/game.svelte.ts   클라이언트 상태 (진행·통계·설정은 localStorage)

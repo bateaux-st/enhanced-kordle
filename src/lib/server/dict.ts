@@ -1,10 +1,8 @@
-import { DatabaseSync } from 'node:sqlite';
-import { env } from '$env/dynamic/private';
 import type { GameMode } from '$lib/types';
 
 // 정답 풀: 표준국어대사전 명사 중 익숙함 점수(familiar, build_dict.py의 Entry.familiar)가 임계값 이상인 것.
 // 하루 하나인 데일리와 12자까지 올라가는 길이 상승은 깨끗하게(≥3), 계속 도는 무한·연속 클리어는 넓게(≥2).
-// 순서는 rowid로 고정해 (n, threshold, idx)가 항상 같은 단어를 가리키게 한다.
+// 풀은 export_d1.py가 (t, n, idx) → word로 미리 펼쳐 두므로 (n, threshold, idx)가 항상 같은 단어를 가리킨다.
 export const POOL_THRESHOLD: Record<GameMode, number> = {
 	daily: 3,
 	'daily-climb': 3,
@@ -12,42 +10,27 @@ export const POOL_THRESHOLD: Record<GameMode, number> = {
 	endless: 2,
 	'climb-streak': 2
 };
-const POOL = "unit = '단어' AND pos = '명사' AND word NOT LIKE '% %' AND familiar >= ? AND jamo_len = ?";
 
-// Node 22.13+ 내장 SQLite. 네이티브 빌드가 없어 Docker 이미지를 node:22 그대로 쓸 수 있다.
-// API 표면이 better-sqlite3와 같아 experimental 경고가 부담되면 이 파일만 바꾸면 된다.
-// 첫 요청에서 연다 — SvelteKit이 빌드 중 라우트 분석으로 이 모듈을 로드하는데, 그때는 DB 파일이 없다(볼륨 마운트).
-let stmts: ReturnType<typeof open> | undefined;
-
-function open() {
-	const db = new DatabaseSync(env.KORDLE_DB ?? 'kordle.db', { readOnly: true });
+// D1(Cloudflare SQLite). 모든 조회가 PK 한 행이라 읽은 행 수 기준 무료 한도(하루 500만)를 거의 쓰지 않는다.
+// 판정은 자모열로 한다 — 공백을 버린 자모열이라 '헌법 재판소'와 '헌법재판소'가 같은 키로 맞는다.
+// valid 테이블은 네 사전(표준국어대사전·한국어기초사전·우리말샘·위키백과 띄어 쓴 제목)에서
+// 방언/북한어만 빼고 만든 것이다 (export_d1.py).
+export function dict(db: D1Database) {
 	return {
-		// 판정은 jamo 열로 한다 — 공백을 버린 자모열이라 '헌법 재판소'와 '헌법재판소'가 같은 키로 맞는다.
-		// 세 사전(표준국어대사전·한국어기초사전·우리말샘)과 위키백과 띄어 쓴 제목을 합친 넓은 사전이지만,
-		// 우리말샘에 방언/북한어로만 실린 표기(dialect=1)는 플레이어가 "사전에 있는 단어"로 받아들이기 어려워 뺀다.
-		valid: db.prepare('SELECT 1 FROM words WHERE jamo = ? AND dialect = 0 LIMIT 1'),
-		count: db.prepare(`SELECT COUNT(*) AS c FROM words WHERE ${POOL}`),
-		at: db.prepare(`SELECT word, jamo FROM words WHERE ${POOL} ORDER BY rowid LIMIT 1 OFFSET ?`)
+		async isValidJamo(jamo: string): Promise<boolean> {
+			return (await db.prepare('SELECT 1 FROM valid WHERE jamo = ?').bind(jamo).first()) !== null;
+		},
+		async answerCount(threshold: number, n: number): Promise<number> {
+			const row = await db.prepare('SELECT count FROM pool_meta WHERE t = ? AND n = ?').bind(threshold, n).first<{ count: number }>();
+			return row?.count ?? 0;
+		},
+		async answerAt(threshold: number, n: number, idx: number): Promise<{ word: string; jamo: string }> {
+			const row = await db
+				.prepare('SELECT word, jamo FROM pool WHERE t = ? AND n = ? AND idx = ?')
+				.bind(threshold, n, idx)
+				.first<{ word: string; jamo: string }>();
+			if (!row) throw new Error(`pool miss t=${threshold} n=${n} idx=${idx}`);
+			return row;
+		}
 	};
-}
-
-const s = () => (stmts ??= open());
-const countCache = new Map<string, number>();
-
-export function isValidJamo(jamo: string): boolean {
-	return s().valid.get(jamo) !== undefined;
-}
-
-export function answerCount(threshold: number, n: number): number {
-	const key = `${threshold}:${n}`;
-	let c = countCache.get(key);
-	if (c === undefined) {
-		c = (s().count.get(threshold, n) as { c: number }).c;
-		countCache.set(key, c);
-	}
-	return c;
-}
-
-export function answerAt(threshold: number, n: number, idx: number): { word: string; jamo: string } {
-	return s().at.get(threshold, n, idx) as { word: string; jamo: string };
 }
