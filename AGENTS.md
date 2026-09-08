@@ -6,18 +6,18 @@
 
 한국어 워들(자모 24종 풀어쓰기). SvelteKit + Svelte 5 runes, Cloudflare Workers + D1. 서버는 무상태(정답은 HMAC 토큰, 진행은 localStorage). 토이 프로젝트 — 사용자 계정 없음, 마이그레이션 없음.
 
-운영: https://enhanced-kordle.bateaux.workers.dev · 배포는 수동 `pnpm run deploy`.
+운영: https://enhanced-kordle.bateaux.workers.dev · 코드는 main 반영 시 GitHub Actions로 자동 배포한다(초기 설정: HANDOFF §6.1).
 
 ## 두 가지 작업 흐름 — 어느 쪽인지 먼저 정한다
 
 | | 코드 변경 (UI·API·규칙) | 사전 변경 (원본 갱신·`familiar`·풀 조건) |
 |---|---|---|
 | 어디서 | 워크트리 어디서나 | **`~/projects/kordle`** — 원본 `dict/`·`kordle.db`는 거기에만 있다 (HANDOFF §3) |
-| 절차 | `pnpm check` → `pnpm run deploy` → smoke | `cp kordle.db kordle.$(date +%F).db` → `build_dict.py` → `scripts/dict_stats.py`(§9와 비교) → `export_d1.py` → `smoke.py POOL_SIZE` 갱신 → `d1/import.sh --local` + 로컬 smoke → `d1/import.sh --remote` → 운영 smoke (HANDOFF §6.3). `pnpm check`·deploy 불필요 |
-| 배포 | `pnpm run deploy` 필요 | **불필요** — Worker는 D1을 즉시 본다 |
+| 절차 | PR: check·test·build → main 반영 → Actions 배포·smoke | `cp kordle.db kordle.$(date +%F).db` → `build_dict.py` → `scripts/dict_stats.py`(§9와 비교) → `export_d1.py` → `smoke.py POOL_SIZE` 갱신 → `d1/import.sh --local` + 로컬 smoke → `d1/import.sh --remote` → 운영 smoke (HANDOFF §6.3). `pnpm check`·deploy 불필요 |
+| 배포 | main 반영 시 Actions 배포 | **불필요** — Worker는 D1을 즉시 본다 |
 | 둘 다 바뀌면 | **D1 먼저**, 코드 나중. `export_d1.py`를 고치는 작업은 워크트리에 `dict/`·`kordle.db`를 심링크해서 한 곳에서 (HANDOFF §3, §6.6) | |
 
-smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. 통과 → 커밋·push. 깨지면 **HANDOFF §6.2 판단표**로 원인을 분류한다 — 대부분 롤백이 정답이 아니다(UA 403, 임포트 직후 10초, `POOL_SIZE`/`EXPECTED_T` 미갱신은 장애가 아님). 깨진 회차는 커밋하지 않는다.
+smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. 코드는 로컬 검증 후 커밋·push·PR → main 반영 → Actions smoke 통과로 완료한다. 사전 수동 갱신은 운영 smoke 통과 후 커밋·push. 깨지면 **HANDOFF §6.2 판단표**로 원인을 분류한다 — 대부분 롤백이 정답이 아니다(UA 403, 임포트 직후 10초, `POOL_SIZE`/`EXPECTED_T` 미갱신은 장애가 아님). Actions smoke 실패 시 배포는 이미 완료된 상태이므로 아래 판단표로 복구한다.
 
 ## 반드시
 
@@ -43,6 +43,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 ```bash
 pnpm check                                                    # 타입·svelte 검사
+pnpm test                                                     # 판정·토큰 단위 테스트
 pnpm dev                                                      # 로컬 (D1은 .wrangler/state, d1/import.sh --local 필요)
 python3 scripts/smoke.py http://localhost:5173                # 로컬 smoke
 pnpm run deploy                                               # 빌드 + wrangler deploy  (pnpm deploy 아님)

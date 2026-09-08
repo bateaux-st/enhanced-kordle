@@ -11,7 +11,7 @@
 한국어 워들. 단어를 **자모 24종으로 풀어쓴 열**을 맞힌다. [원작 꼬들](https://kordle.kr)(6자 고정)을 5~12자 가변 + 게임 모드 5종으로 확장했고, 사전을 국립국어원 3종 + 위키백과로 넓혔다. 토이 프로젝트다 — 사용자 계정 없음, 서버 상태 없음, 트래픽 미미.
 
 - 운영: **https://enhanced-kordle.bateaux.workers.dev** (Cloudflare Workers + D1)
-- 코드: https://github.com/bateaux-st/enhanced-kordle (`main` 단일 브랜치, 배포는 수동 `pnpm run deploy`)
+- 코드: https://github.com/bateaux-st/enhanced-kordle (`main` 단일 브랜치, main 반영 시 GitHub Actions 배포)
 - 스택: SvelteKit 2 + Svelte 5(runes) + TypeScript, adapter-cloudflare, D1, Python 3(사전 빌드)
 
 ## 2. 아키텍처
@@ -175,16 +175,31 @@ SvelteKit은 **빌드 중** 라우트 분석을 위해 서버 모듈을 로드�
 
 ## 6. 배포·운영 절차
 
-### 6.1 코드 배포
+### 6.1 코드 CI/CD
+
+`.github/workflows/ci.yml`:
+- PR → `pnpm install --frozen-lockfile` → `pnpm check` → `pnpm test` → `pnpm run build`.
+- main push → 동일 검증 → `pnpm exec wrangler deploy` → 운영 smoke. 검증한 빌드를 같은 runner에서 배포한다.
+- Actions의 수동 실행도 main에서만 배포한다. 다른 브랜치에서는 검증만 한다.
+- 같은 ref의 실행은 직렬화하며 진행 중 배포를 새 push로 취소하지 않는다.
+
+초기 설정: GitHub 저장소 Settings → Secrets and variables → Actions에 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`를 등록한다. 토큰은 대상 계정에 한정한 Workers 배포용 토큰을 사용한다([Cloudflare 공식 안내](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)). 운영 `KORDLE_SECRET`은 기존 Worker 값을 유지하며 CI에 복사하지 않는다. main 브랜치 보호의 필수 검사로 `verify`를 설정하면 PR 검증 실패 시 병합을 막을 수 있다.
+
+개발 순서: 로컬 check·test 및 필요한 UI/API 검증 → 커밋·push·PR → CI 통과 → main 반영 → 배포·운영 smoke 통과 확인. smoke 실패 시 이미 배포된 상태이므로 §6.2에 따라 복구한다. 자동 롤백은 하지 않는다.
+
+`pnpm test`는 Node 22의 내장 테스트로 중복 자모 판정과 토큰 복원·변조 거부를 검증한다. 실제 D1/API 통합 검증은 운영 smoke이며, UI 검증은 별도로 필요하다. CI runner에는 전체 사전이 없으므로 배포 전 전체 사전 API smoke는 실행하지 않는다.
+
+사전 갱신은 §6.3의 수동 절차를 유지한다. 새 임계값이 필요한 코드의 main 반영 전에 D1 갱신과 smoke 기대값 준비를 끝낸다. 코드 배포 중에는 수동 D1 갱신을 겹쳐 실행하지 않는다.
+
+수동 복구·배포가 필요한 경우:
 
 ```bash
-pnpm install
-pnpm check                 # svelte-check 0 errors 여야 함
-pnpm run deploy            # vite build && wrangler deploy  (※ `pnpm deploy`는 pnpm 내장 명령이라 다른 것)
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm run deploy
 python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
 ```
-
-`wrangler login`이 안 된 환경이면 먼저 `npx wrangler login`(브라우저) 또는 `CLOUDFLARE_API_TOKEN` 환경변수.
 
 ### 6.2 롤백과 "smoke가 깨졌을 때" 판단표
 
@@ -262,7 +277,7 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 2. `python3 export_d1.py kordle.db d1/` → `d1/import.sh --remote` **먼저**. 새 t의 행이 D1에 있어야 새 코드가 안전하다. 옛 코드는 새 행을 안 보므로 순서상 무해. (이 작업은 `export_d1.py`를 고치므로 §3의 심링크 방식으로 워크트리 안에서 한다.)
 3. `src/lib/server/dict.ts POOL_THRESHOLD`에서 해당 모드만 바꾼다. `build_dict.py` 재실행은 필요 없다(사전은 그대로, 풀만 다시 펼침).
 4. `scripts/smoke.py`: `EXPECTED_T`(모드→t), `POOL_SIZE`(export 출력 블록으로 교체). `MODE_FOR_T`는 `EXPECTED_T`에서 자동 유도되지만 새 t를 쓰는 비데일리 모드가 하나도 없으면 `next()`가 실패한다 — 그 경우 데일리 모드로 매핑을 직접 넣는다. **갱신된 smoke는 코드 배포 전에 운영에 치면 `EXPECTED_T` 검사가 실패한다** — 정상. 배포 후에 친다.
-5. `pnpm check` → `pnpm run deploy` → smoke. 통과 후 `README.md`(정답 풀 문단)·`docs/HANDOFF.md` §4.2·§5.2(임계값 문장)·§9 갱신 → 커밋·push.
+5. `README.md`(정답 풀 문단)·`docs/HANDOFF.md` §4.2·§5.2(임계값 문장)·§9를 함께 갱신한다. `pnpm check`·`pnpm test` → 커밋·push·PR → CI 통과 → main 반영 → Actions 배포·smoke.
    코드 배포가 실패하거나 smoke가 깨져 `wrangler rollback`하는 경우 D1의 새 t 행은 **남겨둔다** — 옛 코드는 그 행을 참조하지 않으니 무해하고, 재시도 때 재임포트가 필요 없다.
 6. 부작용: 그날 데일리 정답이 바뀐다(다른 t의 풀이라 `idx`가 다른 단어). 이미 플레이한 사용자는 저장 키에 토큰이 들어 있어 **새 판처럼 보인다**(진행 초기화). 장애 아님. 자정 직후에 하면 아무도 못 느낀다.
 
@@ -351,10 +366,10 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 
 - **Docker/compose/NAS/ghcr 배포 경로** — 2026-09-08 제거(`git log -- Dockerfile`). Cloudflare 단일 타깃. 두 런타임을 유지하면 `dict.ts`·`token.ts`가 둘이 되어 기능마다 두 번 손대야 한다. Node 버전이 필요하면 커밋 `0c7a4bf` 직전 히스토리에 있다(`node:sqlite`, `adapter-node`, HMAC은 `node:crypto`).
 - GitHub Pages 정적 전환 — 사전 2MB를 브라우저에 실어야 하고 정답이 노출된다. Cloudflare가 무료이면서 서버를 유지할 수 있어 택하지 않음.
-- GitHub Actions 자동 배포 — 아직 없음. 필요하면 `cloudflare/wrangler-action` + `CLOUDFLARE_API_TOKEN` 레포 시크릿.
+- GitHub Actions 코드 CI/CD — PR 검증, main 배포·smoke (§6.1). 사전 자동 갱신은 아직 없음.
 - 공유(이모지 격자 복사), 다크 모드, 계정/서버 저장 — 요청되지 않음.
 
-작업 완료 기준: `pnpm check` 0 errors → 배포(또는 재임포트) → `scripts/smoke.py` 통과 → **그 다음에** 커밋·`git push`. smoke가 깨진 회차는 커밋하지 않는다(실패한 수정이 히스토리에 잘못된 의도로 남는다). 문서만 바뀐 커밋은 예외.
+작업 완료 기준: 코드는 로컬 검증 → 커밋·push·PR → CI 통과 → main 반영 → Actions 배포·운영 smoke 통과. 사전 수동 갱신은 운영 smoke 통과 후 커밋·push. 문서만 수정한 작업은 로컬 실행 검증을 생략할 수 있다.
 
 ## 12. 타임라인 (결정 연대기)
 
