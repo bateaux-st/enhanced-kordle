@@ -65,42 +65,44 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border: 2px solid var(--slate-200);
+		border: 2px solid var(--line);
 		border-radius: 0.25rem;
-		background: #fff;
+		background: var(--bg);
 		font-size: calc(var(--tile) * 0.43);
 		font-weight: 700;
 		color: var(--text);
 		user-select: none;
 	}
 	.filled {
-		border-color: var(--slate-400);
+		border-color: var(--line-strong);
 	}
 	.invalid {
-		color: var(--red-400);
+		color: var(--danger);
 	}
 	/* 힌트로 밝혀진 칸 — 입력 전에는 흐리게, 노란 점선 테두리 */
 	.hint {
-		color: var(--slate-300);
+		color: var(--hint-text);
 		border-style: dashed;
-		border-color: var(--yellow-500);
+		border-color: var(--tile-present);
 	}
 	.c,
-	.p,
+	.p {
+		color: var(--on-tile);
+	}
 	.a {
-		color: #fff;
+		color: var(--on-absent);
 	}
 	.c {
-		background: var(--green-500);
-		border-color: var(--green-500);
+		background: var(--tile-correct);
+		border-color: var(--tile-correct);
 	}
 	.p {
-		background: var(--yellow-500);
-		border-color: var(--yellow-500);
+		background: var(--tile-present);
+		border-color: var(--tile-present);
 	}
 	.a {
-		background: var(--slate-400);
-		border-color: var(--slate-400);
+		background: var(--tile-absent);
+		border-color: var(--tile-absent);
 	}
 
 	@keyframes shake {

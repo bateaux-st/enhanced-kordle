@@ -76,7 +76,7 @@
 		margin: 0.2rem 0;
 	}
 	code {
-		background: var(--slate-200);
+		background: var(--code-bg);
 		padding: 0 0.25rem;
 		border-radius: 0.2rem;
 	}
@@ -97,7 +97,7 @@
 		border-radius: 0.25rem;
 		font-weight: 700;
 		font-size: 1.25rem;
-		color: #fff;
+		color: var(--on-tile);
 	}
 	.dot {
 		display: inline-block;
@@ -108,12 +108,13 @@
 		margin-right: 0.25rem;
 	}
 	.c {
-		background: var(--green-500);
+		background: var(--tile-correct);
 	}
 	.p {
-		background: var(--yellow-500);
+		background: var(--tile-present);
 	}
 	.a {
-		background: var(--slate-400);
+		background: var(--tile-absent);
+		color: var(--on-absent);
 	}
 </style>

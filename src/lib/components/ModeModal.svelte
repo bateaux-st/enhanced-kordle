@@ -70,13 +70,13 @@
 		gap: 0.625rem;
 		align-items: flex-start;
 		padding: 0.5rem 0.625rem;
-		border: 2px solid var(--slate-200);
+		border: 2px solid var(--line);
 		border-radius: 0.375rem;
 		cursor: pointer;
 	}
 	label.on {
-		border-color: var(--indigo-500);
-		background: var(--indigo-100);
+		border-color: var(--sel-line);
+		background: var(--sel-bg);
 	}
 	input {
 		margin-top: 0.2rem;
@@ -85,7 +85,7 @@
 		font-weight: 700;
 	}
 	.desc {
-		color: var(--slate-500);
+		color: var(--muted);
 		font-size: 0.8rem;
 	}
 	.len-title {
@@ -102,11 +102,12 @@
 		height: 2.25rem;
 		padding: 0 0.5rem;
 		border-radius: 0.25rem;
-		background: var(--slate-200);
+		background: var(--key);
+		color: var(--on-key);
 		font-weight: 700;
 	}
 	.lens button.on {
-		background: var(--indigo-700);
+		background: var(--btn-primary);
 		color: #fff;
 	}
 	.start {
@@ -114,12 +115,12 @@
 		width: 100%;
 		height: 2.75rem;
 		border-radius: 0.375rem;
-		background: var(--green-500);
-		color: #fff;
+		background: var(--tile-correct);
+		color: var(--on-tile);
 		font-weight: 700;
 		font-size: 1rem;
 	}
 	.start:hover {
-		background: var(--green-600);
+		background: var(--tile-correct-hover);
 	}
 </style>

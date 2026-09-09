@@ -45,44 +45,47 @@
 		align-items: center;
 		justify-content: center;
 		border-radius: 0.25rem;
-		background: var(--slate-200);
+		background: var(--key);
+		color: var(--on-key);
 		font-size: 1rem;
 		font-weight: 700;
 		user-select: none;
 	}
 	.key:hover {
-		background: var(--slate-300);
+		background: var(--key-hover);
 	}
 	.key:active {
-		background: var(--slate-400);
+		background: var(--key-active);
 	}
 	.wide {
 		width: calc(var(--kw) * 1.635);
 	}
 	.c,
-	.p,
+	.p {
+		color: var(--on-tile);
+	}
 	.a {
-		color: #fff;
+		color: var(--on-absent);
 	}
 	.c {
-		background: var(--green-500);
+		background: var(--tile-correct);
 	}
 	.c:hover {
-		background: var(--green-600);
+		background: var(--tile-correct-hover);
 	}
 	.c:active {
-		background: var(--green-700);
+		background: var(--tile-correct-active);
 	}
 	.p {
-		background: var(--yellow-500);
+		background: var(--tile-present);
 	}
 	.p:hover,
 	.p:active {
-		background: #ca8a04;
+		background: var(--tile-present-hover);
 	}
 	.a,
 	.a:hover,
 	.a:active {
-		background: var(--slate-400);
+		background: var(--tile-absent);
 	}
 </style>

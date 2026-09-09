@@ -1,22 +1,32 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
-	import { DAILY_TRIES, MAX_TRIES, MIN_TRIES } from '$lib/game.svelte';
+	import { DAILY_TRIES, MAX_TRIES, MIN_TRIES, type Theme } from '$lib/game.svelte';
 
 	let {
 		tries,
 		hard,
 		canEnableHard,
+		theme,
 		onchange,
 		onhard,
+		onthemechange,
 		onclose
 	}: {
 		tries: number;
 		hard: boolean;
 		canEnableHard: boolean;
+		theme: Theme;
 		onchange: (t: number) => void;
 		onhard: (on: boolean) => void;
+		onthemechange: (t: Theme) => void;
 		onclose: () => void;
 	} = $props();
+
+	const THEMES: { id: Theme; label: string }[] = [
+		{ id: 'system', label: '시스템' },
+		{ id: 'light', label: '라이트' },
+		{ id: 'dark', label: '다크' }
+	];
 </script>
 
 <Modal title="설정" {onclose}>
@@ -56,6 +66,18 @@
 			<span></span>
 		</button>
 	</div>
+
+	<div class="block">
+		<div class="name">테마</div>
+		<div class="desc">기기 설정을 따르거나 직접 고릅니다. 고르는 즉시 적용됩니다.</div>
+		<div class="seg">
+			{#each THEMES as t (t.id)}
+				<button class:on={theme === t.id} aria-pressed={theme === t.id} onclick={() => onthemechange(t.id)}>
+					{t.label}
+				</button>
+			{/each}
+		</div>
+	</div>
 </Modal>
 
 <style>
@@ -64,16 +86,17 @@
 		align-items: center;
 		gap: 1rem;
 	}
-	.row + .row {
+	.row + .row,
+	.block {
 		margin-top: 1rem;
 		padding-top: 1rem;
-		border-top: 1px solid var(--slate-200);
+		border-top: 1px solid var(--line);
 	}
 	.name {
 		font-weight: 700;
 	}
 	.desc {
-		color: var(--slate-500);
+		color: var(--muted);
 		font-size: 0.8rem;
 	}
 	.stepper {
@@ -86,7 +109,8 @@
 		width: 2rem;
 		height: 2rem;
 		border-radius: 0.25rem;
-		background: var(--slate-200);
+		background: var(--key);
+		color: var(--on-key);
 		font-weight: 700;
 		font-size: 1.1rem;
 	}
@@ -105,7 +129,7 @@
 		width: 2.75rem;
 		height: 1.5rem;
 		border-radius: 0.75rem;
-		background: var(--slate-300);
+		background: var(--switch-off);
 		padding: 0.1875rem;
 		transition: background 0.15s;
 	}
@@ -118,7 +142,7 @@
 		transition: transform 0.15s;
 	}
 	.switch.on {
-		background: var(--indigo-700);
+		background: var(--btn-primary);
 	}
 	.switch.on span {
 		transform: translateX(1.25rem);
@@ -126,5 +150,25 @@
 	.switch:disabled {
 		opacity: 0.4;
 		cursor: default;
+	}
+	/* 표시 설정. 칩 줄은 ModeModal의 '자모 수'(.lens)와 같은 형태를 쓴다. */
+	.seg {
+		display: flex;
+		gap: 0.25rem;
+		margin-top: 0.5rem;
+	}
+	.seg button {
+		min-width: 3.5rem;
+		height: 2.25rem;
+		padding: 0 0.75rem;
+		border-radius: 0.25rem;
+		background: var(--key);
+		color: var(--on-key);
+		font-weight: 700;
+		font-size: 0.85rem;
+	}
+	.seg button.on {
+		background: var(--btn-primary);
+		color: #fff;
 	}
 </style>

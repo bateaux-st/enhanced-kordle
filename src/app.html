@@ -3,8 +3,22 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="theme-color" content="#000000" />
+		<meta name="theme-color" content="#ffffff" />
 		<meta name="description" content="n자 꼬들 — 5~12자모 한국어 풀어쓰기 단어 맞히기" />
+		<script>
+			// 첫 페인트 전에 테마를 확정한다. 이게 없으면 다크 사용자에게 흰 화면이 한 번 번쩍인다
+			// (+page.ts가 ssr=false; prerender=true라 HTML은 정적이고 색은 CSS 변수로만 갈린다).
+			// 키와 해석 규칙은 game.svelte.ts의 applyTheme()과 같아야 한다. 값(색)은 여기 두지 않는다.
+			try {
+				const saved = JSON.parse(localStorage.getItem('nkordle:settings') || '{}');
+				const dark =
+					saved.theme === 'dark' ||
+					(saved.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+				document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+			} catch {
+				/* localStorage를 못 읽으면 라이트로 둔다 */
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

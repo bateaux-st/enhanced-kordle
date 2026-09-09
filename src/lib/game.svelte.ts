@@ -62,6 +62,16 @@ interface DailyClimbSave {
 
 const emptyStats = (): Stats => ({ played: 0, won: 0, streak: 0, maxStreak: 0, dist: [] });
 
+/** 'system'은 기기 설정(prefers-color-scheme)을 따른다. 화면에 실제로 박히는 값은 light/dark 둘뿐. */
+export type Theme = 'system' | 'light' | 'dark';
+
+/** localStorage 'settings'에 들어 있는 것. 예전 사용자에게는 theme이 없으므로 전부 optional로 읽는다. */
+interface StoredSettings {
+	maxTries?: number;
+	hard?: boolean;
+	theme?: Theme;
+}
+
 async function post<T>(url: string, body: unknown): Promise<T> {
 	const res = await fetch(url, {
 		method: 'POST',
@@ -74,9 +84,12 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 
 export class Game {
 	config = $state<ModeConfig>(load('config', { mode: 'daily', length: { kind: 'fixed', n: 6 } }));
-	settingTries = $state<number>(load('settings', { maxTries: DEFAULT_TRIES }).maxTries);
+	// settings 키 하나에 maxTries·hard·theme이 같이 들어간다. 쓰기는 반드시 saveSettings()로 —
+	// 한쪽만 save하면 다른 쪽이 지워진다.
+	settingTries = $state<number>(load<StoredSettings>('settings', {}).maxTries ?? DEFAULT_TRIES);
 	/** 하드모드 — 초록 자리와 노랑 자모를 다음 추측에 반드시 다시 쓴다. 기존 사용자의 저장값에는 이 키가 없다(마이그레이션 없음). */
-	hard = $state<boolean>(load<{ hard?: boolean }>('settings', {}).hard ?? false);
+	hard = $state<boolean>(load<StoredSettings>('settings', {}).hard ?? false);
+	theme = $state<Theme>(load<StoredSettings>('settings', {}).theme ?? 'system');
 
 	n = $state(6);
 	token = $state('');
@@ -152,8 +165,34 @@ export class Game {
 		this.saveSettings();
 	}
 
+	setTheme(t: Theme) {
+		this.theme = t;
+		this.saveSettings();
+		this.applyTheme();
+	}
+
+	/**
+	 * 지금 테마를 문서에 반영한다. 첫 페인트는 app.html의 인라인 스크립트가 이미 처리했고,
+	 * 여기가 불리는 건 사용자가 테마를 바꿨거나 'system'인데 기기 설정이 바뀐 경우다.
+	 */
+	applyTheme() {
+		if (typeof document === 'undefined') return;
+		const dark =
+			this.theme === 'dark' ||
+			(this.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+		document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+		// 주소창 색은 app.css의 --bg를 그대로 따라가게 한다. 색값을 두 벌 두지 않으려는 것.
+		const meta = document.querySelector('meta[name="theme-color"]');
+		const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+		if (meta && bg) meta.setAttribute('content', bg);
+	}
+
 	private saveSettings() {
-		save('settings', { maxTries: this.settingTries, hard: this.hard });
+		save('settings', {
+			maxTries: this.settingTries,
+			hard: this.hard,
+			theme: this.theme
+		} satisfies StoredSettings);
 	}
 
 	/** 스테이지 1부터(등반) 또는 새 단어로 시작. 일일 등반은 오늘 진행이 있으면 그 스테이지부터. */

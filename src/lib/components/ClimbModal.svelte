@@ -51,7 +51,7 @@
 	}
 	.sub {
 		text-align: center;
-		color: var(--slate-500);
+		color: var(--muted);
 		font-size: 0.8rem;
 		margin-bottom: 1rem;
 	}
@@ -75,8 +75,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--green-500);
-		color: #fff;
+		background: var(--tile-correct);
+		color: var(--on-tile);
 		border-radius: 0.2rem;
 		font-weight: 700;
 		font-size: calc(var(--tile) * 0.5);
@@ -100,12 +100,12 @@
 		width: 100%;
 		height: 2.75rem;
 		border-radius: 0.375rem;
-		background: var(--indigo-700);
+		background: var(--btn-primary);
 		color: #fff;
 		font-weight: 700;
 		font-size: 1rem;
 	}
 	.restart:hover {
-		background: #3730a3;
+		background: var(--btn-primary-hover);
 	}
 </style>
