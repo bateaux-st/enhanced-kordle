@@ -56,7 +56,7 @@
 
 <style>
 	.sub {
-		color: var(--slate-500);
+		color: var(--muted);
 		font-size: 0.8rem;
 		margin-bottom: 0.75rem;
 	}
@@ -72,7 +72,7 @@
 	}
 	.tiles span {
 		font-size: 0.7rem;
-		color: var(--slate-500);
+		color: var(--muted);
 	}
 	.best {
 		margin-top: 0.75rem;
@@ -96,8 +96,8 @@
 	.bar {
 		min-width: 1.5rem;
 		height: 1.25rem;
-		background: var(--slate-400);
-		color: #fff;
+		background: var(--tile-absent);
+		color: var(--on-absent);
 		font-size: 0.75rem;
 		font-weight: 700;
 		display: flex;
@@ -107,7 +107,8 @@
 		border-radius: 0.15rem;
 	}
 	.bar.hit {
-		background: var(--green-500);
+		background: var(--tile-correct);
+		color: var(--on-tile);
 	}
 	.answer {
 		margin-top: 0.75rem;

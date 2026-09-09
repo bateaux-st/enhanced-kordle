@@ -19,7 +19,7 @@
 	.backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgb(0 0 0 / 0.4);
+		background: var(--scrim);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -27,13 +27,13 @@
 		z-index: 10;
 	}
 	.card {
-		background: #fff;
+		background: var(--surface);
 		border-radius: 0.5rem;
 		width: 100%;
 		max-width: 26rem;
 		max-height: calc(100vh - 2rem);
 		overflow-y: auto;
-		box-shadow: 0 10px 25px rgb(0 0 0 / 0.2);
+		box-shadow: var(--shadow);
 		outline: none;
 	}
 	.head {
@@ -49,7 +49,7 @@
 	}
 	.head button {
 		font-size: 1.125rem;
-		color: var(--slate-500);
+		color: var(--muted);
 		padding: 0.25rem;
 	}
 	.body {

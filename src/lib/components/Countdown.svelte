@@ -19,7 +19,7 @@
 	.next {
 		margin-top: 0.25rem;
 		text-align: center;
-		color: var(--slate-500);
+		color: var(--muted);
 		font-size: 0.85rem;
 	}
 </style>

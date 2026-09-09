@@ -20,6 +20,13 @@
 
 	onMount(() => {
 		void game.newGame();
+		// 인라인 스크립트가 첫 페인트에 이미 반영했지만, 그게 실패했을 때의 보정으로 한 번 더 건다.
+		game.applyTheme();
+		// 테마가 '시스템'이면 기기 설정이 바뀔 때 따라가야 한다.
+		const mq = matchMedia('(prefers-color-scheme: dark)');
+		const follow = () => game.applyTheme();
+		mq.addEventListener('change', follow);
+		return () => mq.removeEventListener('change', follow);
 	});
 
 	// 데일리가 끝나면 원작처럼 통계를, 등반이 끝나면(실패 또는 완주) 피라미드를 띄운다. 타일 애니메이션이 끝날 여유만 준다.
@@ -133,8 +140,10 @@
 		tries={game.settingTries}
 		hard={game.hard}
 		canEnableHard={game.canEnableHard}
+		theme={game.theme}
 		onchange={(t) => game.setTries(t)}
 		onhard={(on) => game.setHard(on)}
+		onthemechange={(t) => game.setTheme(t)}
 		onclose={() => (panel = null)}
 	/>
 {:else if panel === 'help'}
@@ -157,12 +166,12 @@
 	}
 	.mode-line {
 		text-align: center;
-		color: var(--slate-500);
+		color: var(--muted);
 		font-size: 0.8rem;
 		margin: -1.25rem 0 0.75rem;
 	}
 	.mode-line .hard {
-		color: var(--indigo-700);
+		color: var(--btn-text);
 	}
 	.actions {
 		display: flex;
@@ -176,21 +185,21 @@
 		border-radius: 0.25rem;
 		font-size: 0.75rem;
 		font-weight: 500;
-		color: var(--indigo-700);
-		background: var(--indigo-100);
+		color: var(--btn-text);
+		background: var(--btn);
 	}
 	.actions button:hover {
-		background: var(--indigo-200);
+		background: var(--btn-hover);
 	}
 	.actions .primary {
-		background: var(--indigo-700);
+		background: var(--btn-primary);
 		color: #fff;
 	}
 	.actions .primary:hover {
-		background: #3730a3;
+		background: var(--btn-primary-hover);
 	}
 	.actions .danger {
-		background: var(--red-400);
+		background: var(--danger);
 		color: #fff;
 	}
 	.actions button:disabled {
@@ -198,15 +207,15 @@
 		cursor: default;
 	}
 	.actions button:disabled:hover {
-		background: var(--indigo-100);
+		background: var(--btn);
 	}
 	.toast {
 		position: fixed;
 		top: 4.5rem;
 		left: 50%;
 		transform: translateX(-50%);
-		background: var(--slate-700);
-		color: #fff;
+		background: var(--toast-bg);
+		color: var(--toast-text);
 		padding: 0.5rem 0.875rem;
 		border-radius: 0.375rem;
 		font-size: 0.875rem;

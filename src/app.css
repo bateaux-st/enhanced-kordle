@@ -14,8 +14,104 @@
 	--indigo-200: #c7d2fe;
 	--indigo-500: #6366f1;
 	--indigo-700: #4338ca;
-	--text: #111827;
+}
+
+/*
+ * 역할 토큰. 컴포넌트는 위 팔레트 원값 대신 이 이름만 참조하고, 테마가 바꾸는 것은 이 33개뿐이다.
+ * 라이트가 기본값이고 다크는 아래 [data-theme='dark'] 한 블록.
+ *
+ * data-theme은 app.html의 인라인 스크립트가 첫 페인트 전에 박는다(이미 light/dark로 해석된 값).
+ * prefers-color-scheme 미디어쿼리로 나누지 않은 이유: 그러면 다크 값을 두 벌 유지해야 하고,
+ * 이 앱은 +page.ts가 ssr=false라 어차피 JS 없이는 화면이 뜨지 않는다. 스크립트가 실패하면 라이트로 남는다.
+ */
+:root {
+	color-scheme: light;
+
 	--bg: #ffffff;
+	--surface: #ffffff;
+	--text: #111827;
+	--muted: var(--slate-500);
+	--line: var(--slate-200);
+	--line-strong: var(--slate-400);
+	--hint-text: var(--slate-300);
+
+	--key: var(--slate-200);
+	--key-hover: var(--slate-300);
+	--key-active: var(--slate-400);
+	--on-key: var(--text);
+
+	--tile-correct: var(--green-500);
+	--tile-present: var(--yellow-500);
+	--tile-absent: var(--slate-400);
+	--tile-correct-hover: var(--green-600);
+	--tile-correct-active: var(--green-700);
+	--tile-present-hover: #ca8a04; /* yellow-600. 원작이 여기만 인라인으로 썼다 */
+	--on-tile: #ffffff;
+	--on-absent: #ffffff;
+
+	--btn: var(--indigo-100);
+	--btn-hover: var(--indigo-200);
+	--btn-text: var(--indigo-700);
+	--btn-primary: var(--indigo-700);
+	--btn-primary-hover: #3730a3; /* indigo-800 */
+	--sel-bg: var(--indigo-100);
+	--sel-line: var(--indigo-500);
+	--switch-off: var(--slate-300);
+	--danger: var(--red-400);
+
+	--scrim: rgb(0 0 0 / 0.4);
+	--shadow: 0 10px 25px rgb(0 0 0 / 0.2);
+	--code-bg: var(--slate-200);
+	--toast-bg: var(--slate-700);
+	--toast-text: #ffffff;
+}
+
+/*
+ * 다크(딥잉크). slate 계열을 쓰지 않는 별도 회색 램프라 팔레트 원값을 참조하지 않는다.
+ * 두 가지가 라이트와 관계가 뒤집히니 고칠 때 주의:
+ *  - --key는 --tile-absent보다 밝아야 한다. 같으면 탈락한 자모가 키보드에서 안 보인다.
+ *  - --toast-bg는 밝은 칩이다(라이트는 어두운 칩). 그래서 --toast-text가 어둡다.
+ */
+:root[data-theme='dark'] {
+	color-scheme: dark;
+
+	--bg: #121213;
+	--surface: #1a1a1b;
+	--text: #d7dadc;
+	--muted: #9a9c9d;
+	--line: #3a3a3c;
+	--line-strong: #565758;
+	--hint-text: #6a6b6c;
+
+	--key: #6b6c6e;
+	--key-hover: #7b7c7e;
+	--key-active: #8b8c8e;
+	--on-key: #f8fafc;
+
+	--tile-correct: #47804a;
+	--tile-present: #a68a2e;
+	--tile-absent: #3a3a3c;
+	--tile-correct-hover: #538f56;
+	--tile-correct-active: #5f9c62;
+	--tile-present-hover: #b89733;
+	--on-tile: #f8fafc;
+	--on-absent: #d7dadc;
+
+	--btn: #2c2c2e;
+	--btn-hover: #3a3a3c;
+	--btn-text: #a5b4fc;
+	--btn-primary: #4f46e5;
+	--btn-primary-hover: #6366f1;
+	--sel-bg: #26264a;
+	--sel-line: #6366f1;
+	--switch-off: #565758;
+	--danger: #a84545;
+
+	--scrim: rgb(0 0 0 / 0.6);
+	--shadow: 0 10px 25px rgb(0 0 0 / 0.6);
+	--code-bg: #3a3a3c;
+	--toast-bg: #d7dadc;
+	--toast-text: #121213;
 }
 
 *,
