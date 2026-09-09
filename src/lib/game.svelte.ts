@@ -12,6 +12,7 @@ import type {
 	RevealResponse
 } from './types';
 import { MAX_N, MIN_N } from './jamo';
+import { hardViolation } from './hard';
 import { load, removeWhere, save } from './storage';
 import { todayKST } from './day';
 
@@ -74,6 +75,8 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 export class Game {
 	config = $state<ModeConfig>(load('config', { mode: 'daily', length: { kind: 'fixed', n: 6 } }));
 	settingTries = $state<number>(load('settings', { maxTries: DEFAULT_TRIES }).maxTries);
+	/** 하드모드 — 초록 자리와 노랑 자모를 다음 추측에 반드시 다시 쓴다. 기존 사용자의 저장값에는 이 키가 없다(마이그레이션 없음). */
+	hard = $state<boolean>(load<{ hard?: boolean }>('settings', {}).hard ?? false);
 
 	n = $state(6);
 	token = $state('');
@@ -98,6 +101,8 @@ export class Game {
 	shake = $state(false);
 
 	maxTries = $derived(isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries);
+	/** 원작처럼 판 도중에는 켤 수 없다 — 이미 낸 추측이 제약을 어겨 있을 수 있다. 끄는 건 언제나 된다. */
+	canEnableHard = $derived(this.status !== 'playing' || this.rows.length === 0);
 
 	/** 자모별로 지금까지 받은 최고 판정 — 키보드 색에 쓴다. */
 	keyStates = $derived.by(() => {
@@ -138,7 +143,17 @@ export class Game {
 
 	setTries(t: number) {
 		this.settingTries = Math.min(MAX_TRIES, Math.max(MIN_TRIES, t));
-		save('settings', { maxTries: this.settingTries });
+		this.saveSettings();
+	}
+
+	setHard(on: boolean) {
+		if (on && !this.canEnableHard) return;
+		this.hard = on;
+		this.saveSettings();
+	}
+
+	private saveSettings() {
+		save('settings', { maxTries: this.settingTries, hard: this.hard });
 	}
 
 	/** 스테이지 1부터(등반) 또는 새 단어로 시작. 일일 등반은 오늘 진행이 있으면 그 스테이지부터. */
@@ -267,6 +282,17 @@ export class Game {
 			this.showToast('사전에 없는 단어입니다');
 			this.nudge();
 			return;
+		}
+		if (this.hard) {
+			const v = hardViolation(this.rows, this.marks, this.current);
+			if (v) {
+				this.showToast(
+					v.kind === 'pos' ? `${v.pos + 1}번째 칸은 ${v.jamo}입니다` : `${v.jamo}을(를) 포함해야 합니다`,
+					2500
+				);
+				this.nudge();
+				return;
+			}
 		}
 		this.busy = true;
 		try {
