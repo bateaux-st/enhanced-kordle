@@ -2,7 +2,7 @@
 
 이 문서는 **이 레포를 처음 받은 사람/에이전트가 다른 정보 없이 유지·개발할 수 있게** 쓴 것이다. 짧은 규칙은 [`AGENTS.md`](../AGENTS.md), 사용자용 소개는 [`README.md`](../README.md). 여기는 그 뒤에 있는 "왜"와 "어디를 만지면 무엇이 깨지는가", 그리고 검증에 쓰는 기준 수치를 담는다.
 
-마지막 갱신: 2026-09-08. 이후 바뀐 것은 `git log`가 우선한다.
+마지막 갱신: 2026-09-09. 이후 바뀐 것은 `git log`가 우선한다.
 
 ---
 
@@ -41,6 +41,7 @@
 | `src/lib/jamo.ts` | 자모 24종, 키보드 배열, 물리키 매핑 | `JAMO` 순서·구성은 `build_dict.py`와 같은 집합 |
 | `src/lib/types.ts` | `GameMode`, API 계약 | 모드를 추가하면 `POOL_THRESHOLD`·`MODE_LABEL`·`isClimb/isDaily`도 |
 | `src/lib/day.ts` | KST 날짜 | 서버·클라이언트 공용. 바꾸면 데일리 저장 키가 어긋남 |
+| `src/lib/hard.ts` | 하드모드 검증(초록 자리·노랑 자모) | 순수 함수. 노랑은 자모 종류만 보고 **개수는 세지 않는다**(2026-09-09 사용자 결정) |
 | `src/lib/server/dict.ts` | D1 조회, `POOL_THRESHOLD` | 모든 조회는 PK 한 행이어야 함(§6) |
 | `src/lib/server/token.ts` | HMAC 토큰, 시드 해시 (Web Crypto) | payload 형식 `n.t.idx` |
 | `src/lib/server/judge.ts` | 워들 2-pass 판정 | 순수 함수. 바꾸면 게임 규칙이 바뀐다 |
@@ -306,7 +307,7 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | 키 | 값 | 비고 |
 |---|---|---|
 | `config` | `{mode, length: {kind:'fixed', n} \| {kind:'random'}}` | 마지막 모드 |
-| `settings` | `{maxTries}` | 4~10. 데일리 계열은 무시(6 고정) |
+| `settings` | `{maxTries, hard}` | `maxTries` 4~10(데일리 계열은 무시, 6 고정). `hard` 하드모드 on/off, 모드와 무관하게 전역. 옛 저장값에는 `hard`가 없어 읽을 때 `false`로 메운다 |
 | `stats:<mode>` | `{played, won, streak, maxStreak, dist[]}` | 모드별 |
 | `best:<mode>:<lengthKey>` | number | 등반 최고 스테이지. `lengthKey` = `fixed-6` / `random` |
 | `daily:<YYYY-MM-DD>:<token>` | `{rows, marks, status, answer, hints}` | 데일리·일일 등반의 한 판. 저장할 때 오늘 날짜 아닌 키는 삭제 |
@@ -380,4 +381,5 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 | 09-02~03 | 사전에 기초사전·우리말샘·위키(구만) 추가 → 120만 행. `familiar` 점수 설계, 임계값 3/2 사용자 결정 |
 | 09-04 | 힌트·포기·등반 피라미드 |
 | 09-07 | 일일 등반 모드, 힌트 1회 제한. GitHub `bateaux-st/enhanced-kordle`로 이전(author 이메일 재작성) |
+| 09-09 | 하드모드(설정 토글). 판 시작 시에만 켤 수 있고 끄기는 언제나 |
 | 09-08 | NAS 배포 준비(ghcr 워크플로우) → 같은 날 **Cloudflare Workers + D1로 전환**, Docker 경로 제거. `bateaux.workers.dev` |

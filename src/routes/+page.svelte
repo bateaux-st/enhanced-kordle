@@ -88,6 +88,9 @@
 		{#if isClimb(game.config.mode)}
 			· 스테이지 <b>{game.stage}</b>
 		{/if}
+		{#if game.hard}
+			· <b class="hard">하드</b>
+		{/if}
 	</div>
 
 	<Board {game} />
@@ -126,7 +129,14 @@
 {#if panel === 'mode'}
 	<ModeModal config={game.config} onstart={startMode} onclose={() => (panel = null)} />
 {:else if panel === 'settings'}
-	<SettingsModal tries={game.settingTries} onchange={(t) => game.setTries(t)} onclose={() => (panel = null)} />
+	<SettingsModal
+		tries={game.settingTries}
+		hard={game.hard}
+		canEnableHard={game.canEnableHard}
+		onchange={(t) => game.setTries(t)}
+		onhard={(on) => game.setHard(on)}
+		onclose={() => (panel = null)}
+	/>
 {:else if panel === 'help'}
 	<HelpModal onclose={() => (panel = null)} />
 {:else if panel === 'stats'}
@@ -150,6 +160,9 @@
 		color: var(--slate-500);
 		font-size: 0.8rem;
 		margin: -1.25rem 0 0.75rem;
+	}
+	.mode-line .hard {
+		color: var(--indigo-700);
 	}
 	.actions {
 		display: flex;
