@@ -1,20 +1,23 @@
 import type { GameMode } from '$lib/types';
 
 // 정답 풀: 표준국어대사전 명사 중 익숙함 점수(familiar, build_dict.py의 Entry.familiar)가 임계값 이상인 것.
-// 하루 하나인 데일리와 12자까지 올라가는 길이 상승은 깨끗하게(≥3), 계속 도는 무한·연속 클리어는 넓게(≥2).
+// NIADic이 들여온 표기는 표준국어대사전 밖이라 familiar=NULL이다 — 입력만 되고 정답으로는 나오지 않는다.
+// 하루 하나인 데일리와 12자까지 올라가는 길이 상승은 깨끗하게(≥3), 계속 도는 무한·연속 클리어는 넓게(≥1).
+// ≥1 구간은 절반이 등급 없이 위키 문서 크기로만 점수를 받은 말이라 인명·지명이 섞인다(마돈나·헬레네·안시성).
+// 계속 도는 모드에서는 그 폭을 받아들이기로 했다 (2026-09-11 사용자 결정). 데일리 계열은 ≥3 유지.
 // 풀은 export_d1.py가 (t, n, idx) → word로 미리 펼쳐 두므로 (n, threshold, idx)가 항상 같은 단어를 가리킨다.
 export const POOL_THRESHOLD: Record<GameMode, number> = {
 	daily: 3,
 	'daily-climb': 3,
 	'climb-length': 3,
-	endless: 2,
-	'climb-streak': 2
+	endless: 1,
+	'climb-streak': 1
 };
 
 // D1(Cloudflare SQLite). 모든 조회가 PK 한 행이라 읽은 행 수 기준 무료 한도(하루 500만)를 거의 쓰지 않는다.
 // 판정은 자모열로 한다 — 공백을 버린 자모열이라 '헌법 재판소'와 '헌법재판소'가 같은 키로 맞는다.
-// valid 테이블은 네 사전(표준국어대사전·한국어기초사전·우리말샘·위키백과 띄어 쓴 제목)에서
-// 방언/북한어만 빼고 만든 것이다 (export_d1.py).
+// valid는 국립국어원 3종·위키백과 띄어 쓴 제목·NIADic 명사(고유명사 포함)를 합친 자모열이다.
+// 기존 방언/북한어 제외는 NIADic에 중복 등재되어도 유지한다 (build_dict.py, export_d1.py).
 export function dict(db: D1Database) {
 	return {
 		async isValidJamo(jamo: string): Promise<boolean> {

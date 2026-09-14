@@ -2,13 +2,13 @@
 
 이 문서는 **이 레포를 처음 받은 사람/에이전트가 다른 정보 없이 유지·개발할 수 있게** 쓴 것이다. 짧은 규칙은 [`AGENTS.md`](../AGENTS.md), 사용자용 소개는 [`README.md`](../README.md). 여기는 그 뒤에 있는 "왜"와 "어디를 만지면 무엇이 깨지는가", 그리고 검증에 쓰는 기준 수치를 담는다.
 
-마지막 갱신: 2026-09-09. 이후 바뀐 것은 `git log`가 우선한다.
+마지막 갱신: 2026-09-14. 이후 바뀐 것은 `git log`가 우선한다.
 
 ---
 
 ## 1. 무엇인가
 
-한국어 워들. 단어를 **자모 24종으로 풀어쓴 열**을 맞힌다. [원작 꼬들](https://kordle.kr)(6자 고정)을 5~12자 가변 + 게임 모드 5종으로 확장했고, 사전을 국립국어원 3종 + 위키백과로 넓혔다. 토이 프로젝트다 — 사용자 계정 없음, 서버 상태 없음, 트래픽 미미.
+한국어 워들. 단어를 **자모 24종으로 풀어쓴 열**을 맞힌다. [원작 꼬들](https://kordle.kr)(6자 고정)을 5~12자 가변 + 게임 모드 5종으로 확장했고, 사전을 국립국어원 3종 + 위키백과 + NIADic 명사로 넓혔다. 토이 프로젝트다 — 사용자 계정 없음, 서버 상태 없음, 트래픽 미미.
 
 - 운영: **https://enhanced-kordle.bateaux.workers.dev** (Cloudflare Workers + D1)
 - 코드: https://github.com/bateaux-st/enhanced-kordle (`main` 단일 브랜치, main 반영 시 GitHub Actions 배포)
@@ -34,7 +34,7 @@
 
 | 파일 | 역할 | 만질 때 주의 |
 |---|---|---|
-| `build_dict.py` | 원본 4소스 → `kordle.db` (자모 분해, 병합, `familiar` 점수) | `SPLIT` 맵·`normalize`·`Entry.familiar()`는 전부 §4 불변 규칙에 걸림 |
+| `build_dict.py` | 원본 5소스 → `kordle.db` (자모 분해, 병합, `familiar` 점수) | `SPLIT` 맵·`normalize`·`Entry.familiar()`는 전부 §4 불변 규칙에 걸림 |
 | `export_d1.py` | `kordle.db` → D1 임포트 SQL (`valid`, `pool`, `pool_meta`) | `POOL`·`THRESHOLDS`는 `dict.ts`와 **동일해야 함** |
 | `d1/import.sh` | 위 SQL을 D1에 실행 (`--local`/`--remote`) | `schema.sql`이 `DROP TABLE`로 시작 → 원격 임포트 중 10초쯤 서비스가 빈 사전을 본다 |
 | `wrangler.jsonc` | Worker 이름, D1 바인딩(`DB`), 정적 자산 | `database_id`는 계정에 묶임 |
@@ -73,9 +73,10 @@
 - **`export_d1.py`나 `build_dict.py` 자체를 고치는 작업이면 심링크 방식으로 워크트리 안에서** 한다. 워크트리에서 스크립트를 고치고 메인 체크아웃에서 실행하면 수정 전 스크립트가 돈다.
 
 로컬 원본 데이터(git 밖, `~/projects/kordle/`):
-- `kordle.db` 213MB — 사전 빌드 산출물. 없으면 §8로 재생성(≈1분)
+- `kordle.db` 약 255MiB — 사전 빌드 산출물. 없으면 §8로 재생성(≈1분)
 - `dict/1582087_*.xls` 표준국어대사전 원본 15개(270MB, 2026-08 내려받음), `dict/stdict/*.csv` 변환본 15개
 - `dict/nikl/krdict/001.xml`~`011.xml`(11개, 370MB), `dict/nikl/opendict/0050000.xml`~`1200000.xml` + `1204559.xml`(25개, 1.8GB) — spellcheck-ko/korean-dict-nikl 2026-06 덤프
+- `NIADic.xlsx`(19MB, 레포 루트, gitignore) — K-ICT 빅데이터센터의 2017-02-21 공개 자료. SHA-256: `b177a793ea958cf48f4b4ef147f8eedc9e5397e5b763cb0292dc124a067c9037`
 - `dict/kowiki/kowiki-20260901-page.sql.gz`(117MB)
 - 이 파일들이 없는 환경에서는 §8의 다운로드 절차부터. **`git clone`으로 korean-dict-nikl을 받으면 5분 넘게 걸려 타임아웃된다** — raw 파일 직접 다운로드.
 
@@ -107,6 +108,8 @@ export_d1.py             POOL = "unit = '단어' AND pos = '명사' AND word NOT
 ### 4.4 데일리 계열은 6회 고정, 저장·복원
 
 `isDaily` = `daily` | `daily-climb`. 시도 횟수 6 고정(모두 같은 조건), 진행은 localStorage에 저장·복원. 다른 모드는 설정값 4~10.
+
+`Game.dailyDay`는 페이지를 연 KST 날짜로 고정한다. 자정 뒤에도 일일 등반의 다음 스테이지 요청과 `daily`·`dclimb` 저장은 그 날짜를 쓰고, 새로고침으로 Game을 다시 만들면 새 날짜가 된다. `/api/game`은 선택적 `day`(실제 존재하는 오늘·과거 날짜)를 받으며 생략한 구버전 요청은 서버의 오늘 날짜를 쓴다. 시드 문자열과 토큰 형식은 그대로다. `Countdown`은 문제 날짜의 다음 자정까지 세고, 경계가 지나면 새로고침 안내를 표시한다. 오래 열린 탭의 저장 정리는 자기 날짜보다 오래된 키만 지워 새 날짜 탭의 진행을 보호한다.
 
 ### 4.5 D1 조회는 PK 한 행만
 
@@ -142,8 +145,11 @@ SvelteKit은 **빌드 중** 라우트 분석을 위해 서버 모듈을 로드�
 | 2 | 한국어기초사전 (LMF XML) | `lexicalUnit` 단어·구. `vocabularyLevel` 초/중/고급 보존 | +916 |
 | 4 | 우리말샘 (XML) | `word_unit` 어휘·구. `type` 방언·북한어는 `dialect=1`로 표시만 | +606,389 |
 | 8 | 한국어 위키백과 `page.sql` | ns0 비리다이렉트 제목 중 **띄어 쓴 것만** 구로 추가. 붙여 쓴 제목은 65%가 인명이라 행을 만들지 않고 기존 단어에 `wiki_len`만 표시 | +248,306 |
+| 16 | NIADic (`NIADic.xlsx`) | `tag=ncn` 명사. 인명·브랜드·장소도 `category`와 무관하게 판정에 넣는다 | +246,025 |
 
-합계 1,206,211행. 같은 표기는 한 행으로 병합(`Entry.merge`): `단어`가 하나라도 있으면 단어, src는 OR, level은 가장 쉬운 것, dialect는 AND(일반어 출처가 하나라도 있으면 0).
+합계 1,452,236행. NIADic은 마지막에 합치며, 이미 있는 표기에는 출처 비트만 더해 방언 제외·품사·구성 단위·점수 신호를 그대로 둔다. **판정 전용이다** — 신규 표기는 표준국어대사전 밖이라 `familiar=NULL`이 되어 정답 풀에 들어갈 경로가 없다(§5.2). XLSX의 `term / tag / category` 헤더를 검증하고 Python 표준 라이브러리 ZIP/XML 스트리밍으로 읽는다. 접사·조사·어미 등 다른 태그와 정규화 불가 표기는 제외한다.
+
+기존 네 소스의 같은 표기는 한 행으로 병합(`Entry.merge`): `단어`가 하나라도 있으면 단어, src는 OR, level은 가장 쉬운 것, dialect는 AND(일반어 출처가 하나라도 있으면 0).
 
 판정 조회는 `jamo` 열(공백 제거 자모열)로 한다 → `헌법 재판소`(구)를 `헌법재판소`로 붙여 쳐도 통과. `dialect=1`은 판정에서 제외(`거실굼돈` 거부).
 
@@ -158,11 +164,17 @@ SvelteKit은 **빌드 중** 라우트 분석을 위해 서버 모듈을 로드�
 | 기초사전 등급 | 초급 +4 · 중급 +3 · 고급 +2 | 국립국어원이 학습자용으로 선별. **고급도 단독으로 믿을 만함**(`냉각수 수확량 완치`) |
 | 위키백과 3KB+ 문서 | +2 | 백과 항목이 될 개념어. **3KB 미만은 0점** — 동음이의 안내·토막글이 많아 `사쿠라 화조 청천`류 노이즈 |
 | 표준국어대사전 뜻 4개↑ | +1 | 다의어=기본어휘 경향. 약한 신호(단독이면 `화석빙 청묘`) |
-| 전문 분야 표시 | −1 | 『의학』『불교』 등. 등급·위키가 있으면 살아남음(`고양이`는 『동물』이지만 초급) |
+| 전문 분야 표시 | −1 | 『의학』『불교』 등. **기초사전 등급이 있으면 감점하지 않는다**(2026-09-11) |
 | 인명·지명·책명·고유명 일반 | NULL(제외) | 표준국어대사전 `전문 분야` 열 |
 | 표준국어대사전에 없음 | NULL | 정답은 표준국어대사전 명사에서만 |
 
-정답 후보 = `unit='단어' AND pos='명사' AND 공백 없음 AND familiar >= T`. 사용자가 고른 임계값: **데일리·일일 등반·길이 상승 T=3, 무한·연속 클리어 T=2**.
+전문 분야 감점을 등급 보유 단어에 면제한 이유: 등급은 국립국어원이 학습자용으로 직접 선별한 신호라 『의학』『군사』 표시로 뒤집을 근거가 없다. 감점 때문에 `고급(+2) −1 = 1`이 되어 T=2 밖에 있던 고급 단어가 2,232개였다(`췌장 휴전선 공청회 미숙아 평균값`). 면제 후 T=2 +2,232, T=3 +505.
+
+NIADic `category`로 정답을 거르지는 않는다. 한때 `people_names`·`brand_name`·`place_name`·`proper_noun`을 제외했으나 **2026-09-11 철회**했다: 신규 고유명사는 표준국어대사전 밖이라 이미 `familiar=NULL`이고, 그 제외가 실제로 깎는 것은 네 범주와 표기가 겹치는 표준국어대사전 일반명사 1,472개뿐이었다(`감기`(familiar 7)·`인터넷`·`액체`·`원자`·`가시광선`). NIADic의 `proper_noun`은 이름과 달리 복합어·전문용어 바구니다(`기계설계과 공유메모리 뺄셈법`).
+
+정답 후보 = `unit='단어' AND pos='명사' AND 공백 없음 AND familiar >= T`. 사용자가 고른 임계값: **데일리·일일 등반·길이 상승 T=3, 무한·연속 클리어 T=1**(2026-09-11에 T=2에서 내림).
+
+T=1 구간은 등급 보유율이 19.8%로 떨어지고 절반(51.5%)이 등급 없이 위키 문서 3KB+ 로만 점수를 받은 말이라 인명·지명·작품명이 섞인다(`마돈나 야곱 헬레네 안시성 나스닥 줄루어`). 계속 도는 모드에서는 그 폭을 받아들이되 하루 하나인 데일리 계열에는 쓰지 않는다는 것이 사용자 결정이다. `export_d1.py`의 `THRESHOLDS`에는 t=2도 남겨 둔다 — 발급된 토큰이 가리키기 때문이다.
 
 기각된 대안(다시 제안하지 말 것, 사용자가 이미 결정):
 - 위키백과 본문 빈도 분석(1GB 덤프 + 형태소) — "안 하는 게 맞다"
@@ -238,7 +250,7 @@ gunzip -t dict/kowiki/kowiki-$D-page.sql.gz && ls -la dict/kowiki/   # 무결성
 
 cp kordle.db kordle.$(date +%F).db                       # 이전 사전 보존 — D1 복구 재료 (*.db는 gitignore)
 python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict \
-    --opendict dict/nikl/opendict --kowiki dict/kowiki/kowiki-$D-page.sql.gz   # ≈1분. 소스별 행 수를 찍는다
+    --opendict dict/nikl/opendict --kowiki dict/kowiki/kowiki-$D-page.sql.gz --niadic NIADic.xlsx   # ≈1분. 소스별 행 수를 찍는다
 python3 scripts/dict_stats.py kordle.db   # §9 기준 수치 재측정 → 아래 "정상 변화 범위"와 비교 → §9 갱신
 python3 export_d1.py kordle.db d1/        # ≈10초, 19MB SQL. 마지막에 smoke.py용 POOL_SIZE 블록을 출력한다
 #   → scripts/smoke.py 의 POOL_SIZE 를 그 출력으로 교체
@@ -310,8 +322,8 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | `settings` | `{maxTries, hard}` | `maxTries` 4~10(데일리 계열은 무시, 6 고정). `hard` 하드모드 on/off, 모드와 무관하게 전역. 옛 저장값에는 `hard`가 없어 읽을 때 `false`로 메운다 |
 | `stats:<mode>` | `{played, won, streak, maxStreak, dist[]}` | 모드별 |
 | `best:<mode>:<lengthKey>` | number | 등반 최고 스테이지. `lengthKey` = `fixed-6` / `random` |
-| `daily:<YYYY-MM-DD>:<token>` | `{rows, marks, status, answer, hints}` | 데일리·일일 등반의 한 판. 저장할 때 오늘 날짜 아닌 키는 삭제 |
-| `dclimb:<YYYY-MM-DD>` | `{stage, n, climbWords}` | 일일 등반 코스 위치. 다른 날짜 키 삭제 |
+| `daily:<YYYY-MM-DD>:<token>` | `{rows, marks, status, answer, hints}` | 데일리·일일 등반의 한 판. 저장할 때 `dailyDay`보다 오래된 날짜 키만 삭제 |
+| `dclimb:<YYYY-MM-DD>` | `{stage, n, climbWords}` | 일일 등반 코스 위치. `dailyDay`보다 오래된 날짜 키만 삭제 |
 
 키 형식을 바꾸면 기존 사용자의 진행·통계가 사라진다. 마이그레이션은 없다(토이).
 
@@ -326,28 +338,35 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 #   https://raw.githubusercontent.com/spellcheck-ko/korean-dict-nikl/master/opendict/0050000.xml ... 1204559.xml (1.8GB)
 #   → dict/nikl/krdict/, dict/nikl/opendict/   (파일 목록은 GitHub API /contents/krdict, /contents/opendict)
 
+# NIADic: K-ICT 빅데이터센터 자료실의 2017-02-21 「한글형태소 사전 NIADic」 첨부파일
+#   https://kbig.kr/index.php?q=knowledge/pds_&tgt=view&idx=16451 → 레포 루트 NIADic.xlsx
+#   출처·변경 사항·CC BY-SA 2.0 표시는 README "데이터 출처"와 HelpModal.svelte에 있다.
+
 # 위키백과: https://dumps.wikimedia.org/kowiki/<YYYYMMDD>/kowiki-<YYYYMMDD>-page.sql.gz → dict/kowiki/
 #   all-titles-in-ns0.gz는 리다이렉트를 구분할 수 없어 쓰지 않는다.
 ```
 
-## 9. 기준 수치 (회귀 판정용, 2026-09-03 사전)
+## 9. 기준 수치 (회귀 판정용, 2026-09-11 NIADic 추가·전문 분야 감점 면제·무한 T=1)
 
 `python3 scripts/dict_stats.py kordle.db`가 아래 표와 같은 항목을 같은 순서로 출력한다. 사전을 다시 만들면 그 출력으로 이 표를 갱신한다. `D1 크기`는 `npx wrangler d1 info kordle`, 빌드 시간은 `time`으로.
 
 | 항목 | 값 |
 |---|---|
-| `words` 행 | 1,206,211 |
+| `words` 행 | 1,452,236 |
 | 그중 `src&1`(표준국어대사전) | 350,600 — 재빌드 후 이 수가 다르면 xls→csv 변환이 잘못된 것 |
-| 판정 `valid` (5~12자모, dialect=0, distinct) | 559,653 |
-| `pool` 합계 | 36,366 (t=2: 24,791 / t=3: 11,575) |
-| `pool` t=3 n별 (5..12) | 3061 · 3562 · 1389 · 1427 · 1191 · 506 · 273 · 166 |
-| `pool` t=2 n별 (5..12) | 4893 · 6975 · 3093 · 3847 · 3260 · 1415 · 826 · 482 |
+| 판정 `valid` (5~12자모, dialect=0, distinct) | 692,581 |
+| `pool` 합계 | 75,159 (t=1: 36,056 / t=2: 27,023 / t=3: 12,080) |
+| `pool` t=3 n별 (5..12) | 3121 · 3701 · 1461 · 1511 · 1271 · 548 · 293 · 174 |
+| `pool` t=2 n별 (5..12) | 5050 · 7383 · 3424 · 4388 · 3739 · 1581 · 933 · 525 |
+| `pool` t=1 n별 (5..12) | 6813 · 9536 · 4358 · 5701 · 4943 · 2325 · 1472 · 908 |
 | `dialect=1` | 139,268 |
-| `familiar` 분포(명사 후보) | NULL 200,948 · −1 66,165 · 0 77,794 · 1 11,265 · 2 13,216 · 3 6,562 · 4 2,671 · 5 1,647 · 6 550 · 7 145 |
-| D1 크기 | 22.7MB (`wrangler d1 info kordle`). 임포트 ≈10초 |
+| `familiar` 분포(명사 후보) | NULL 351,210 · −1 66,165 · 0 77,794 · 1 9,033 · 2 14,943 · 3 5,772 · 4 3,548 · 5 1,948 · 6 645 · 7 167 |
+| D1 크기 | 29.7MB (`wrangler d1 info kordle`). 임포트 ≈10초 |
 | 빌드 시간 | `build_dict.py` ≈56초, `export_d1.py` ≈10초, `vite build` ≈3초 |
 
-빠른 단어 확인: `고양이` familiar 5(초급+위키), `컴퓨터` 5, `순량` 1, `니나놋집` 0, `세종` NULL(인명), `뒤처리되다` pos=동사.
+2026-09-11 변경 두 가지가 겹쳐 있다. **판정**: NIADic 명사 739,025행을 읽어 신규 표기 246,025개, 유효 자모열 132,928개 추가 (`valid` 559,653 → 692,581). 정답 풀에는 영향이 없다. **정답**: 전문 분야 감점을 기초사전 등급 보유 단어에 면제해 t=2 24,791 → 27,023, t=3 11,575 → 12,080. 무한·연속 클리어를 T=1(36,056)로 내렸다. `familiar` 값 자체가 바뀌었으므로 `pool`의 idx 배치가 달라진다 — 이전 토큰으로 진행 중이던 판은 다른 단어를 가리킨다.
+
+빠른 단어 확인: `고양이` familiar 6(초급+위키, 『동물』 감점 면제), `컴퓨터` 6, `순량` 1, `니나놋집` 0, `세종` NULL(인명), `뒤처리되다` pos=동사.
 
 ## 10. 위양성 함정 — 테스트할 때 속기 쉬운 것
 
@@ -383,3 +402,5 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 | 09-07 | 일일 등반 모드, 힌트 1회 제한. GitHub `bateaux-st/enhanced-kordle`로 이전(author 이메일 재작성) |
 | 09-09 | 하드모드(설정 토글). 판 시작 시에만 켤 수 있고 끄기는 언제나 |
 | 09-08 | NAS 배포 준비(ghcr 워크플로우) → 같은 날 **Cloudflare Workers + D1로 전환**, Docker 경로 제거. `bateaux.workers.dev` |
+| 09-11 | NIADic 명사 추가 — **판정 전용**(인명·브랜드·장소 입력 가능, 정답 풀 무영향). 전문 분야 감점을 기초사전 등급 보유 단어에 면제. 무한·연속 클리어 T=2 → T=1 |
+| 09-14 | 자정 뒤에도 페이지를 연 날짜의 일일 문제·등반·저장 유지. 새로고침 시 새 날짜 전환, 카운트다운의 24시간 재시작 수정 |

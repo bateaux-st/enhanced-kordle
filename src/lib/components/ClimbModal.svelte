@@ -39,7 +39,7 @@
 	{#if onrestart}
 		<button class="restart" onclick={onrestart}>{complete ? '다시 등반' : '처음부터'}</button>
 	{:else}
-		<Countdown />
+		<Countdown day={game.dailyDay} />
 	{/if}
 </Modal>
 

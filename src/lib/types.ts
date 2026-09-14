@@ -21,6 +21,8 @@ export interface NewGameRequest {
 	mode: GameMode;
 	/** 없으면 5~12에서 고른다(daily는 날짜 기준, random은 무작위). */
 	n?: number;
+	/** 페이지를 연 KST 날짜. 데일리 계열에서만 사용하며 생략하면 서버의 오늘 날짜. */
+	day?: string;
 }
 export interface NewGameResponse {
 	token: string;

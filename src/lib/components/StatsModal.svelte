@@ -49,7 +49,7 @@
 			{game.status === 'won' ? '정답' : '이번 정답'}: <b>{game.answer ?? '…'}</b>
 		</div>
 		{#if isDaily(game.config.mode)}
-			<Countdown />
+			<Countdown day={game.dailyDay} />
 		{/if}
 	{/if}
 </Modal>

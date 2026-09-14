@@ -4,7 +4,8 @@
 
 - 자모 수 **5~12** 직접 선택 또는 랜덤
 - 게임 모드 5종: **하루 1개** · **일일 등반**(매일 같은 5→12자 코스) · **랜덤 무한** · **등반 · 연속 클리어** · **등반 · 길이 상승**
-- 판정 사전 120만 표제어(표준국어대사전 · 한국어기초사전 · 우리말샘 · 위키백과 띄어 쓴 제목), 정답 풀은 익숙한 명사만
+- 판정 사전 145만 표제어(표준국어대사전 · 한국어기초사전 · 우리말샘 · 위키백과 띄어 쓴 제목 · NIADic 명사), 인명·브랜드·장소도 입력 가능. 정답 풀은 익숙한 명사만
+- 일일 문제는 자정이 지나도 새로고침 전까지 같은 날짜로 이어서 플레이. 새로고침하면 새 날짜 문제 시작
 - 힌트(노란 자모의 실제 위치), 포기, 등반 결과 피라미드, 물리 키보드(두벌식 자리, 한/영 무관)
 - **하드모드**: 초록 자모는 같은 자리에, 노란 자모는 어디든 반드시 다시 써야 한다 (설정 토글, 모든 모드에 적용)
 
@@ -31,7 +32,7 @@ pnpm install
 npx wrangler login                          # Cloudflare 계정 (무료, 카드 불필요)
 npx wrangler d1 create kordle               # 출력된 database_id를 wrangler.jsonc에 넣는다
 python3 export_d1.py kordle.db d1/          # kordle.db → D1 임포트용 SQL (아래 "사전 만들기")
-d1/import.sh --remote                       # 약 56만 + 3.6만 행, 몇 분
+d1/import.sh --remote                       # 약 69만 판정 자모열 + 정답 풀
 npx wrangler secret put KORDLE_SECRET       # 임의의 긴 문자열 (openssl rand -base64 32)
 pnpm run deploy                                 # → https://enhanced-kordle.<계정>.workers.dev
 ```
@@ -57,7 +58,7 @@ pnpm preview                                # wrangler dev: 실제 Workers 런�
 
 ## 사전 만들기
 
-`kordle.db`(약 210MB)는 저장소에 없다. 원본 네 종을 받아 `build_dict.py`로 만들고, 서버가 쓰는 부분만 `export_d1.py`로 D1에 넣는다.
+`kordle.db`는 저장소에 없다. 원본 다섯 종을 받아 `build_dict.py`로 만들고, 서버가 쓰는 부분만 `export_d1.py`로 D1에 넣는다.
 
 | 소스 | 받는 곳 | 형식 | 크기 |
 |---|---|---|---|
@@ -65,6 +66,7 @@ pnpm preview                                # wrangler dev: 실제 Workers 런�
 | 한국어기초사전 | [spellcheck-ko/korean-dict-nikl](https://github.com/spellcheck-ko/korean-dict-nikl) `krdict/` | LMF XML | 370MB |
 | 우리말샘 | 같은 저장소 `opendict/` | XML | 1.8GB |
 | 한국어 위키백과 | [dumps.wikimedia.org/kowiki](https://dumps.wikimedia.org/kowiki/) `page.sql.gz` | MySQL dump | 117MB |
+| NIADic | [K-ICT 빅데이터센터 자료실](https://kbig.kr/index.php?q=knowledge/pds_&tgt=view&idx=16451), 2017-02-21 「한글형태소 사전 NIADic」 | `NIADic.xlsx` (레포 루트에 저장) | 19MB |
 
 ```bash
 # 표준국어대사전 xls → csv
@@ -75,12 +77,17 @@ python3 build_dict.py kordle.db \
     --stdict dict/stdict \
     --krdict dict/nikl/krdict \
     --opendict dict/nikl/opendict \
-    --kowiki dict/kowiki/kowiki-YYYYMMDD-page.sql.gz
+    --kowiki dict/kowiki/kowiki-YYYYMMDD-page.sql.gz \
+    --niadic NIADic.xlsx
 ```
 
 약 1분. 소스는 각각 선택이라 표준국어대사전만으로도 만들 수 있다.
 
-D1에는 `words` 전체(120만 행)가 아니라 두 테이블만 올린다 — 판정용 자모열 `valid`(56만 행)와 정답 풀을 `(임계값, n, idx) → 단어`로 미리 펼친 `pool`(3.6만 행). D1은 읽은 행 수로 한도를 세므로 모든 조회를 PK 한 행으로 만든 것이다. 합쳐서 약 30MB.
+D1에는 `words` 전체(145만 행) 대신 판정용 자모열 `valid`(69만 행), 정답 풀을 `(임계값, n, idx) → 단어`로 미리 펼친 `pool`, 풀 크기 `pool_meta`를 올린다. D1은 읽은 행 수로 한도를 세므로 모든 조회를 PK 한 행으로 만든 것이다.
+
+NIADic은 `tag=ncn` 명사를 채택하며, `category`의 인명·브랜드·장소도 입력에 허용한다. 접사·조사·어미 등 다른 태그와 한글 완성형으로 정규화할 수 없는 표기는 추가하지 않는다. 기존 사전에서 방언·북한어로 제외된 표기는 NIADic에 있어도 계속 제외한다.
+
+NIADic은 판정 사전만 넓힌다. 신규 표기는 모두 표준국어대사전 밖이라 `familiar`가 NULL이 되어 정답 후보에 들지 않으므로, 정답 풀은 NIADic 추가 전과 동일하다.
 
 ### 정답 풀
 
@@ -91,15 +98,15 @@ D1에는 `words` 전체(120만 행)가 아니라 두 테이블만 올린다 — 
 | 한국어기초사전 등급 | 초급 +4 · 중급 +3 · 고급 +2 |
 | 위키백과에 3KB 이상 문서 | +2 |
 | 표준국어대사전 뜻 4개 이상 | +1 |
-| 전문 분야 표시 | −1 |
+| 전문 분야 표시 (기초사전 등급이 없을 때만) | −1 |
 | 인명 · 지명 · 책명 | 제외 |
 
-하루 1개 · 일일 등반 · 등반 길이 상승은 `≥3`(약 1.2만), 랜덤 무한 · 등반 연속 클리어는 `≥2`(약 2.5만). 임계값은 `src/lib/server/dict.ts`의 `POOL_THRESHOLD`(같은 값이 `export_d1.py`의 `THRESHOLDS`에도 있어야 한다), 가중치는 `build_dict.py`의 `Entry.familiar()`.
+하루 1개 · 일일 등반 · 등반 길이 상승은 `≥3`(12,080개), 랜덤 무한 · 등반 연속 클리어는 `≥1`(36,056개). 임계값은 `src/lib/server/dict.ts`의 `POOL_THRESHOLD`(같은 값이 `export_d1.py`의 `THRESHOLDS`에도 있어야 한다), 가중치는 `build_dict.py`의 `Entry.familiar()`.
 
 ## 구조
 
 ```
-build_dict.py            사전 빌드 (자모 분해 · 4소스 병합 · familiar 점수) → kordle.db
+build_dict.py            사전 빌드 (자모 분해 · 5소스 병합 · familiar 점수) → kordle.db
 export_d1.py             kordle.db → D1용 SQL (valid · pool · pool_meta)
 wrangler.jsonc           Workers 설정 (D1 바인딩, 정적 자산)
 src/lib/server/dict.ts   D1 조회 · 정답 풀 임계값
@@ -113,4 +120,5 @@ src/lib/game.svelte.ts   클라이언트 상태 (진행·통계·설정은 local
 
 - 표준국어대사전 · 한국어기초사전 · 우리말샘 — 국립국어원, [CC BY-SA 2.0 KR](https://creativecommons.org/licenses/by-sa/2.0/kr/)
 - 한국어 위키백과 — [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+- NIADic — 한국정보화진흥원(NIA)·K-ICT 빅데이터센터 제공. 국립국어원 우리말샘·인사이터 보유 사전 기반, 2017-02-21 등록. [원자료와 이용 조건](https://kbig.kr/index.php?q=knowledge/pds_&tgt=view&idx=16451), [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0/). 명사 선별·표기 정규화·중복 병합·자모 분해를 적용했으며, NIADic에서 가공한 데이터에도 CC BY-SA 2.0을 적용한다. 원본 파일은 Git에 포함하지 않는다.
 - UI는 [꼬들](https://kordle.kr)을 따랐다.
