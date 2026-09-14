@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""국립국어원 사전 세 종과 위키백과 제목을 자모 분해해 하나의 SQLite 사전으로 적재한다.
+"""국립국어원 사전 세 종, 위키백과 제목, NIADic 명사를 하나의 SQLite 사전으로 적재한다.
 
     python3 build_dict.py kordle.db --stdict dict/stdict --krdict dict/nikl/krdict --opendict dict/nikl/opendict \
-        --kowiki dict/kowiki/kowiki-20260901-page.sql.gz
+        --kowiki dict/kowiki/kowiki-20260901-page.sql.gz --niadic NIADic.xlsx
 
 소스 (모두 선택, 최소 하나):
   --stdict   표준국어대사전 xls를 LibreOffice로 변환한 UTF-8 CSV 디렉터리
@@ -12,6 +12,8 @@
   --opendict 우리말샘 XML 디렉터리 (같은 저장소의 opendict)
   --kowiki   한국어 위키백과 page.sql.gz (dumps.wikimedia.org/kowiki/<날짜>/). 일반 문서 제목 중
              띄어 쓴 것만 '구'로 넣는다 — 공백 없는 제목은 65%가 인명이라 판정 공간을 무의미하게 넓힌다.
+  --niadic  NIADic.xlsx. ncn 명사(인명·브랜드·장소 포함)를 판정에만 추가한다 — 표준국어대사전 밖이라
+             정답 후보가 되지 않는다.
 
 같은 표기는 한 행으로 합치고 출처를 src 비트로 남긴다. 판정 사전은 넓게, 정답 풀은 src/level/pos로 좁히는 구조.
 """
@@ -20,6 +22,7 @@ import csv
 import gzip
 import re
 import sqlite3
+import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -42,6 +45,7 @@ SPLIT = {
 }
 
 SRC_STDICT, SRC_KRDICT, SRC_OPENDICT, SRC_KOWIKI = 1, 2, 4, 8
+SRC_NIADIC = 16
 LEVEL_RANK = {"초급": 0, "중급": 1, "고급": 2}
 
 # MediaWiki page 테이블 INSERT 튜플: (page_id, page_namespace, 'page_title', page_is_redirect, page_is_new,
@@ -186,6 +190,49 @@ def read_kowiki(sql_gz):
                 yield dict(word=word, unit="구", wiki_len=int(m.group(5)), flag_only=" " not in word)
 
 
+def read_niadic(xlsx):
+    # 93만 행을 한꺼번에 XML 트리로 올리지 않는다. XLSX는 ZIP/XML이라 추가 의존성 없이 읽을 수 있다.
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with zipfile.ZipFile(xlsx) as archive:
+        strings = []
+        with archive.open("xl/sharedStrings.xml") as f:
+            context = ET.iterparse(f, events=("start", "end"))
+            _, root = next(context)
+            for event, el in context:
+                if event == "end" and el.tag == f"{{{ns['m']}}}si":
+                    strings.append("".join(t.text or "" for t in el.findall(".//m:t", ns)))
+                    root.clear()
+        with archive.open("xl/worksheets/sheet1.xml") as f:
+            context = ET.iterparse(f, events=("start", "end"))
+            sheet_data = None
+            header = None
+            for event, el in context:
+                if event == "start" and el.tag == f"{{{ns['m']}}}sheetData":
+                    sheet_data = el
+                if event != "end" or el.tag != f"{{{ns['m']}}}row":
+                    continue
+                row = {}
+                for cell in el.findall("m:c", ns):
+                    col = cell.get("r").rstrip("0123456789")
+                    value = cell.findtext("m:v", "", ns)
+                    if cell.get("t") == "s":
+                        value = strings[int(value)]
+                    elif cell.get("t") == "inlineStr":
+                        value = "".join(t.text or "" for t in cell.findall(".//m:t", ns))
+                    row[col] = value
+                if header is None:
+                    if row != {"A": "term", "B": "tag", "C": "category"}:
+                        raise ValueError("NIADic 헤더는 term / tag / category여야 합니다")
+                    header = row
+                elif row.get("B") == "ncn":
+                    # 고유명사도 ncn이다. category로 거르지 않되 접사·조사·어미 등은 단독 단어로 넣지 않는다.
+                    word = row.get("A", "")
+                    yield dict(word=word, unit="구" if " " in word else "단어", pos="명사")
+                sheet_data.clear()
+            if header is None:
+                raise ValueError("NIADic 시트가 비어 있습니다")
+
+
 class Entry:
     __slots__ = ("unit", "src", "pos", "level", "dialect", "senses", "general", "proper", "wiki_len")
 
@@ -194,6 +241,11 @@ class Entry:
         self.dialect, self.senses, self.general, self.proper, self.wiki_len = True, 0, False, False, None
 
     def merge(self, bit, r):
+        # NIADic에는 방언 구분이 없어 기존 제외를 지우면 방언이 되살아난다.
+        # 마지막에 병합하고 기존 품사·구성 단위·점수 신호는 보존한다.
+        if bit == SRC_NIADIC and self.src:
+            self.src |= bit
+            return
         # 같은 표기가 단어와 구 양쪽에 있으면 단어 쪽을 남긴다.
         if r["unit"] == "단어":
             self.unit = "단어"
@@ -223,8 +275,11 @@ class Entry:
             score += 2  # 짧은 문서는 동음이의 안내·토막글이 많아 3KB 이상만 인정
         if self.senses >= 4:
             score += 1
-        if not self.general:
-            score -= 1  # 전문 분야 표시만 있는 단어
+        if not self.general and self.level is None:
+            # 전문 분야 표시만 있는 단어는 감점하되, 기초사전 등급이 있으면 면제한다 —
+            # 국립국어원이 학습자용으로 이미 선별한 신호라 『의학』『군사』 표시로 뒤집지 않는다.
+            # (2026-09-11) 이 감점이 고급 등급 2,232개를 T=2 밖으로 밀어내고 있었다: 췌장·휴전선·공청회.
+            score -= 1
         return score
 
 
@@ -235,6 +290,7 @@ def main():
     ap.add_argument("--krdict")
     ap.add_argument("--opendict")
     ap.add_argument("--kowiki", help="page.sql.gz 파일")
+    ap.add_argument("--niadic", help="NIADic.xlsx 파일 (고유명사 포함 명사)")
     args = ap.parse_args()
 
     sources = [
@@ -242,6 +298,7 @@ def main():
         (SRC_KRDICT, args.krdict, read_krdict),
         (SRC_OPENDICT, args.opendict, read_opendict),
         (SRC_KOWIKI, args.kowiki, read_kowiki),
+        (SRC_NIADIC, args.niadic, read_niadic),
     ]
     if not any(d for _, d, _ in sources):
         ap.error("소스를 하나 이상 지정하세요")
@@ -276,7 +333,7 @@ def main():
             jamo          TEXT NOT NULL,       -- 자모 24종 열, 공백 제거
             jamo_len      INTEGER NOT NULL,
             distinct_jamo INTEGER NOT NULL,
-            src           INTEGER NOT NULL,    -- 비트: 1 표준국어대사전, 2 한국어기초사전, 4 우리말샘, 8 위키백과
+            src           INTEGER NOT NULL,    -- 비트: 1 표준, 2 기초, 4 우리말샘, 8 위키백과, 16 NIADic
             pos           TEXT,                -- 품사 (출처 중 먼저 나온 값)
             level         TEXT,                -- 한국어기초사전 등급: 초급 | 중급 | 고급
             dialect       INTEGER NOT NULL,    -- 1: 우리말샘에 방언/북한어로만 등재

@@ -10,6 +10,8 @@
 주의: Cloudflare는 User-Agent가 없는(또는 python-urllib 같은) 요청에 403을 준다. 브라우저 UA를 붙인다.
 """
 import json
+import hashlib
+from datetime import datetime, timedelta, timezone
 import sys
 import urllib.error
 import urllib.request
@@ -20,13 +22,14 @@ HDR = {"content-type": "application/json", "User-Agent": "Mozilla/5.0 (smoke)"}
 # ---- 기대값. 아래 셋은 서버 코드·export_d1.py와 짝이다. 바꿀 때 함께 바꾼다. ----
 
 # 모드별 정답 풀 임계값. src/lib/server/dict.ts POOL_THRESHOLD 와 같아야 한다.
-EXPECTED_T = {"daily": 3, "daily-climb": 3, "climb-length": 3, "endless": 2, "climb-streak": 2}
+EXPECTED_T = {"daily": 3, "daily-climb": 3, "climb-length": 3, "endless": 1, "climb-streak": 1}
 
 # 정답 풀 크기 (t, n) → count. `python3 export_d1.py kordle.db d1/` 가 마지막에 이 블록을 그대로 출력한다 — 복사해 붙인다.
-# 사전(kordle.db)이나 풀 조건이 바뀌면 바뀐다. 2026-09-03 사전 기준.
+# 사전(kordle.db)이나 풀 조건이 바뀌면 바뀐다. 2026-09-11 기준(전문 분야 감점 면제·무한 T=1).
 POOL_SIZE = {
-    (2, 5): 4893, (2, 6): 6975, (2, 7): 3093, (2, 8): 3847, (2, 9): 3260, (2, 10): 1415, (2, 11): 826, (2, 12): 482,
-    (3, 5): 3061, (3, 6): 3562, (3, 7): 1389, (3, 8): 1427, (3, 9): 1191, (3, 10): 506, (3, 11): 273, (3, 12): 166,
+    (1, 5): 6813, (1, 6): 9536, (1, 7): 4358, (1, 8): 5701, (1, 9): 4943, (1, 10): 2325, (1, 11): 1472, (1, 12): 908,
+    (2, 5): 5050, (2, 6): 7383, (2, 7): 3424, (2, 8): 4388, (2, 9): 3739, (2, 10): 1581, (2, 11): 933, (2, 12): 525,
+    (3, 5): 3121, (3, 6): 3701, (3, 7): 1461, (3, 8): 1511, (3, 9): 1271, (3, 10): 548, (3, 11): 293, (3, 12): 174,
 }
 
 # 풀 크기 검사에 쓸 대표 모드: 임계값 t를 쓰는 모드 중 랜덤(비데일리)인 것 하나. 새 t가 생기면 여기도 추가.
@@ -69,6 +72,9 @@ cases = [
     ("ㅎㅓㄴㅂㅓㅂㅅㅗㅇㅜㅓㄴ", True, "우리말샘 '구'를 붙여 친 것(헌법소원) — jamo 키 판정"),
     ("ㅊㅣㅁㅏㅣㄱ", True, "우리말샘 신조어(치맥)"),
     ("ㅅㅅㅏㄴㅅㅑㄷㅏㅣㅁ", True, "위키백과 띄어 쓴 제목(싼샤 댐)"),
+    ("ㄱㅣㅁㅇㅕㄴㅇㅏ", True, "NIADic 인명(김연아)"),
+    ("ㅅㅡㅌㅏㅂㅓㄱㅅㅡ", True, "NIADic 브랜드(스타벅스)"),
+    ("ㄱㅏㅍㅕㅇㅇㅡㅂ", True, "NIADic 장소(가평읍)"),
     ("ㄱㅓㅅㅣㄹㄱㅜㅁㄷㅗㄴ", False, "우리말샘 방언(거실굼돈)은 제외"),
     ("ㅋㅋㅋㅋㅋㅋ", False, "사전에 없는 열"),
 ]
@@ -87,6 +93,19 @@ check("daily-climb n=6 은 daily n=6 과 다른 정답", climb.split(".")[2] != 
 st, r = post("game", {"mode": "daily"})
 check("daily n 미지정 → 5..12 안에서 결정", st == 200 and 5 <= r["n"] <= 12)
 
+# 자정 뒤 열린 탭이 요청한 이전 날짜를 실제 시드로 사용하는지 검사한다.
+yesterday = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=1)).date().isoformat()
+for mode in ("daily", "daily-climb"):
+    st, old = post("game", {"mode": mode, "n": 6, "day": yesterday})
+    st2, again = post("game", {"mode": mode, "n": 6, "day": yesterday})
+    check(f"{mode} 지난 날짜 요청 결정론", st == st2 == 200 and old == again)
+    seed = f"{yesterday}:6" + (":climb" if mode == "daily-climb" else "")
+    expected_idx = int.from_bytes(hashlib.sha256(seed.encode()).digest()[:4], "big") % POOL_SIZE[(EXPECTED_T[mode], 6)]
+    check(f"{mode} 지정 날짜 시드 유지", st == 200 and old and old["token"].split(".")[2] == str(expected_idx))
+for bad_day in ("2026-02-30", "9999-12-31", "bad", None):
+    st, _ = post("game", {"mode": "daily-climb", "n": 6, "day": bad_day})
+    check(f"잘못된 날짜 {bad_day!r} → 400", st == 400)
+
 # 4. 모드별 풀 임계값
 for mode, t in EXPECTED_T.items():
     st, r = post("game", {"mode": mode, "n": 8})
@@ -95,7 +114,13 @@ st, _ = post("game", {"mode": "no-such-mode", "n": 8})
 check("알 수 없는 mode → 400", st == 400)
 
 # 5. 풀 크기 — idx가 pool_meta 범위 안인지 (랜덤이라 상한만 확인), 그리고 마지막 idx가 조회되는지
+#    어느 모드도 쓰지 않는 t(발급된 토큰 때문에 D1에만 남겨 둔 값)는 API로 뽑을 수 없어 건너뛴다.
 for (t, n), size in POOL_SIZE.items():
+    if t not in MODE_FOR_T:
+        continue
+    # 새로 발급하지 않는 t=2는 이전 토큰 지원용으로 D1에만 남는다.
+    if t not in MODE_FOR_T:
+        continue
     st, r = post("game", {"mode": MODE_FOR_T[t], "n": n})
     idx = int(r["token"].split(".")[2])
     check(f"pool t={t} n={n} idx<{size}", idx < size, f"idx={idx}")

@@ -38,7 +38,8 @@
 		<li>쌍자음은 같은 자모 둘: <code>까</code> = ㄱㄱㅏ, 겹받침도 둘: <code>닭</code> = ㄷㅏㄹㄱ</li>
 		<li>ㅐ ㅔ ㅚ 같은 모음은 풀어 씁니다: <code>개</code> = ㄱㅏㅣ, <code>왜</code> = ㅗㅏㅣ 앞에 ㅇ</li>
 		<li>ㅑㅕㅛㅠ는 한 자모입니다</li>
-		<li>표준국어대사전에 있는 단어만 입력할 수 있습니다. 띄어쓰기는 무시합니다.</li>
+		<li>국립국어원 사전·위키백과·NIADic에 수록된 말로 판정합니다. 인명·브랜드·장소도 입력할 수 있으며, 띄어쓰기는 무시합니다.</li>
+		<li>정답은 표준국어대사전의 익숙한 명사에서만 고릅니다.</li>
 	</ul>
 
 	<h3>키보드</h3>
@@ -58,6 +59,14 @@
 		<li><span class="dot p"></span> 노란 자모는 <b>자리에 상관없이</b> 어딘가에 넣습니다. 개수는 세지 않아 한 개만 넣어도 됩니다.</li>
 		<li>어기면 제출되지 않고 무엇을 빠뜨렸는지 알려줍니다. 판을 시작할 때만 켤 수 있고 끄는 건 언제나 됩니다.</li>
 	</ul>
+
+	<h3>사전 출처</h3>
+	<p>
+		NIADic — 한국정보화진흥원(NIA)·K-ICT 빅데이터센터 제공, 국립국어원 우리말샘·인사이터 사전 기반.
+		<a href="https://kbig.kr/index.php?q=knowledge/pds_&amp;tgt=view&amp;idx=16451" target="_blank" rel="noreferrer">원자료</a>의 명사를 선별·정규화·자모 분해해 사용하며,
+		이 가공 데이터는 <a href="https://creativecommons.org/licenses/by-sa/2.0/" target="_blank" rel="noreferrer">CC BY-SA 2.0</a>으로 제공합니다.
+	</p>
+	<p><a href="https://github.com/bateaux-st/enhanced-kordle#데이터-출처" target="_blank" rel="noreferrer">전체 데이터 출처와 이용 조건</a></p>
 </Modal>
 
 <style>
@@ -79,6 +88,9 @@
 		background: var(--code-bg);
 		padding: 0 0.25rem;
 		border-radius: 0.2rem;
+	}
+	a {
+		color: inherit;
 	}
 	.ex-title {
 		margin-bottom: 0.375rem;

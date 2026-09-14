@@ -83,6 +83,8 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 }
 
 export class Game {
+	// 자정 뒤에도 같은 코스·저장 날짜를 쓴다. 새로고침으로 Game을 다시 만들 때만 날짜를 바꾼다.
+	readonly dailyDay = todayKST();
 	config = $state<ModeConfig>(load('config', { mode: 'daily', length: { kind: 'fixed', n: 6 } }));
 	// settings 키 하나에 maxTries·hard·theme이 같이 들어간다. 쓰기는 반드시 saveSettings()로 —
 	// 한쪽만 save하면 다른 쪽이 지워진다.
@@ -201,7 +203,7 @@ export class Game {
 		this.climbWords = [];
 		if (this.config.mode === 'daily-climb') {
 			// 코스는 항상 5자에서 시작해 12자까지 — 모두 같은 코스여야 데일리다.
-			const saved = load<DailyClimbSave | null>(`dclimb:${todayKST()}`, null);
+			const saved = load<DailyClimbSave | null>(`dclimb:${this.dailyDay}`, null);
 			if (saved) {
 				this.stage = saved.stage;
 				this.climbWords = saved.climbWords;
@@ -230,7 +232,9 @@ export class Game {
 		this.hints = {};
 
 		const mode = this.config.mode;
-		const res = await post<NewGameResponse>('/api/game', { mode, n } satisfies NewGameRequest);
+		const res = await post<NewGameResponse>('/api/game', {
+			mode, n, ...(isDaily(mode) ? { day: this.dailyDay } : {})
+		} satisfies NewGameRequest);
 		this.token = res.token;
 		this.n = res.n;
 
@@ -403,7 +407,7 @@ export class Game {
 	}
 
 	private dailyKey() {
-		return `daily:${todayKST()}:${this.token}`;
+		return `daily:${this.dailyDay}:${this.token}`;
 	}
 
 	private saveDaily() {
@@ -411,14 +415,13 @@ export class Game {
 			rows: this.rows, marks: this.marks, status: this.status, answer: this.answer, hints: this.hints
 		};
 		save(this.dailyKey(), snap);
-		// 지난 날짜 진행은 다시 열 일이 없으니 지운다. 오늘 것은 데일리·일일 등반 여러 판이 공존하니 남긴다.
-		const today = `daily:${todayKST()}:`;
-		removeWhere((k) => k.startsWith('daily:') && !k.startsWith(today));
+		// 오래 열린 탭이 새 날짜로 연 다른 탭의 진행을 지우지 않도록 이전 날짜만 정리한다.
+		removeWhere((k) => k.startsWith('daily:') && k.slice(6, 16) < this.dailyDay);
 	}
 
 	private saveDailyClimb() {
-		const key = `dclimb:${todayKST()}`;
+		const key = `dclimb:${this.dailyDay}`;
 		save(key, { stage: this.stage, n: this.n, climbWords: this.climbWords } satisfies DailyClimbSave);
-		removeWhere((k) => k.startsWith('dclimb:') && k !== key);
+		removeWhere((k) => k.startsWith('dclimb:') && k.slice(7, 17) < this.dailyDay);
 	}
 }

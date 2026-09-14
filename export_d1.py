@@ -5,14 +5,14 @@
 
 산출물 (d1/ 아래):
   schema.sql        테이블 정의 (먼저 실행)
-  valid-NN.sql      판정용 자모열. 5~12자모, 방언·북한어 제외, 중복 제거 → 약 56만 행
+  valid-NN.sql      판정용 자모열. 5~12자모, 기존 방언·북한어 제외, 중복 제거 → 약 69만 행
   pool.sql          정답 풀을 (임계값 t, 자모 수 n, idx) → word로 미리 펼친 것 + 풀 크기(pool_meta)
 
 임포트:
   for f in d1/schema.sql d1/valid-*.sql d1/pool.sql; do npx wrangler d1 execute kordle --remote --file=$f; done
   (로컬 개발용은 --local)
 
-words 전체(120만 행, 213MB)를 옮기지 않는 이유: D1은 읽은 행 수로 한도를 세는데(무료 하루 500만),
+words 전체(145만 행)를 옮기지 않는 이유: D1은 읽은 행 수로 한도를 세는데(무료 하루 500만),
 COUNT/OFFSET 방식은 OFFSET만큼 행을 읽는다. 펼쳐 두면 모든 조회가 PK 한 행이다. 결과 크기 ~30MB.
 """
 import sqlite3
@@ -20,8 +20,10 @@ import sys
 from pathlib import Path
 
 # dict.ts의 정답 풀 조건과 같아야 한다. 순서도 rowid — 기존 토큰의 (t, n, idx)가 같은 단어를 가리키게.
+# NIADic 신규 표기는 표준국어대사전 밖이라 familiar=NULL이 되어 이 조건에서 자연히 빠진다.
 POOL = "unit = '단어' AND pos = '명사' AND word NOT LIKE '% %' AND familiar >= ? AND jamo_len = ?"
-THRESHOLDS = (2, 3)   # dict.ts POOL_THRESHOLD 에 쓰이는 값들
+THRESHOLDS = (1, 2, 3)   # dict.ts POOL_THRESHOLD 에 쓰이는 값들.
+#   t=2 는 현재 어느 모드도 쓰지 않지만, 발급된 토큰이 가리키므로 남긴다 (빼면 그 판이 pool miss 500).
 MIN_N, MAX_N = 5, 12
 BATCH = 500           # 한 INSERT에 묶는 행 수
 ROWS_PER_FILE = 200_000  # wrangler 업로드 한도를 넘지 않게 파일 분할
@@ -53,6 +55,9 @@ def main(db_path, out_dir):
         "SELECT DISTINCT jamo FROM words WHERE jamo_len BETWEEN ? AND ? AND dialect = 0 ORDER BY jamo",
         (MIN_N, MAX_N),
     ).fetchall()
+    # 사전 축소·백업 복구 때 이전 분할 파일이 남으면 import.sh가 옛 단어까지 다시 넣는다.
+    for path in out.glob("valid-*.sql"):
+        path.unlink()
     for fi in range(0, len(rows), ROWS_PER_FILE):
         chunk = rows[fi:fi + ROWS_PER_FILE]
         with open(out / f"valid-{fi // ROWS_PER_FILE:02d}.sql", "w", encoding="utf-8") as f:

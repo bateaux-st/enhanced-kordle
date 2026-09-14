@@ -10,7 +10,7 @@ import sqlite3
 import sys
 
 POOL = "unit = '단어' AND pos = '명사' AND word NOT LIKE '% %' AND familiar >= ? AND jamo_len = ?"  # export_d1.py와 동일
-THRESHOLDS = (2, 3)
+THRESHOLDS = (1, 2, 3)
 NS = range(5, 13)
 
 con = sqlite3.connect(sys.argv[1] if len(sys.argv) > 1 else "kordle.db")
