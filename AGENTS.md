@@ -33,6 +33,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 - `build_dict.py`의 `SPLIT` 맵과 `src/lib/jamo.ts`의 `JAMO`(자모 24종, `ㄲ`=`ㄱㄱ`)를 바꾸지 않는다. 바꾸면 모든 단어의 자모 수가 달라져 사전·풀·토큰·통계가 전부 무효다.
 - 데일리 시드 문자열(`n:${day}`, `${day}:${n}`, `${day}:${n}:climb`)과 토큰 payload 형식(`n.t.idx`)을 바꾸지 않는다. 바꾸면 그날 데일리가 바뀌고 진행 중 게임이 깨진다.
+- 데일리 중복 방지의 `DAILY_DEDUP_START`(`token.ts`), `perm:${n}[:climb]` 키 문자열, 순열 공식 `(a*d + b) % count`(a 서로소 보정 포함)를 바꾸지 않는다. 바꾸면 그날 데일리 정답이 바뀐다. `smoke.py`의 같은 상수·함수와 짝이다(HANDOFF §4.3).
 - `KORDLE_SECRET`을 사용자 지시 없이 재생성하지 않는다. 모든 토큰이 무효가 된다.
 - localStorage 키 형식(`nkordle:` 접두, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`, `stats:<mode>`, `best:<mode>:<lengthKey>`, `config`, `settings`)을 바꾸지 않는다. 사용자 진행·통계가 사라진다.
 - `+page.ts`의 `ssr = false; prerender = true` 둘 중 하나를 빼지 않는다.

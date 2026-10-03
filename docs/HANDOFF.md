@@ -103,6 +103,7 @@ export_d1.py             POOL = "unit = '단어' AND pos = '명사' AND word NOT
 
 - `pool`의 `idx`는 `kordle.db`의 `rowid` 순서다. 사전을 다시 만들면(소스 갱신 등) 순서가 바뀌어 **그날 데일리 정답이 바뀐다**. 재임포트는 KST 자정 직후에 하거나 하루 어긋남을 감수한다.
 - 데일리 시드 문자열: n 결정 `n:${day}`, 정답 `${day}:${n}`, 일일 등반 `${day}:${n}:climb`. `:climb` 접미가 없으면 등반 6자 = 데일리 6자(스포일러). `day`는 KST `YYYY-MM-DD`.
+- **정답 중복 방지**: `DAILY_DEDUP_START = '2026-10-04'`(`token.ts`) 이상 날짜는 `dailyIndex()`가 (모드, n)별 순열로 idx를 정한다. 키 `perm:${n}`(등반은 `perm:${n}:climb`)의 SHA-256에서 a=바이트0-3, b=바이트4-7(각 uint32 % count), a가 0이거나 count와 서로소가 아니면 1씩 올려 서로소로 만들고, `idx = (a*d + b) % count`(d=시작일부터 경과 일수). 같은 (모드, n)에서 count일 동안 반복이 없다. 시작일 이전은 위의 예전 시드(과거 문제 보존). `scripts/smoke.py`에 같은 로직·시작일이 짝으로 있다. 한계: 사전 갱신으로 count·풀 배치가 바뀌면 순열이 새로 시작돼 이전 정답이 다시 나올 수 있고, count일이 지나면 한 바퀴 돌아 반복한다. 데일리↔등반 간 교차 중복은 막지 않는다.
 - 토큰 payload는 `n.t.idx`. 예전 형식 `n.idx`는 이미 무효다(정답 풀을 모드별로 나눌 때 바뀜).
 
 ### 4.4 데일리 계열은 6회 고정, 저장·복원
@@ -303,7 +304,7 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | `src/lib/types.ts` | `GameMode` 유니언에 id 추가(영문 kebab, 예 `practice`), `MODE_LABEL`에 표시명 |
 | `src/lib/server/dict.ts` | `POOL_THRESHOLD`에 값 — 이게 곧 서버 allowlist. 기존 t(2 또는 3)를 쓰면 D1 재임포트 불필요, 새 t면 §6.6 |
 | `src/lib/game.svelte.ts` | `isDaily`(날짜 시드·6회·저장복원 대상인가), `isClimb`(스테이지·피라미드 대상인가)에 넣을지 판단. 통계는 `recordStats()`(played/won/streak/dist), 등반 최고 기록은 `finish()` 안 `bestStage` — 제외하려면 여기서 모드로 분기 |
-| `src/routes/api/game/+server.ts` | `daily`·`daily-climb`만 날짜 시드, 나머지는 랜덤. 날짜 시드 모드를 추가하면 시드 문자열에 모드를 섞어 다른 데일리와 정답이 겹치지 않게 |
+| `src/routes/api/game/+server.ts` | `daily`·`daily-climb`만 날짜 시드, 나머지는 랜덤. 날짜 시드 모드를 추가하면 시드 문자열에 모드를 섞어 다른 데일리와 정답이 겹치지 않게(idx는 `token.ts` `dailyIndex`, §4.3) |
 | `src/lib/components/ModeModal.svelte` | `MODES` 배열에 설명. 길이 선택 UI를 숨길 모드면 `pickable` |
 | `src/routes/+page.svelte` | 종료 후 하단 버튼 분기(`다음 단어`/`다음 스테이지`/`결과`/`통계`), 자동 모달 `$effect` |
 | `StatsModal.svelte` / `ClimbModal.svelte` | 통계 표시·카운트다운(`isDaily`)·피라미드(`isClimb`) 조건이 맞는지 |

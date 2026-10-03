@@ -11,6 +11,7 @@
 """
 import json
 import hashlib
+import math
 from datetime import datetime, timedelta, timezone
 import sys
 import urllib.error
@@ -31,6 +32,26 @@ POOL_SIZE = {
     (2, 5): 5050, (2, 6): 7383, (2, 7): 3424, (2, 8): 4388, (2, 9): 3739, (2, 10): 1581, (2, 11): 933, (2, 12): 525,
     (3, 5): 3121, (3, 6): 3701, (3, 7): 1461, (3, 8): 1511, (3, 9): 1271, (3, 10): 548, (3, 11): 293, (3, 12): 174,
 }
+
+# 데일리 중복 방지 시작일(KST). src/lib/server/token.ts DAILY_DEDUP_START 와 같아야 한다 — 서버 코드와 짝.
+# 이 날짜 이상은 (모드, n)별 순열로 idx를 정하고, 이전은 날짜별 독립 해시다.
+DAILY_DEDUP_START = "2026-10-04"
+
+
+def daily_idx(day, n, climb, count):
+    """token.ts dailyIndex 와 같은 계산."""
+    suffix = ":climb" if climb else ""
+    if day < DAILY_DEDUP_START:
+        return int.from_bytes(hashlib.sha256(f"{day}:{n}{suffix}".encode()).digest()[:4], "big") % count
+    if count <= 1:
+        return 0
+    d = (datetime.fromisoformat(day) - datetime.fromisoformat(DAILY_DEDUP_START)).days
+    h = hashlib.sha256(f"perm:{n}{suffix}".encode()).digest()
+    a, b = int.from_bytes(h[:4], "big") % count, int.from_bytes(h[4:8], "big") % count
+    while a == 0 or math.gcd(a, count) != 1:
+        a = (a + 1) % count
+    return (a * d + b) % count
+
 
 # 풀 크기 검사에 쓸 대표 모드: 임계값 t를 쓰는 모드 중 랜덤(비데일리)인 것 하나. 새 t가 생기면 여기도 추가.
 MODE_FOR_T = {t: next(m for m, tt in EXPECTED_T.items() if tt == t and not m.startswith("daily")) for t in set(EXPECTED_T.values())}
@@ -99,9 +120,14 @@ for mode in ("daily", "daily-climb"):
     st, old = post("game", {"mode": mode, "n": 6, "day": yesterday})
     st2, again = post("game", {"mode": mode, "n": 6, "day": yesterday})
     check(f"{mode} 지난 날짜 요청 결정론", st == st2 == 200 and old == again)
-    seed = f"{yesterday}:6" + (":climb" if mode == "daily-climb" else "")
-    expected_idx = int.from_bytes(hashlib.sha256(seed.encode()).digest()[:4], "big") % POOL_SIZE[(EXPECTED_T[mode], 6)]
+    expected_idx = daily_idx(yesterday, 6, mode == "daily-climb", POOL_SIZE[(EXPECTED_T[mode], 6)])
     check(f"{mode} 지정 날짜 시드 유지", st == 200 and old and old["token"].split(".")[2] == str(expected_idx))
+today = datetime.now(timezone(timedelta(hours=9))).date().isoformat()
+if yesterday >= DAILY_DEDUP_START:
+    for mode in ("daily", "daily-climb"):
+        a = post("game", {"mode": mode, "n": 6, "day": today})[1]
+        b = post("game", {"mode": mode, "n": 6, "day": yesterday})[1]
+        check(f"{mode} n=6 오늘과 어제 idx가 다름", a and b and a["token"].split(".")[2] != b["token"].split(".")[2])
 for bad_day in ("2026-02-30", "9999-12-31", "bad", None):
     st, _ = post("game", {"mode": "daily-climb", "n": 6, "day": bad_day})
     check(f"잘못된 날짜 {bad_day!r} → 400", st == 400)
