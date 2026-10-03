@@ -59,6 +59,37 @@ export async function seededIndex(seed: string, max: number): Promise<number> {
 	return new DataView(digest).getUint32(0) % max;
 }
 
+/**
+ * 이 날짜(KST) 이상의 데일리부터 같은 (모드, n) 안에서 정답이 반복되지 않는다.
+ * 시작일 이전은 과거 문제를 바꾸지 않으려고 예전 해시(날짜별 독립)를 그대로 쓴다.
+ * 바꾸면 그날 데일리 정답이 바뀐다 — 절대 바꾸지 않는다.
+ */
+export const DAILY_DEDUP_START = '2026-10-04';
+
+function gcd(a: number, b: number): number {
+	while (b) [a, b] = [b, a % b];
+	return a;
+}
+
+/**
+ * 데일리 정답 idx. 시작일 이후는 (모드, n)마다 고정된 순열 idx = (a*d + b) % count 를 쓴다.
+ * a가 count와 서로소면 d가 count 안에서 일 단위로 증가하는 동안 idx가 모두 다르다. 서버는 무상태라 "이미 나온 단어" 목록 대신 날짜만으로 계산한다.
+ * 한계: 사전 갱신으로 count나 풀 배치가 바뀌면 순열이 새로 시작되어 이전 정답이 다시 나올 수 있고, count일이 지나면 한 바퀴 돌아 반복한다.
+ * 데일리↔일일 등반 간 교차 중복은 막지 않는다.
+ */
+export async function dailyIndex(day: string, n: number, climb: boolean, count: number): Promise<number> {
+	if (day < DAILY_DEDUP_START) return seededIndex(`${day}:${n}${climb ? ':climb' : ''}`, count);
+	if (count <= 1) return 0;
+	const d = Math.round((Date.parse(day) - Date.parse(DAILY_DEDUP_START)) / 86400000);
+	const digest = await crypto.subtle.digest('SHA-256', enc.encode(`perm:${n}${climb ? ':climb' : ''}`));
+	const view = new DataView(digest);
+	let a = view.getUint32(0) % count;
+	const b = view.getUint32(4) % count;
+	while (a === 0 || gcd(a, count) !== 1) a = (a + 1) % count;
+	// a < count(수만 이하), d는 수천 일 이하라 a*d가 2^53을 넘지 않는다.
+	return (a * d + b) % count;
+}
+
 export function randomIndex(max: number): number {
 	// 2^32 % max 만큼의 편향은 풀 크기(수천~수만)에서 무시할 수준이다.
 	return crypto.getRandomValues(new Uint32Array(1))[0] % max;

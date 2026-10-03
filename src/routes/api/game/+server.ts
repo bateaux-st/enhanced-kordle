@@ -4,7 +4,7 @@ import { MIN_N, MAX_N } from '$lib/jamo';
 import type { NewGameRequest, NewGameResponse } from '$lib/types';
 import { POOL_THRESHOLD } from '$lib/server/dict';
 import { ctx } from '$lib/server/env';
-import { encodeToken, randomIndex, seededIndex } from '$lib/server/token';
+import { dailyIndex, encodeToken, randomIndex, seededIndex } from '$lib/server/token';
 import { todayKST, validDailyDay } from '$lib/day';
 
 const SPAN = MAX_N - MIN_N + 1;
@@ -27,7 +27,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const day = body.day === undefined ? today : body.day;
 		if (!validDailyDay(day, today)) error(400, 'invalid daily day');
 		n = body.n ?? MIN_N + (await seededIndex(`n:${day}`, SPAN));
-		idx = await seededIndex(`${day}:${n}${body.mode === 'daily-climb' ? ':climb' : ''}`, await db.answerCount(t, n));
+		idx = await dailyIndex(day, n, body.mode === 'daily-climb', await db.answerCount(t, n));
 	} else {
 		n = body.n ?? MIN_N + randomIndex(SPAN);
 		idx = randomIndex(await db.answerCount(t, n));
