@@ -1,7 +1,20 @@
-<script lang="ts">
-	import type { Game } from '$lib/game.svelte';
+<script module lang="ts">
+	/** Board가 읽는 필드만 뽑은 모양. 개인 `Game`이 그대로 만족하고, 멀티 화면은 서버 스냅샷으로 같은 모양을 만들어 넘긴다. */
+	export interface BoardView {
+		n: number;
+		maxTries: number;
+		rows: string[];
+		marks: (string | null)[][];
+		current: string;
+		status: string;
+		shake: boolean;
+		invalid: boolean;
+		hints: Record<number, string>;
+	}
+</script>
 
-	let { game }: { game: Game } = $props();
+<script lang="ts">
+	let { game }: { game: BoardView } = $props();
 
 	// 확정 행 + 입력 중인 행 + 빈 행을 maxTries 줄로 편다.
 	let grid = $derived.by(() => {

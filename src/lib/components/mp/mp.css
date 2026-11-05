@@ -1,0 +1,429 @@
+/*
+ * 멀티플레이 화면 공통 스타일. 모든 규칙이 .mp 아래로 한정되어 개인 화면에는 닿지 않는다.
+ * 색은 src/app.css의 역할 토큰만 쓴다. 여기서 더하는 토큰은 --on-danger와 모션 시간(--mo-*)뿐이다.
+ * 컴포넌트별 배치는 각 .svelte의 scoped 스타일에 있다.
+ */
+.mp {
+	--on-danger: #111827;
+
+	--mo-fast: 100ms;
+	--mo-pop: 150ms;
+	--mo-fade: 200ms;
+	--mo-drop: 300ms;
+	--mo-shake: 400ms;
+
+	position: relative;
+	max-width: 80rem;
+	margin: 0 auto;
+	padding-left: max(16px, env(safe-area-inset-left, 0px));
+	padding-right: max(16px, env(safe-area-inset-right, 0px));
+	padding-block: 1.5rem 3rem;
+	min-height: 100vh;
+	min-height: 100dvh;
+	color: var(--text);
+}
+:root[data-theme='dark'] .mp {
+	--on-danger: #f8fafc;
+}
+.mp h1,
+.mp h2,
+.mp h3,
+.mp p {
+	margin: 0;
+}
+.mp ul,
+.mp ol {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.mp fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+.mp legend {
+	padding: 0;
+	margin-bottom: 0.375rem;
+	font-size: 0.875rem;
+	font-weight: 700;
+}
+.mp button:disabled {
+	cursor: default;
+}
+.mp input {
+	font: inherit;
+}
+.mp :focus-visible {
+	outline: 2px solid var(--sel-line);
+	outline-offset: 2px;
+}
+.mp .sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+.mp .sp {
+	flex: 1 1 auto;
+}
+.mp .gear {
+	position: absolute;
+	top: 1.5rem;
+	right: max(16px, env(safe-area-inset-right, 0px));
+	z-index: 5;
+}
+
+.mp .ic {
+	width: 1rem;
+	height: 1rem;
+	flex: none;
+}
+.mp .btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.375rem;
+	min-height: 44px;
+	min-width: 44px;
+	padding: 0.375rem 0.875rem;
+	border-radius: 0.25rem;
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: var(--btn-text);
+	background: var(--btn);
+	text-decoration: none;
+	transition: background var(--mo-fast);
+}
+.mp .btn:hover:not(:disabled) {
+	background: var(--btn-hover);
+}
+.mp .btn:disabled {
+	opacity: 0.45;
+}
+.mp .btn.big {
+	padding: 0 1.25rem;
+	border-radius: 0.375rem;
+	font-size: 1rem;
+	font-weight: 700;
+}
+.mp .btn.primary {
+	color: var(--on-tile);
+	background: var(--btn-primary);
+}
+.mp .btn.primary:hover:not(:disabled) {
+	background: var(--btn-primary-hover);
+}
+.mp .btn.danger {
+	color: var(--on-danger);
+	background: var(--danger);
+	font-weight: 700;
+}
+.mp .btn.block {
+	display: flex;
+	width: 100%;
+}
+.mp .btn.icon {
+	position: relative;
+	padding: 0;
+	width: 44px;
+}
+.mp .btn.chip {
+	font-size: 0.875rem;
+	font-weight: 700;
+	max-width: 12rem;
+	overflow-wrap: anywhere;
+}
+.mp .btn[aria-pressed='true'] {
+	color: var(--on-tile);
+	background: var(--btn-primary);
+}
+
+.mp .bdg {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.125rem 0.375rem;
+	border-radius: 0.25rem;
+	font-size: 0.6875rem;
+	font-weight: 700;
+	white-space: nowrap;
+}
+.mp .bdg.me {
+	border: 1px solid var(--muted);
+	padding: 0.0625rem 0.375rem;
+}
+.mp .bdg.ready {
+	padding: 0.25rem 0.625rem;
+	font-size: 0.75rem;
+	color: var(--btn-text);
+	background: var(--sel-bg);
+}
+.mp .bdg.idle {
+	padding: 0.1875rem 0.625rem;
+	font-size: 0.75rem;
+	border: 1px solid var(--muted);
+	color: var(--muted);
+}
+.mp .bdg.off {
+	padding: 0.1875rem 0.625rem;
+	font-size: 0.75rem;
+	border: 1px dashed var(--muted);
+	color: var(--muted);
+}
+.mp .bdg.wait {
+	padding: 0.125rem 0.5rem;
+	font-size: 0.75rem;
+	color: var(--btn-text);
+	background: var(--sel-bg);
+}
+.mp .bdg.run {
+	padding: 0.125rem 0.5rem;
+	font-size: 0.75rem;
+	color: var(--on-key);
+	background: var(--key);
+}
+.mp .bdg.full {
+	padding: 0.0625rem 0.5rem;
+	font-size: 0.75rem;
+	border: 1px solid var(--muted);
+	color: var(--muted);
+}
+.mp .input {
+	height: 44px;
+	padding: 0 0.75rem;
+	border: 1px solid var(--muted);
+	border-radius: 0.375rem;
+	background: var(--bg);
+	color: var(--text);
+	font-size: 1rem;
+	min-width: 0;
+}
+.mp .input.code {
+	flex: 1 1 auto;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.mp .note {
+	font-size: 0.8rem;
+	color: var(--muted);
+}
+.mp .count {
+	font-variant-numeric: tabular-nums;
+}
+.mp .card {
+	border: 1px solid var(--line);
+	border-radius: 0.5rem;
+	background: var(--surface);
+	overflow: hidden;
+}
+.mp .spin {
+	display: inline-block;
+	width: 1rem;
+	height: 1rem;
+	border: 2px solid var(--line-strong);
+	border-top-color: var(--sel-line);
+	border-radius: 50%;
+	animation: mp-spin 1s linear infinite;
+}
+.mp .spin.big {
+	width: 1.25rem;
+	height: 1.25rem;
+	border-width: 3px;
+}
+.mp .rm-only {
+	display: none;
+}
+
+.mp .a-pop {
+	animation: mp-pop var(--mo-pop) ease-out both;
+}
+.mp .a-drop {
+	animation: mp-drop var(--mo-drop) ease-out both;
+}
+.mp .a-fadein {
+	animation: mp-fadein var(--mo-fade) ease-out both;
+}
+.mp .d1 {
+	animation-delay: 90ms;
+}
+.mp .d2 {
+	animation-delay: 180ms;
+}
+.mp .d3 {
+	animation-delay: 270ms;
+}
+.mp .d4 {
+	animation-delay: 360ms;
+}
+.mp .d5 {
+	animation-delay: 450ms;
+}
+
+/* pop / shake / drop / fade 네 가지만 쓴다(MULTIPLAYER_MOTION §1). 개인 쪽 keyframes와 이름이 겹치지 않게 mp- 접두어 */
+@keyframes mp-pop {
+	0% {
+		transform: scale(0.8);
+		opacity: 0;
+	}
+	40% {
+		transform: scale(1.1);
+		opacity: 1;
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+@keyframes mp-shake {
+	10%,
+	90% {
+		transform: translateX(-2px);
+	}
+	20%,
+	80% {
+		transform: translateX(4px);
+	}
+	30%,
+	50%,
+	70% {
+		transform: translateX(-6px);
+	}
+	40%,
+	60% {
+		transform: translateX(6px);
+	}
+}
+@keyframes mp-drop {
+	from {
+		transform: translateY(-8px);
+		opacity: 0;
+	}
+	to {
+		transform: none;
+		opacity: 1;
+	}
+}
+@keyframes mp-fadein {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes mp-fadeout {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@keyframes mp-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes mp-pulse {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(1.1);
+	}
+}
+@keyframes mp-xin {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes mp-toastin {
+	from {
+		opacity: 0;
+		transform: translateY(-8px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes mp-collapse {
+	from {
+		height: 56px;
+		opacity: 0;
+	}
+	to {
+		height: 0;
+		opacity: 0;
+	}
+}
+@keyframes mp-lineflash {
+	from {
+		border-color: var(--line);
+	}
+	to {
+		border-color: var(--sel-line);
+	}
+}
+@keyframes mp-selbg {
+	from {
+		background-color: var(--surface);
+	}
+	to {
+		background-color: var(--sel-bg);
+	}
+}
+@keyframes mp-dflash {
+	0%,
+	80% {
+		border-color: var(--danger);
+	}
+	100% {
+		border-color: transparent;
+	}
+}
+
+/* 900px 미만: 위쪽 여백을 줄인다. 오른쪽 위 설정 버튼은 첫 줄 버튼과 상단을 맞춘다 */
+@media (max-width: 899.98px) {
+	.mp {
+		padding-block: 0.75rem 3rem;
+	}
+	.mp .gear {
+		top: 0.75rem;
+	}
+}
+
+/* 움직임 줄이기: 이동·스케일·회전을 없애고 상태 전환만 남긴다. 피드백은 사라지면 안 된다. */
+@media (prefers-reduced-motion: reduce) {
+	.mp *,
+	.mp *::before,
+	.mp *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		animation-delay: 0s !important;
+		transition-delay: 0s !important;
+	}
+	/* 거부된 행의 shake는 테두리 색 깜빡임으로 바꾼다 */
+	.mp .row.shake .cell {
+		animation: mp-dflash 300ms linear 1 both !important;
+		animation-duration: 300ms !important;
+	}
+	.mp .spin,
+	.mp .motion-only {
+		display: none !important;
+	}
+	.mp .rm-only {
+		display: inline;
+	}
+}

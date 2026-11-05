@@ -1,0 +1,165 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { applyGuess, giveUp, useHint } from '../src/lib/server/mp/comp.ts';
+import { backToLobby, disconnect } from '../src/lib/server/mp/members.ts';
+import { personalize } from '../src/lib/server/mp/snapshot.ts';
+import { ANSWER, joinAll, lobby, started, T0 } from './mp-helpers.mjs';
+
+const HOST_ROW = 'ㅁㅏㅁㅁㅏㅁ';
+const A_ROW = 'ㄴㅏㄴㅂㅏㅇ';
+const B_ROW = 'ㅋㅌㅍㅊㅋㅌ';
+const NOW = T0 + 5000;
+const snapOf = (s, pid) => personalize(s, pid, NOW);
+
+/** 방장·가·나 세 명이 각자 한 행씩 낸 진행 중 경쟁 단판. 가는 힌트도 썼다. */
+function midGame() {
+	const { s, pids } = started(['가', '나']);
+	const [host, a, b] = pids;
+	applyGuess(s, host, HOST_ROW, true, T0 + 1);
+	applyGuess(s, a, A_ROW, true, T0 + 2);
+	applyGuess(s, b, B_ROW, true, T0 + 3);
+	useHint(s, a);
+	return { s, host, a, b, rows: { [host]: HOST_ROW, [a]: A_ROW, [b]: B_ROW } };
+}
+
+/** 객체 안의 모든 키 경로 */
+function paths(value, prefix = '$', out = []) {
+	if (Array.isArray(value)) value.forEach((v, i) => paths(v, `${prefix}[]`, out));
+	else if (value && typeof value === 'object') {
+		for (const [k, v] of Object.entries(value)) {
+			out.push(`${prefix}.${k}`);
+			paths(v, `${prefix}.${k}`, out);
+		}
+	}
+	return out;
+}
+
+const windows3 = (str) => [...str].map((_, i) => [...str].slice(i, i + 3).join('')).filter((w) => w.length === 3);
+
+test('누출 검사(진행 중): 남의 추측 자모열·정답·uid·토큰이 부분 문자열로도 없다', () => {
+	const { s, rows } = midGame();
+	for (const viewer of s.players) {
+		const json = JSON.stringify(snapOf(s, viewer.pid));
+		for (const [pid, row] of Object.entries(rows)) {
+			if (pid === viewer.pid) continue;
+			assert.ok(!json.includes(row), `${viewer.name}에게 ${pid}의 행이 보임`);
+			for (const w of windows3(row)) assert.ok(!json.includes(w), `${viewer.name}에게 ${pid}의 행 조각 ${w}가 보임`);
+		}
+		assert.ok(!json.includes(ANSWER.jamo), '정답 자모열');
+		assert.ok(!json.includes(ANSWER.word), '정답 단어');
+		for (const p of s.players) assert.ok(!json.includes(p.uid), `uid ${p.uid}`);
+		assert.ok(!json.includes('uid-'));
+		assert.ok(!json.includes('mp1.'));
+	}
+});
+
+test('남의 패널은 {stage, n, marks, status, cleared}뿐이고 rows·hints는 필드째 없다', () => {
+	const { s, host, a, b } = midGame();
+	const view = snapOf(s, b);
+	for (const p of view.players) {
+		assert.deepEqual(Object.keys(p.panel).sort(), ['cleared', 'marks', 'n', 'stage', 'status']);
+		assert.deepEqual(Object.keys(p).sort(), ['connected', 'inGame', 'isHost', 'name', 'panel', 'pid', 'ready']);
+	}
+	assert.deepEqual(view.players.find((p) => p.pid === a).panel.marks, [['p', 'c', 'c', 'p', 'p', 'a']], '색은 보인다');
+	assert.equal(view.players.find((p) => p.pid === host).panel.status, 'playing');
+	const bad = paths(view).filter((p) => /\.(rows|hints|hintUsed|uid|token)$/.test(p));
+	assert.deepEqual(bad, ['$.settings.hints', '$.game.me.rows', '$.game.me.hints', '$.game.me.hintUsed'], 'rows·hints는 내 보드에만(settings.hints는 방 설정)');
+});
+
+test('내 보드는 전체(행·색·힌트)가 보이고, 남의 힌트 사용 여부는 모른다', () => {
+	const { s, a, b } = midGame();
+	const mine = snapOf(s, a).game.me;
+	assert.deepEqual([mine.rows, mine.hints, mine.hintUsed], [[A_ROW], { 0: 'ㅂ' }, true]);
+	assert.equal(snapOf(s, b).game.me.hintUsed, false);
+	assert.ok(!JSON.stringify(snapOf(s, b)).includes('"0":"ㅂ"'));
+});
+
+test('진행 중에는 정답이 아무에게도 가지 않는다(먼저 끝난 사람에게도)', () => {
+	const { s, a, b } = midGame();
+	applyGuess(s, a, ANSWER.jamo, true, T0 + 10);
+	assert.equal(s.game.players[a].status, 'solved');
+	for (const pid of [a, b]) {
+		const g = snapOf(s, pid).game;
+		assert.equal(g.answers, undefined);
+		assert.ok(!('answers' in g));
+	}
+	// 정답을 맞춘 본인의 행에는 정답이 들어 있다. 그건 본인이 친 것이다.
+	assert.ok(JSON.stringify(snapOf(s, a)).includes(ANSWER.jamo));
+	assert.ok(!JSON.stringify(snapOf(s, b)).includes(ANSWER.jamo));
+});
+
+test('순위표는 내가 끝났을 때만 보인다', () => {
+	const { s, host, a, b } = midGame();
+	assert.equal(snapOf(s, a).game.standings, null);
+	giveUp(s, a, T0 + 20);
+	const done = snapOf(s, a).game.standings;
+	assert.deepEqual(done.map((x) => x.pid).sort(), [host, a, b].sort(), '먼저 끝난 사람은 현재 순위를 본다');
+	assert.equal(snapOf(s, b).game.standings, null);
+	assert.equal(snapOf(s, host).game.standings, null);
+});
+
+test('result: 정답과 순위표가 모두에게 나가고, 그래도 남의 행·uid는 나가지 않는다', () => {
+	const { s, host, a, b, rows } = midGame();
+	for (const pid of [host, a, b]) giveUp(s, pid, T0 + 30);
+	assert.equal(s.phase, 'result');
+	for (const viewer of s.players) {
+		const view = snapOf(s, viewer.pid);
+		assert.deepEqual(view.game.answers, { 6: ANSWER });
+		assert.equal(view.game.standings.length, 3);
+		assert.equal(view.phase, 'result');
+		const json = JSON.stringify(view);
+		for (const [pid, row] of Object.entries(rows)) if (pid !== viewer.pid) assert.ok(!json.includes(row));
+		assert.ok(!json.includes('uid-'));
+	}
+});
+
+test('스냅샷의 최상위·게임 필드가 늘 때는 이 목록을 의도적으로 고쳐야 한다', () => {
+	const { s, host } = midGame();
+	const view = snapOf(s, host);
+	assert.deepEqual(Object.keys(view).sort(), ['code', 'game', 'host', 'hostPid', 'now', 'phase', 'players', 'seq', 'settings', 'v', 'you']);
+	assert.deepEqual(Object.keys(view.game).sort(), ['endedAt', 'graceEnd', 'kind', 'me', 'standings', 'startN', 'startedAt']);
+	assert.deepEqual(Object.keys(view.game.me).sort(), ['cleared', 'deadline', 'finishedAt', 'hintUsed', 'hints', 'marks', 'n', 'rows', 'stage', 'status', 'triesUsed']);
+});
+
+test('방장에게만 시작 가능 여부와 대기 인원이 간다', () => {
+	const s = lobby();
+	const [host, a, b] = joinAll(s, ['가', '나']);
+	s.players.find((p) => p.pid === a).ready = true;
+	disconnect(s, b, T0);
+	assert.deepEqual(snapOf(s, host).host, { canStart: true, waiting: 0, reason: null, disconnected: [b] });
+	assert.equal(snapOf(s, a).host, null);
+	assert.equal(snapOf(s, host).game, null);
+	assert.deepEqual([snapOf(s, host).you, snapOf(s, a).you], [host, a]);
+	assert.equal(snapOf(s, a).hostPid, host);
+});
+
+test('이번 게임 참가자가 아닌 사람(결과 중 입장)은 me가 null이고 순위표는 본다', () => {
+	const { s, host, a, b } = midGame();
+	for (const pid of [host, a, b]) giveUp(s, pid, T0 + 30);
+	const newcomer = joinAll(s, ['다']).at(-1);
+	const view = snapOf(s, newcomer);
+	assert.equal(view.game.me, null);
+	assert.equal(view.players.find((p) => p.pid === newcomer).panel, null);
+	assert.equal(view.game.standings.length, 3);
+});
+
+test('seq와 서버 시각이 실려 나간다', () => {
+	const { s, host } = midGame();
+	s.seq = 41;
+	const view = snapOf(s, host);
+	assert.deepEqual([view.v, view.seq, view.now, view.code], [1, 41, NOW, 'ABC234']);
+});
+
+test('다음 게임으로 대기실에 돌아오면 스냅샷에서 이전 판(정답·순위표·패널)이 사라진다', () => {
+	const { s, pids } = started(['가']);
+	for (const pid of [...pids].reverse()) giveUp(s, pid, T0 + 1);
+	assert.equal(s.phase, 'result');
+	assert.ok(snapOf(s, pids[1]).game.answers);
+	backToLobby(s, pids[0]);
+	for (const pid of pids) {
+		const v = snapOf(s, pid);
+		assert.deepEqual([v.phase, v.game], ['lobby', null]);
+		assert.ok(v.players.every((p) => p.panel === null && !p.inGame && !p.ready));
+		assert.ok(!JSON.stringify(v).includes(ANSWER.jamo));
+	}
+});

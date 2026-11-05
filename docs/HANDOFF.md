@@ -2,7 +2,7 @@
 
 이 문서는 **이 레포를 처음 받은 사람/에이전트가 다른 정보 없이 유지·개발할 수 있게** 쓴 것이다. 짧은 규칙은 [`AGENTS.md`](../AGENTS.md), 사용자용 소개는 [`README.md`](../README.md). 여기는 그 뒤에 있는 "왜"와 "어디를 만지면 무엇이 깨지는가", 그리고 검증에 쓰는 기준 수치를 담는다.
 
-마지막 갱신: 2026-09-14. 이후 바뀐 것은 `git log`가 우선한다.
+마지막 갱신: 2026-11-05. 이후 바뀐 것은 `git log`가 우선한다.
 
 ---
 
@@ -28,6 +28,13 @@
 
 **서버는 상태가 없다.** 진행·통계·설정은 전부 브라우저 `localStorage`. 정답은 서버가 기억하지 않고 **(n, t, idx)를 HMAC으로 서명한 토큰**을 클라이언트가 들고 다니며 매 요청에 보낸다. 따라서 Worker가 어느 엣지에서 몇 개 떠도 상관없고, 재배포해도 진행 중 게임이 유지된다. 단 `KORDLE_SECRET`이 바뀌면 모든 토큰이 무효다.
 
+**멀티플레이는 이 무상태 원칙의 예외다.** 방 상태는 같은 Worker 안의 Durable Object(`Room`: 방 하나, `Lobby`: 공개 방 목록 하나)가 들고, 브라우저는 `/ws/<code>` WebSocket으로 붙는다. 개인 플레이 경로(위 `/api/*`와 localStorage)는 바꾸지 않았다.
+
+- **배포**: 별도 Worker가 없다. adapter-cloudflare는 빌드마다 `_worker.js`를 템플릿으로 다시 쓰므로 `pnpm build`(`vite build && node scripts/postbuild-do.mjs`)가 끝에 `export { Room, Lobby } ...` 한 줄을 붙인다(멱등). `pnpm run deploy`와 CI 모두 이 `build`를 거친다.
+- **마이그레이션**: `wrangler.jsonc`의 `migrations` v1 `new_sqlite_classes: ["Room", "Lobby"]`는 첫 배포에서 적용되고 되돌릴 수 없다. 이후에는 항목을 추가만 하고, 태그를 지우거나 고치지 않는다.
+- **검증**: 멀티는 `pnpm build && pnpm preview`(wrangler dev, :8787)로만 본다. `pnpm dev`(Vite)는 WS가 안 되고 WS 클라이언트가 끊기면 `ECONNRESET`으로 죽는다. preview는 로컬 D1이 픽스처라 smoke의 사전 항목은 실패해도 정상이고, 멀티 항목(`/api/room`, `/api/rooms`)만 통과하면 된다.
+- 상세(프로토콜·타이머·결정): [`MULTIPLAYER.md`](MULTIPLAYER.md), [`MULTIPLAYER_TASKS.md`](MULTIPLAYER_TASKS.md).
+
 **정답 좌표의 뜻**: `t`는 정답 풀 임계값(§5), `n`은 자모 수, `idx`는 그 (t, n) 풀 안에서의 순번. D1 `pool` 테이블이 `(t, n, idx) → word, jamo`를 미리 펼쳐 두고 있어 조회가 PK 한 행이다.
 
 ### 파일 지도
@@ -51,6 +58,10 @@
 | `src/lib/game.svelte.ts` | 클라이언트 상태 머신(`Game` 클래스) | localStorage 스키마(§7) |
 | `src/routes/+page.svelte` | 화면 조립, 물리 키보드, 하단 액션 버튼(힌트·포기·다음 단어/스테이지·결과), 종료 시 자동 모달 | 모드별 종료 후 버튼 분기가 여기 있다 |
 | `src/lib/components/` | `Board` `Keyboard` `Header` `Modal` `ModeModal`(모드 선택) `SettingsModal` `HelpModal` `StatsModal`(통계) `ClimbModal`(등반 결과 피라미드) `Countdown` — 모두 `.svelte` | 원작 꼬들 Tailwind 팔레트 값을 `src/app.css` CSS 변수로 옮김 |
+| `src/lib/server/mp/**` | 멀티 DO(`Room`, `Lobby`)와 순수 로직 | `$lib` 값 import 금지, 상대 import에 `.ts` 확장자(DO 번들이 `$lib`를 못 푼다) |
+| `src/lib/mp/` | 멀티 프로토콜·규칙·클라이언트(`client.svelte.ts`) | 서버와 공유하는 상수는 `rules.ts` |
+| `src/hooks.server.ts` | `/ws/<code>`를 Room DO로 넘김 | 101 응답이 그대로 나가야 한다 |
+| `scripts/postbuild-do.mjs` | 빌드 뒤 `_worker.js`에 DO export 추가 | adapter가 `_worker.js`를 매번 다시 쓴다 |
 | `scripts/smoke.py` | 배포 후 회귀 검증 | 사전을 다시 만들면 `POOL_SIZE` 갱신 |
 
 ## 3. 계정·자격·환경
@@ -389,6 +400,7 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 - GitHub Pages 정적 전환 — 사전 2MB를 브라우저에 실어야 하고 정답이 노출된다. Cloudflare가 무료이면서 서버를 유지할 수 있어 택하지 않음.
 - GitHub Actions 코드 CI/CD — PR 검증, main 배포·smoke (§6.1). 사전 자동 갱신은 아직 없음.
 - 공유(이모지 격자 복사), 다크 모드, 계정/서버 저장 — 요청되지 않음.
+- 멀티플레이(방 기반 협동·경쟁) — 2026-11-05 2단계(경쟁 단판) 구현·배포. 협동·등반·제한 시간은 구현 전. 결정 전부와 아키텍처는 [`MULTIPLAYER.md`](MULTIPLAYER.md), 배포 구조는 §2. 개인 플레이 코드 경로는 바꾸지 않는 것이 전제다.
 
 작업 완료 기준: 코드는 로컬 검증 → 커밋·push·PR → CI 통과 → main 반영 → Actions 배포·운영 smoke 통과. 사전 수동 갱신은 운영 smoke 통과 후 커밋·push. 문서만 수정한 작업은 로컬 실행 검증을 생략할 수 있다.
 

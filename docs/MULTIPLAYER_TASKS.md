@@ -1,0 +1,1466 @@
+# 멀티플레이 v1 작업 문서
+
+상태: 2026-11-01 작성. 2026-11-05 2단계(경쟁 단판) 구현·배포, 3단계 이후는 구현 전. 설계 근거는 [`MULTIPLAYER.md`](MULTIPLAYER.md)(2026-11-01 확정본), 규칙은 `AGENTS.md`, 배경은 `docs/HANDOFF.md`.
+
+이 문서는 PM 명세(화면·수용 기준·우선순위·카피)와 PL 구현 계획(모듈 지도·프로토콜·WBS·스파이크·테스트)이 로컬 스크래치에만 있던 것을 **하나로 합친 것**이다. 중복은 걷어내고 번호를 다시 매겼다. 원문의 절 번호 참조는 이 문서 번호로 고쳤다. 화면 명세(§2)와 카피(§9)는 프로토타입·구현의 명세라 압축하지 않았다.
+
+## 0. 머리말
+
+| 표기 | 뜻 |
+|---|---|
+| **[설계 §n]** | `MULTIPLAYER.md` 근거. 사용자 결정과 기본값(제안)의 구분은 설계 원문을 따른다 |
+| **[가정]** | 설계에 없음. 프로토타입이 화면을 그리려면 있어야 해서 둔 임시값. 확정 아님. 질문과 연결된 것은 Q 번호를 붙였다 |
+| **[배정]** | 설계 §8이 단계를 정하지 않은 항목을 PM이 단계에 배정한 것 |
+| **[확인함]** | PL이 코드(어댑터·kit·wrangler·workers-types)로 직접 확인한 사실 |
+| **[스파이크]** | 1단계에서 실측해야 확정되는 것 |
+| **[변경 제안 Pn / CP-n]** | 설계와 다르게 하자는 제안. **미승인**이며 승인 전에는 설계가 우선. 목록은 §12 |
+| **[결정 필요 Qn]** | 설계에 답이 없어 사용자 결정이 필요한 것. 목록은 §11 |
+
+참고 자료:
+
+- Cloudflare 무료 플랜 한도: research_notes/Cloudflare 무료 서빙/cloudflare_free_tier.md
+
+수치는 설계 값을 그대로 쓴다. 설계에서 "기본값(제안)"인 수치(방 코드 6자, 5초 승계 유예, 30초 소멸, 3초 폴링, 180/−15/60초, 유예 60초, 무입력 60초, 끊김 60초 자동 탈락)는 실플레이로 조정될 수 있다.
+
+### 착수 전에 확인한 사실
+
+| 항목 | 확인 내용 |
+|---|---|
+| 어댑터 `main` 덮어쓰기 | `adapter-cloudflare`(7.2.9) `index.js` 58–59행 `main` 대입 → 78행 `builder.rimraf(worker_dest)` → 117행 `builder.copy(files/worker.js, worker_dest)`. `main` **키**가 아니라 그 경로의 **파일**을 지우고 템플릿으로 다시 쓴다. 설계 §7의 행 번호는 이에 맞게 정정했다 [확인함, P2 반영됨] |
+| `hooks.handle`의 101 | `kit/src/runtime/server/respond.js`(kit 2.70.3): 헤더·쿠키 주입은 `resolve(...).then` 안(469–490행)에서만 한다. `handle()` 뒤 후처리는 `status === 200 && etag`(503행)와 `is_data_request && 30x`(535행)뿐이라 101은 그대로 나간다. `/ws/<code>`는 라우트가 없어 `route=null`이라 트레일링 슬래시 308 정규화도 타지 않는다. CSRF 검사는 폼 content-type의 POST류만 대상(74–100행) [확인함] |
+| 어댑터 워커의 캐시 경로 | `files/worker.js`: 요청 전 `caches.default.match`(요청에 `cache-control: no-cache`가 없을 때) — 업그레이드 요청은 캐시에 없어 통과. 응답 후 `pragma && res.status < 400`일 때만 `c()`를 타고, 저장 조건 `r()`은 상태 집합 {200,203,204,300,301,404,405,410,414,501}만 허용 → 101은 저장·변형 없음. `/ws/...`는 정적 자산·프리렌더 목록에 없어 `server.respond`로 간다 [확인함] |
+| `event.request` | worker.js가 `server.respond(req, …)`에 원본을 넘기고 respond.js가 `event.request = request`로 그대로 둔다 → Upgrade 헤더 보존, DO 스텁에 그대로 `fetch` 가능 [확인함] |
+| `deploy` 스크립트 | `package.json`의 `"deploy": "vite build && wrangler deploy"`는 `build` 스크립트를 거치지 않는다. CI(`ci.yml`)는 `pnpm run build` → `pnpm exec wrangler deploy`라 후처리를 탄다. 조치: `"build": "vite build && node scripts/postbuild-do.mjs"`, `"deploy": "pnpm run build && wrangler deploy"` 두 곳을 고친다. 안전망으로 `migrations`에 `Room`·`Lobby`가 있는데 export가 빠진 번들은 업로드 단계에서 거부될 것으로 보나 **실측하지 못했다**(§6 선택 항목) [확인함, P1 반영됨] |
+| `getPlatformProxy`와 빌드 | `kit/src/core/postbuild/prerender.js` 130행이 `adapter.emulate()`를 부르고 respond.js 225행이 요청마다 `state.emulator.platform()`을 호출한다. `emulate()`(index.js 181행~)는 `getPlatformProxy`를 띄운다. DO 바인딩이 이를 깨면 `pnpm dev`뿐 아니라 **`pnpm build`와 CI도 깨진다.** wrangler 4.129.1 `getMiniflareOptionsFromConfig`(cli.js 361415행~)는 내부 DO 바인딩에 "These will not work in local development, but they should work in production." **경고만** 찍고 진행한다. 바인딩이 `script: ""` 워커 자신의 `className`으로 들어가므로 workerd가 클래스 미export를 기동 오류로 보는지는 코드만으로 확정하지 못했다 → [스파이크] (c) [확인함] |
+| 로컬 환경 | 이 PC: Node 24.14.1, pnpm 12.8.1, Python 3.13(Windows). HANDOFF·CI: Node 22.17, pnpm 10.28, Python 3.10. 테스트는 Node 22의 `--experimental-strip-types` 제약(지울 수 있는 TS 문법만)을 지켜야 CI에서 통과한다. `.wrangler/`·`.dev.vars`·`kordle.db`·`.svelte-kit/cloudflare`가 없어 로컬 D1이 비어 있고 이 PC에서 빌드한 적이 없다. 스파이크와 로컬 멀티 검증은 **D1 미니 픽스처**(§6)로 한다 [확인함] |
+| 작업 트리 | `docs/MULTIPLAYER.md` 미추적, `docs/HANDOFF.md` 수정 미커밋, `reports/`·`research_notes/` 미추적. 설계 문서를 어떻게 넣을지는 [결정 필요 Q25] |
+
+---
+
+## 1. 범위
+
+### 1.1 v1 포함
+
+| 영역 | 내용 | 근거 |
+|---|---|---|
+| 진입 | 첫 진입 개인/멀티 선택 화면. `/?room=CODE`는 선택 화면을 건너뛰고 그 방으로. 새 라우트 없음(`/` 안의 화면 상태) | 설계 §1 |
+| 로비 | 공개 방 목록(3초 폴링), 방 만들기, 코드 입력. 진행 중 방은 "진행 중" 태그로 보이되 입장 불가 | 설계 §1·§2·§7 |
+| 방 | 코드 6자(대문자+숫자, `0 O 1 I` 제외), 공개 목록 + 링크 입장, 2~5명, 계정 없음·닉네임만, 닉네임 충돌 시 서버가 접미사를 붙여 확정 이름 반환 | 설계 §2 |
+| 대기실 | 방장 제외 전원 준비 시 시작 활성, 방장 혼자 시작 불가, 규칙 설정 변경 시 전원 준비 해제, 신규 입장자는 본인만 미준비, 끊긴 사람은 준비 해제로 봄, 재촉(방장 화면 전체 알림 레이어, 1인당 30초 쿨다운), 언제나 나가기 | 설계 §1·§2 |
+| 방장 | 권한: 설정·시작·다음 게임 선택·협동 제안/투표 마감·협동 포기·경쟁 끊긴 사람 강제 탈락. 승계: 실제로 나가거나 끊기면(끊김은 5초 유예) 입장 순으로 접속 중인 다음 사람. 잠수는 시스템이 풀지 않음. 방은 전원이 나가기로 떠나면 즉시, 끊김이 섞이면 접속자 0명 뒤 30초에 소멸 | 설계 §1·§2 |
+| 설정 | 종류(협동/경쟁), 게임(단판/등반), 시작 길이(5~12 또는 랜덤), 시도 횟수(4~10, 기본 6), 하드모드, 힌트 허용, 제한 시간(켬/끔, 기본 켬), 협동 선택 방식(투표/돌림판). 매 게임마다 변경 가능. 정답 풀은 멀티 전용 상수 t=3(`POOL_THRESHOLD`와 무관, D1 재임포트 없음) | 설계 §3 |
+| 협동 | 제안 → 선택 → 판정. 제안 실시간 공유, 서버가 사전·하드모드 검사, 마감 전 수정 가능, 전원 제안 또는 방장 마감(제안 ≥1), 같은 단어 병합, 제안 1개면 바로 제출. 투표(자기 제안 금지, 전원 투표 또는 방장 마감, 동률은 돌림판)/돌림판(서버 결정, 약 1.5초 연출). 힌트 판당 1회 누구나, 포기는 방장, 끊긴 사람은 집계에서 제외(탈락 없음) | 설계 §4 |
+| 경쟁 | 같은 정답·각자 보드·같은 시도 횟수, 힌트 1인 1회, 포기는 본인만 탈락. 단판은 전원 종료까지. 순위 = 정답자(시도 수 → 완료 시각) 다음 미정답자(지표). 상대 패널은 색만 | 설계 §1·§5 |
+| 등반 | 시작 길이에서 12자까지 한 자모씩. 협동은 공유 보드로 이어가고 실패 또는 12자 완주로 종료. 경쟁은 독립 등반: 스테이지 실패 시 높이 확정, 첫 완주자 1위 + 유예 60초, 전원 실패해도 종료. 순위 지표(높이 → 초록 자리 수 → 노랑 자모 종류 수 → 시도 수 → 공동) | 설계 §3·§4·§5 |
+| 결과·루프 | 결과 화면, "같은 설정으로 한 판 더", 방장이 다음 게임 선택 → 대기실(전원 준비 해제). 게임과 게임 사이에만 새 참가 | 설계 §2·§3 |
+| 제한 시간·무입력 | 등반 1스테이지 180초, 스테이지마다 −15초, 하한 60초. 단판 라운드 상한 180초. 만료 = 그 판/스테이지 실패. 서버는 마감 시각만 저장, 클라이언트 카운트다운. 60초 무입력 시 본인에게 "진행 중입니다" 경고 모달, 자동 포기·강제 퇴장 없음 | 설계 §3·§6 |
+| 끊김·재접속 | 같은 `uid` 자동 재입장(`nkordle:mp-session` 토큰, 24시간 슬라이딩): 대기 중이면 자기 자리(준비 해제), 진행 중이고 60초 안이면 자기 자리 복귀, 60초가 지나 탈락했으면 결과 화면부터 합류(관전 없음). 경쟁에서 끊김 60초 초과 시 자동 탈락. 이미 끝난 사람은 남은 사람 진행(색만)과 현재 순위를 봄 | 설계 §2·§5 |
+| 화면 배치 | 가운데 개인과 같은 보드·키보드, 좌·우 여백에 상대 패널 2개씩(□나□ / □나□). 모바일은 보드 위 가로 띠(넘치면 가로 스크롤) | 설계 §1 |
+| 저장 | localStorage는 `nkordle:mp-session` 하나(임시 계정 토큰 `{ token, name, exp }`). sessionStorage·BroadcastChannel 없음. 게임 데이터·초안·결과는 브라우저에 저장하지 않음(메모리만, 재접속 시 서버 스냅샷으로 복원). 쿠키 없음. 멀티 결과는 개인 통계에 기록하지 않음 | 설계 §7 브라우저 저장 최소화와 임시 계정(2026-11-01 사용자 결정) |
+
+### 1.2 v1 제외
+
+(괄호 안 §는 설계 문서의 절이다.)
+
+채팅(설계 §1·§9) · 관전, 진행 중 방 입장(§2) · 자동 방장 교체·자동 시작(§1) · 무입력 자동 포기·강제 퇴장(§0·§6) · 개인 모드(하루 1개·일일 등반·랜덤 무한·등반 2종)를 멀티에서 그대로 쓰기, 특히 연속 클리어·데일리 2종(§3) · 등반 목표 스테이지 수 설정(12자가 결승선, §3) · 비공개 방·비밀번호(§2, 설계에 없음) · **강퇴**(§9 미확정 → 결정 전까지 넣지 않음, Q11) · 멀티 전적 저장(§9 미확정 → v1 미저장, Q12) · 테트리스식 공격 규칙과 테트리스 계열 벤치마크(§9 2차) · HMAC 토큰·`KORDLE_SECRET` 사용(§7, 정답은 DO에만) · D1 폴링 방식(§7에서 기각).
+
+### 1.3 개인 플레이 쪽에서 바뀌는 것 (전부)
+
+설계 §0: **`Board.svelte` 소폭 수정(`Game` 대신 인터페이스를 받음)과 선택 화면 추가뿐**이다. 실제 구현에서 손대는 개인 쪽 파일은 `Board.svelte`와 `+page.svelte`(화면 상태 분기)이고, 그 밖의 개인 화면·문구·버튼·저장은 그대로다. 개인 화면에서 선택 화면으로 돌아가는 경로는 설계에 없다(Q2).
+
+---
+
+## 2. 화면 목록과 상태
+
+### 2.0 공통
+
+**화면 ID**
+
+| ID | 화면 | 형태 |
+|---|---|---|
+| S0 | 선택(개인/멀티) | 전체 화면 |
+| S1 | 로비: 방 목록 · 닉네임 · 방 만들기 · 코드 입력 | 전체 화면 |
+| S1-N | 닉네임 입력(링크로 들어왔는데 닉네임이 없을 때) [가정] | 모달 |
+| S2 | 대기실 (+ S2-S 설정 패널) | 전체 화면 |
+| S3 | 멀티 게임: S3-K 경쟁, S3-C 협동 / 데스크톱·모바일 | 전체 화면 |
+| S4 | 협동 선택 단계: S4-V 투표, S4-R 돌림판 | S3-C 위 오버레이 또는 보드 아래 영역 [가정] |
+| S5 | 결과·순위: 경쟁 단판·경쟁 등반·협동 단판·협동 등반 | 모달(개인 `StatsModal`/`ClimbModal` 형태) [가정] |
+| S6 | 다음 게임 선택 | S5의 방장 액션 → S2로 전환 |
+| S7 | 오류·끊김·재접속 | 토스트 / 오버레이 / 오류 화면 |
+| S8 | 무입력 경고 | 모달 |
+| — | 확인 대화상자: 나가기(게임 중), 강제 탈락, 포기 | 모달 또는 2회 클릭 |
+
+**방 상태(서버)와 화면 대응**
+
+| 방 상태 | 참가자 화면 | 목록 태그 | 새 입장 |
+|---|---|---|---|
+| 대기 | S2 | 대기 중 | 가능(정원 미만) |
+| 진행 중(등반은 스테이지가 이어지는 동안 전체가 한 게임) | S3/S4 | 진행 중 | 불가 |
+| 게임 종료 ~ 방장이 다음 게임 고름 | S5 | 설계상 "게임과 게임 사이" → 새 참가 가능. 목록 표시와 입장자가 S5를 보는지 S2를 보는지는 미정 (Q9) | 가능 |
+
+**플레이어 상태 표기(패널·대기실 공통 어휘)**
+
+- 대기실: `방장` 배지, `준비 완료`, `준비 전`, `접속 끊김`(= 준비 해제로 봄 [설계 §2]).
+- 게임 패널: `제안함` / `풀이 중` / `완료 n위` / `탈락` / `접속 끊김` [설계 §1]. 협동은 `제안함`·`풀이 중`·`접속 끊김`만 쓴다(협동에는 탈락·순위가 없다).
+
+**공통 요소**: 기존 `Header`(제목 + 아이콘 버튼)와 하단 `.actions` 버튼 줄, 상단 토스트(1.5~3초)를 그대로 쓴다. 색은 `app.css` 역할 토큰만 쓴다(새 색이 필요하면 토큰 추가, 라이트·다크 둘 다). 테마는 기존 `settings.theme`을 따른다.
+
+**배치 공통**: 화면마다 주 행동 버튼은 하단 한 곳에 하나. 보조 행동(뒤로/나가기)은 상단 왼쪽 "←" 버튼으로 통일. 상태 문구는 버튼 사이가 아니라 주 버튼 아래 캡션 또는 목록 머리에 둔다. 오른쪽 위 고정 "설정" 버튼은 헤더 첫 줄과 상단·높이를 맞춘다. 2026-11-01 배치 확정
+
+---
+
+### S0. 선택 화면
+
+| 항목 | 내용 |
+|---|---|
+| 진입 | `/` 첫 진입. `/?room=CODE`면 건너뜀 [설계 §1] |
+| 보이는 요소 | 제목, 선택지 둘: 개인(혼자 하기) / 멀티(같이 하기), 각각 한 줄 설명. 헤더의 설정(테마)·도움말 아이콘 유지 여부 [가정: 유지] |
+| 방장/참가자 차이 | 없음 |
+| 액션 | 개인 → 현재 개인 화면(지금의 `onMount` 동작: 저장된 `config`로 새 게임). 멀티 → S1 |
+| 전환 조건 | 즉시 |
+| 빈/오류 상태 | 없음. 개인 진입 후 `/api/game` 실패는 기존 동작 그대로 |
+| 열린 점 | 결정: 매번 표시(Q2), 마지막 선택 기억 안 함(새 키 없음). 개인 화면에서 S0으로 돌아오는 버튼은 열린 점 → Q2 |
+
+### S1. 로비
+
+| 항목 | 내용 |
+|---|---|
+| 진입 | S0의 멀티, S2에서 나가기, 오류 화면의 "로비로" |
+| 보이는 요소 | 헤더: `[← 뒤로] 같이 하기 … [닉네임 칩 "이름 ✎"] [설정]`. 닉네임 칩을 누르면 인라인 편집(저장된 `nkordle:mp-session`의 name을 채워 둠 [가정 Q13]). 목록 위 툴바 한 줄: 왼쪽 `공개 방 N` + 새로고침 아이콘 버튼, 오른쪽 `[6자리 코드 입력][입장]` + `[방 만들기]`(primary). 방 목록은 전체 폭: 방 코드, 방장 닉네임, 게임(예: 경쟁 · 단판), 인원 `n/5`, 상태 태그(대기 중 / 진행 중 / 가득 참), 입장 [행 구성은 가정 Q13 — 설계에 방 제목 없음]. 왼쪽 패널의 닉네임 입력 필드는 쓰지 않는다 2026-11-01 배치 확정 |
+| 방장/참가자 차이 | 없음(아직 방 밖) |
+| 액션 | 대기 중 방 행 입장 → S2. 진행 중·가득 참 행은 입장 버튼 비활성. 방 만들기 → 본인이 방장인 S2. 코드 입장 → 검증 후 S2 |
+| 입력 규칙 | 코드: 6자, 소문자 입력은 대문자로 바꿔 보여줌 [가정]. 닉네임 칩 편집: Enter 확정, Esc 취소. 닉네임이 비어 있으면 방 만들기·입장 비활성 [가정 Q13] 2026-11-01 배치 확정 |
+| 모바일 레이아웃 | 폭 900px 미만: 툴바가 두 줄로 감기고 `방 만들기`가 전체 폭으로 맨 위, 코드 입력 줄이 그 아래 2026-11-01 배치 확정 |
+| 전환 조건 | 서버 입장 응답 성공(확정 닉네임 포함). 확정 이름이 입력과 다르면 S2 진입 시 토스트 |
+| 갱신 | 목록 3초 폴링 [설계 §7]. 방 생성·인원 변화·진행 시작이 3초 안에 반영 |
+| 빈 상태 | "열린 방이 없습니다" + 방 만들기 버튼 강조 |
+| 오류 상태 | 목록 불러오기 실패: 목록 자리에 "서버에 연결할 수 없습니다", 폴링 계속. 입장 실패: 없는 방 / 진행 중 / 가득 참 / 코드 형식(6자 미만) 각각 문구, S1에 머묾. 목록에서 본 방이 그 사이 사라짐 = 없는 방 |
+
+### S1-N. 닉네임 입력 [가정]
+
+| 항목 | 내용 |
+|---|---|
+| 진입 | `/?room=CODE`로 들어왔는데 `nkordle:mp-session`이 없거나 만료됐을 때. 설계는 "링크는 바로 그 방으로"만 정했고 닉네임을 언제 받는지는 정하지 않았다 |
+| 보이는 요소 | 방 코드, 닉네임 입력, 입장 버튼, 취소(→ S1) |
+| 전환 | 입장 → 방 검증 → S2. 방 오류는 S7 |
+
+### S2. 대기실
+
+| 항목 | 내용 |
+|---|---|
+| 보이는 요소 | 헤더: `[← 나가기] 방 {코드} [링크 복사] … [설정]`(하단 나가기 없음) [링크 복사는 가정 — 링크 입장이 사용자 결정이라 공유 수단이 필요]. 두 열: 참가자 카드와 설정 열. 참가자 카드 머리는 `참가자 n/5`만(준비 카운트 없음). 목록은 5칸 고정 슬롯: 채워진 행(닉네임, 방장 왕관 아이콘, `나` 배지, 오른쪽 준비 배지 `준비 완료`/`준비 전`/`접속 끊김`) + `빈 자리` 행(첫 빈 행에만 "링크나 코드를 보내 친구를 부르세요"). 설정 열은 방장이면 편집 폼(S2-S), 참가자면 읽기 전용 요약(종류·게임·길이·시도·하드·힌트·제한 시간·선택 방식). 종류=경쟁이면 종류 아래는 비움(안내문 없음). 두 열 아래 하단 액션 바(데스크톱 오른쪽 정렬, 모바일 하단 고정) 2026-11-01 배치 확정 |
+| 방장 화면 | 설정 편집(S2-S), 인원별 준비 상태, 하단 액션 바에 **시작**(big primary) 하나. 시작은 ①접속 인원 ≥2 ②방장 제외 전원 준비 완료일 때만 활성 [설계 §2]. 비활성이면 버튼 아래 캡션(`n명 대기 중` = 방장 제외 준비 안 된 인원 수로 해석 / `혼자서는 시작할 수 없습니다`). 재촉을 받은 뒤에는 시작 버튼 옆 `재촉 n회` 배지와 시작 버튼 글로우 2026-11-01 배치 확정 |
+| 참가자 화면 | 설정 요약(읽기 전용), 하단 액션 바에 **준비**(primary) ↔ **준비 취소** 토글. 준비한 뒤에만 버튼 아래 캡션 `방장이 시작하길 기다리는 중`. 내가 준비 완료면 방장 행 오른쪽에 **종 아이콘 버튼(방장 재촉)**: 쿨다운 30초 중에는 비활성 + 남은 초 배지 2026-11-01 배치 확정 |
+| 액션 결과 | 재촉 → 방장 화면 전체 알림 레이어(종 아이콘·"{이름}님이 재촉합니다!"·"지금 시작"/"닫기" 버튼, 소리·화면 흔들림·플래시·진동, 자동으로 닫히지 않음. 닫은 뒤 시작 버튼 옆 `재촉 n회` 배지·글로우. reduced-motion이면 상단 고정 배너. 알림음은 설정 "재촉 소리"로 끔. 2026-11-01 결정). 보낸 참가자는 토스트 "재촉했습니다" + 자기 화면 상단 배너 0.8초 미리보기("상대 화면에 이렇게 뜹니다"). 쿨다운 동안 버튼 비활성 [설계 §1]. 방장 설정 변경 → 전원 준비 해제 + 참가자에게 토스트 [설계 §2] |
+| 재촉 버튼 노출 조건 | 참가자 본인이 준비 완료일 때만, 방장 행 오른쪽에 종 아이콘 버튼으로 보임. 방장에게는 없음. 준비 전이거나 준비 취소하면 숨김 2026-11-01 배치 확정 |
+| 전환 조건 | 방장 시작 → 전원 S3. 방장이 나가거나 끊김(5초 유예) → 입장 순 접속 중인 다음 사람이 방장, 전원에게 토스트, 새 방장 화면이 방장 UI로 바뀜. 나가기 → S1 |
+| 승계 후 준비 상태 | 설계에 없음. [가정] 다른 사람들의 준비는 유지(해제 트리거는 규칙 설정 변경뿐), 새 방장의 준비 표시는 사라짐 |
+| 입장·퇴장 | 신규 입장자는 본인만 `준비 전` [설계 §2]. 입장·퇴장 토스트 [가정] |
+| 빈 상태 | 방장 혼자: 참가자 목록에 본인 행 + 빈 자리 4칸(첫 빈 행에만 "링크나 코드를 보내 친구를 부르세요"), 시작 비활성 + 캡션 `혼자서는 시작할 수 없습니다` 2026-11-01 배치 확정 |
+| 오류 상태 | 끊긴 참가자는 `접속 끊김` + 준비 해제. **끊긴 사람이 시작을 막는지** 설계가 정하지 않음 → Q1(블로킹). 본인 연결 끊김은 S7 |
+
+### S2-S. 설정 패널 (방장)
+
+| 설정 | 컨트롤 | 값 | 비고 |
+|---|---|---|---|
+| 종류 | 2지선다 | 협동 / 경쟁 | |
+| 게임 | 2지선다 | 단판 / 등반 | |
+| 시작 길이 | 스테퍼 ‹ N ›(랜덤 → 5 → … → 12, 양 끝 비활성) | 랜덤, 5~12 | 단판이면 "자모 수", 등반이면 "시작 길이"로 라벨 [가정, 개인 `ModeModal`과 같은 규칙] 2026-11-01 캔버스 댓글로 결정 |
+| 시도 횟수 | 스테퍼(개인 `SettingsModal`) | 4~10, 기본 6 | |
+| 하드모드 | 스위치 | 켬/끔 | |
+| 힌트 | 스위치 | 허용/끔 | |
+| 제한 시간 | 스위치 | 켬/끔, 기본 켬 | 설명 문구로 180/−15/60초 노출 |
+| 선택 방식 | 2지선다 | 투표 / 돌림판 | 종류 바로 아래에 표시. 종류=협동일 때만; 경쟁이면 비움(안내문 없음, 2026-11-01 사용자 결정: 설명 불필요). 2026-11-01 캔버스 댓글로 결정(종류별 화면 분리) |
+| 재촉 소리 | 스위치 | 켬/끔, 기본 켬 | 수신 측 알림음. 2026-11-01 결정 |
+
+- §3의 설정은 전부 규칙에 영향을 준다. 따라서 **어느 값이든 바꾸면 전원 준비 해제**로 구현한다(설계 §2의 "규칙에 영향 주는 설정"에서 제외할 항목이 §3 표에 없음). 예외: 재촉 소리는 방장 로컬 설정(localStorage)이라 준비 해제와 무관.
+- 초기값(종류·게임·길이·하드·힌트·선택 방식)은 설계에 없다 → Q13(비블로킹, 구현자 기본값(제안)으로 정해 설계 §3 표에 기록).
+- 슬라이스별로 아직 없는 기능의 설정은 숨긴다(§5).
+
+### S3. 멀티 게임 화면 — 공통
+
+| 항목 | 내용 |
+|---|---|
+| 상단 | 헤더 왼쪽 `← 나가기`(게임 중 확인 모달). 제목 `꼬들 - n자`(개인과 같은 규칙) [가정], 모드 줄: `협동|경쟁 · 단판|등반 · 길이 · 하드`, 등반이면 `스테이지 k`, 제한 시간 켬이면 남은 시간 카운트다운(경쟁은 내 마감, 협동은 방 마감) [설계 §6] 2026-11-01 배치 확정 |
+| 가운데 | 개인과 같은 `Board` + `Keyboard`. 물리 키보드 `e.code` 매핑 그대로 |
+| 상대 패널 | 본인 제외 최대 4개. 데스크톱: 보드 좌·우에 2개씩 세로 배치, 위·아래 없음 [설계 §1, 2026-11-01 캔버스 댓글]. 배치 순서 [가정: 입장 순]. 치수(2026-11-01 사용자 확인): 상대 미니 보드 셀 24px·간격 2px(내 타일 56px의 약 43%), 카드 폭 13rem, 내 보드–상대 열 간격 4rem, 좌우 열 높이는 내 보드 상단~키보드 하단 |
+| 하단 버튼 | 키보드 아래 행은 `힌트`(허용 시)·`포기`만(경쟁: 본인 / 협동: 방장만). 협동 방장의 `마감`, 종료 후 `결과` 버튼은 하단에 유지. 포기는 개인과 같은 "3초 안 두 번 눌러 확정" [가정 — HANDOFF §4.10 패턴 재사용] 2026-11-01 배치 확정 |
+| 방장 전용 | 협동: 마감, 포기. 경쟁: `접속 끊김` 패널에 "탈락 처리" → 확인 대화상자 [설계 §2, §5] |
+| 나가기 | 헤더 왼쪽 `← 나가기`. 언제나 가능 [설계 §1]. 게임 중 확인 대화상자 [가정]. 게임 중 나간 사람 처리(경쟁 즉시 탈락? 재입장?)는 Q4(블로킹) 2026-11-01 배치 확정 |
+| 토스트 | 개인과 같은 위치·톤. 자모 부족, 사전에 없는 단어, 하드모드 위반 문구는 개인 문구 그대로 |
+| 전환 | 게임 종료 → S5 (개인처럼 타일 애니메이션 여유 뒤 자동 표시 [가정, 개인은 1.2초]). 연결 끊김 → S7 오버레이. 모션 전반은 [MOTION](MULTIPLAYER_MOTION.md) |
+
+#### S3 데스크톱 / 모바일
+
+| | 데스크톱 | 모바일 |
+|---|---|---|
+| 패널 위치 | 보드 좌·우 2단 | 보드 위 가로 띠, 넘치면 가로 스크롤 [설계 §1] |
+| 패널 내용 | 이름 + 상태 + 미니 격자(경쟁) 또는 제안 단어(협동) | 같은 내용을 축소. 미니 격자가 띠 높이를 넘으면 [가정] 최근 행만 |
+| 보드·키보드 | 개인과 같은 크기 규칙(`--tile`, `--kw`가 화면 폭 기준) | 띠 높이만큼 세로 공간이 줄어든다. 12자·10행에서도 키보드가 화면 안에 들어오는지 확인 필요(R7) |
+| 슬라이스 | 2~4단계 기준 화면 | 5단계 [설계 §8]. 그 전에는 좁은 화면에서 깨지지 않을 정도의 임시 배치 [가정] |
+
+### S3-K. 경쟁 게임
+
+| 항목 | 내용 |
+|---|---|
+| 내 보드 | 개인과 같다(내 행·색·입력 행·힌트 점선). 키보드 색은 내 보드 기준 |
+| 상대 패널 | 이름, 상태(`풀이 중` / `완료 n위` / `탈락` / `접속 끊김`), 같은 격자에서 **제출한 행의 색만**(자모 숨김), 입력 중인 행은 비움 [설계 §1]. 등반이면 상대의 현재 스테이지 [가정] |
+| 힌트 | 허용 시 1인 1회 [설계 §5]. 등반에서 스테이지마다인지 → Q8 |
+| 포기 | 본인만 탈락 [설계 §5] |
+| 내가 끝났을 때 | 입력 잠김. 정답이면 `완료 n위`, 실패·포기·시간 초과면 `탈락`. 남은 사람의 진행(색만)과 현재 순위를 계속 봄 [설계 §5]. 이때 정답을 보여주는지 → Q3(블로킹) |
+| 단판 종료 | 전원이 정답·실패·포기·제한 시간 만료로 끝나면 [설계 §5] → S5 |
+| 등반 진행 | 스테이지 클리어 → 다음 스테이지(n+1). 자동 진행인지 버튼인지 → Q7(블로킹). 스테이지 실패 → 그 자리에서 등반 종료, 높이 확정 |
+| 등반 유예 | 첫 완주자(12자 클리어) → 1위 확정 + 전원 화면에 유예 60초 카운트다운 배너. 유예 중 완주자는 완주 순서대로, 유예 종료 시 나머지를 지표로 고정 → S5 [설계 §5] |
+| 등반 종료 | 유예 종료, 또는 남은 전원이 실패/완주 → S5 |
+| 끊긴 상대 | 패널 `접속 끊김`. 60초 넘으면 자동 `탈락`(5단계). 방장은 그 전에 탈락 처리 가능 |
+
+### S3-C. 협동 게임
+
+| 항목 | 내용 |
+|---|---|
+| 내 보드 | **공유 보드**의 확정 행 + 내 입력 행(= 내 제안). 키보드 색은 공유 보드 기준 |
+| 상대 패널 | 이름, 상태(`풀이 중` / `제안함` / `접속 끊김`), 그 사람이 지금 입력 중인 단어를 실시간으로 [설계 §1] |
+| 제안 | 입력 후 Enter = 제안 확정. 서버가 사전·하드모드 검사, 실패 시 개인과 같은 토스트 + 흔들림. 확정 후 마감 전까지 수정 가능 [설계 §4]. 수정을 시작하면 `제안함`이 풀리는지 [가정: 풀림, 다시 Enter로 확정] |
+| 진행 표시 | `제안 k/m`(m = 접속 중 인원) [가정 — 설계의 "접속 중인 전원"을 화면에 옮긴 것] |
+| 방장 | **마감**(제안 ≥1일 때 활성), **포기**(공유 판 전체 실패) |
+| 선택 단계 진입 | 접속 중 전원 제안 또는 방장 마감 → 같은 단어 병합 → 제안 1개면 바로 제출(토스트), 2개 이상이면 S4 [설계 §4] |
+| 판정 | 선택된 단어가 공유 보드 다음 행에 들어가 판정 → 전원 입력 행 비움 → 다음 행 제안 |
+| 힌트 | 허용 시 판당 1회, 누구나. 쓴 사람과 결과를 전원에게 토스트, 전원 입력 행에 힌트 점선 [설계 §4]. 등반에서 스테이지마다인지 → Q8 |
+| 종료 | 정답(단판) → S5 성공. 시도 소진·제한 시간 만료·방장 포기 → S5 실패. 등반: 정답 → 다음 스테이지(Q7), 실패 또는 12자 완주 → S5 |
+| 끊긴 사람 | 제안·투표 집계에서 뺌, 탈락 없음 [설계 §4] |
+| 빈 상태 | 아무도 제안 안 함: 마감 비활성, 진행 표시 `제안 0/m` |
+
+### S4. 협동 선택 단계
+
+#### S4-V 투표
+
+| 항목 | 내용 |
+|---|---|
+| 보이는 요소 | 병합된 제안 목록: 단어(자모 타일 한 줄) [가정], 제안자 이름들, 투표 버튼. 내 제안이 포함된 항목은 `내 제안` 표시 + 투표 불가 [설계 §4]. 진행 `투표 k/m` [가정] |
+| 방장 | **마감** |
+| 액션 | 한 항목에 투표 [가정: 1인 1표]. 투표를 바꿀 수 있는지 → Q6 |
+| 집계 | 전원 투표 또는 방장 마감 → 최다 득표 선택. 동률(0표 동률 포함)이면 동률 항목끼리 S4-R [설계 §4] |
+| 열린 점 | 모든 항목이 내 제안인 사람(예: 병합으로 공동 제안자가 됨)은 찍을 곳이 없다 → "전원 투표"에 이 사람을 세는지 → Q6(블로킹) |
+| 2인 방 | 서로의 제안뿐이라 대개 동률 → 돌림판 [설계 §4] |
+| 전환 | 결과 강조(짧게) → 공유 보드에 들어가 판정 → S3-C 다음 행 |
+
+#### S4-R 돌림판
+
+| 항목 | 내용 |
+|---|---|
+| 보이는 요소 | 후보 제안들 사이를 강조가 돌다가 멈춤(약 1.5초). 결과는 서버가 먼저 정했고 전원 같은 결과 [설계 §4] |
+| 진입 | 선택 방식 = 돌림판이면 S4-V 없이 바로. 투표 동률이면 동률 항목만 |
+| 액션 | 없음(연출 중 입력 잠김) |
+| 접근성 | 움직임 줄이기 설정이면 회전 없이 결과만 표시 [가정] |
+
+### S5. 결과·순위
+
+| 종류 | 보이는 요소 |
+|---|---|
+| 경쟁 단판 | 정답 단어, 순위표: 순위(공동 순위 표기), 이름, 결과(`k번째 정답` / 실패 / 포기 / 시간 초과 / 탈락), 미정답자의 지표(초록 자리 수 → 노랑 자모 종류 수 → 시도 수). 정답자 정렬: 시도 수 → 완료 시각 [설계 §5] |
+| 경쟁 등반 | 순위표: 순위, 이름, 높이(클리어 스테이지 수), 완주자는 완주 순서, 미완주자 지표. 등반 단어 피라미드(공통 코스이므로 가장 높이 오른 사람 기준까지) [가정] |
+| 협동 단판 | 성공/실패, 정답, 사용한 시도 수, 공유 보드 |
+| 협동 등반 | 오른 스테이지 수, 피라미드(개인 `ClimbModal` 형태), 멈춘 곳의 정답 |
+| 방장 액션 | 주 버튼 **같은 설정으로 한 판 더**(primary, 하단) [설계 §3], 보조 **설정 바꾸기**(→ S2-S). 둘 다 → S2, 전원 준비 해제 [설계 §2] 2026-11-01 배치 확정 |
+| 참가자 | "방장이 다음 게임을 고르는 중입니다", 주 버튼 **대기실로**(primary, 하단), 보조 나가기 2026-11-01 배치 확정 |
+| 없는 것 | 통계 버튼·통계 반영 없음(멀티 결과는 `stats:<mode>`에 기록 안 함) |
+| 닫기 | 모달을 닫으면 끝난 게임 화면이 남음 [가정]. 방장이 다음 게임을 고르면 전원 S2로 이동 |
+| 방장 잠수 | 시스템이 풀지 않음. 참가자는 나가기 [설계 §1] |
+
+### S6. 다음 게임 선택
+
+설계 흐름: `결과 → 방장이 다음 게임 선택 → 대기실(전원 준비 해제)`. 별도 화면이 아니라 S5의 방장 버튼 두 개다.
+
+| 버튼 | 결과 |
+|---|---|
+| 같은 설정으로 한 판 더 | 설정 그대로 S2, 전원 준비 해제 |
+| 설정 바꾸기 | S2 + 설정 패널 열림, 전원 준비 해제 |
+
+- 게임 종료 시점부터 새 참가 가능(게임과 게임 사이). 이 구간 입장자가 무엇을 보는지 → Q9.
+- 진행 중 끊겨 있던 사람이 이 구간에 돌아오면 현재 방 상태 화면(S5 또는 S2)으로 복귀.
+
+### S7. 오류·끊김·재접속
+
+| 상황 | 표시 | 이후 |
+|---|---|---|
+| 링크/코드의 방이 없음(소멸 포함) | 오류 화면 또는 S1 문구 "없는 방입니다" | 로비로 |
+| 진행 중인 방 | "진행 중인 방입니다…" | 로비로. 자동 대기·재시도 없음 [가정] |
+| 가득 찬 방(5명) | "방이 가득 찼습니다" | 로비로. 끊긴 사람 자리를 정원에 넣는지는 Q15 |
+| 서버 연결 불가(로비·생성) | "서버에 연결할 수 없습니다"(기존 문구) | 재시도 |
+| 내 연결 끊김(게임·대기실) | 화면 위 오버레이 "연결이 끊겼습니다. 다시 연결하는 중…", 입력 잠김 | 자동 재연결 성공 → 토스트, 같은 자리·같은 진행으로 복귀(5단계) |
+| 재연결 실패(방 소멸 등) | "방에 다시 들어갈 수 없습니다" + 로비로 | S1 |
+| 경쟁에서 60초 넘게 끊겼다 돌아옴 | 내 상태 `탈락`, 남은 사람 진행·순위 관전 | 게임 종료 시 S5 |
+| 다른 사람 끊김 | 패널·목록에 `접속 끊김`. 그 사람이 방장이면 5초 뒤 승계 토스트 | — |
+| 새로고침·탭 전환 | `nkordle:mp-session` 토큰의 같은 `uid`로 같은 자리 복귀 [설계 §2] | 5단계. 그 전 단계에서는 새로고침 = 끊김(Q1·R3) |
+| 같은 브라우저 두 탭 | 같은 브라우저의 모든 탭은 localStorage를 공유 → 같은 `uid`. 두 번째 탭이 접속하면 첫 탭 소켓은 4000으로 닫힘("다른 탭에서 접속했습니다", 자리 넘겨받기). 토큰이 24시간 넘게 안 쓰이면 새 `uid` | R2 |
+
+### S8. 무입력 경고
+
+| 항목 | 내용 |
+|---|---|
+| 조건 | 게임 중 60초 동안 입력 없음 [설계 §6]. 무엇을 "입력이 필요한 상태"로 볼지(제안 마친 뒤 대기, 이미 끝난 사람, 투표 단계) → Q10(블로킹) |
+| 보이는 요소 | 제목 "진행 중입니다", 한 줄 설명, "계속하기" |
+| 액션 | 닫고 입력하면 그대로 이어짐. 자동 포기·강제 퇴장 없음 |
+| 제한 시간 켬 | 끝까지 반응 없으면 제한 시간 만료가 실패로 처리 |
+| 제한 시간 끔 | 경고만 뜨고 기다림 |
+| 다른 사람에게 | 표시 없음 [설계: "그 사람에게"] |
+
+---
+
+## 3. 모듈 지도와 import 규칙
+
+### 3.1 새 파일
+
+| 경로 | 책임 |
+|---|---|
+| `src/lib/mp/protocol.ts` | 클라·서버 공유 계약: `Settings`, `ClientMsg`, `ServerMsg`, 스냅샷 뷰 타입, WS 닫기 코드(4xxx). 타입과 리터럴 상수만, 외부 값 import 없음 |
+| `src/lib/mp/rules.ts` | 공유 상수: 방 코드 알파벳·정규식, 설정 범위·기본값, 제한 시간 수치(표시용), 무입력 60초, 로비 폴링 3초, 재촉 쿨다운 30초 |
+| `src/lib/server/mp/room.ts` | `Room` DO — IO 셸만: WS 수락(Hibernation)·소켓 첨부, 상태 로드/저장, D1 조회, 알람 예약, 브로드캐스트, Lobby 동기화, 소멸. DO export는 barrel `index.ts`(Room·Lobby 재export)가 맡는다(`room.ts`=Room, `lobby.ts`=Lobby, `index.ts`=두 클래스 재export) |
+| `src/lib/server/mp/lobby.ts` | `Lobby` DO(싱글턴 `idFromName('lobby')`) — 공개 방 요약 `list`/`upsert`/`remove`, 오래된 항목 정리 |
+| `src/lib/server/mp/state.ts` | 서버 전용 상태 타입(정답·비밀 ID 포함)과 초기 상태 생성 |
+| `src/lib/server/mp/reduce.ts` | 메시지 디스패치(순수): `(state, pid, msg, io, now, rng) → { events, changed }`. 시작 시 항상 `tick(now)` 먼저 |
+| `src/lib/server/mp/members.ts` | 입장·재입장·퇴장·준비·재촉·설정·시작 조건·방장 승계·닉네임 접미사(순수) |
+| `src/lib/server/mp/session.ts` | 임시 계정 토큰 발급·검증·재발급(순수): `issue(uid?, name, now)`, `verify(token, now)`, `refresh(token, name, now)`. `now`와 `KORDLE_SECRET`은 인자(서버 시계 주입). 기존 `token.ts`는 건드리지 않음. 상대 import만 |
+| `src/lib/server/mp/coop.ts` | 협동: 제안·초안·마감·병합·투표·집계·돌림판·판정 반영·힌트·포기(순수) |
+| `src/lib/server/mp/comp.ts` | 경쟁: 개인 보드 제출·힌트·포기·강제 탈락·종료 판정·등반 독립 진행·첫 완주 유예(순수) |
+| `src/lib/server/mp/climb.ts` | 등반 공통: 스테이지 n 진행, 스테이지 시간(180−15(k−1), 하한 60), 높이, 스테이지별 정답 슬롯(순수) |
+| `src/lib/server/mp/rank.ts` | 순위 계산(순수) — §4.6 |
+| `src/lib/server/mp/timers.ts` | `nextDeadline(state, sockets)` / `tick(state, now)` (순수) — §4.7 |
+| `src/lib/server/mp/snapshot.ts` | 개인화 스냅샷 가공(순수) — §4.4 |
+| `src/lib/server/mp/code.ts` | 방 코드 생성·형식 검사(순수, `cloudflare:*` import 없음 → SvelteKit 쪽에서도 import 가능) |
+| `src/hooks.server.ts` | `handle`: `/ws/<code>` + `Upgrade: websocket`이면 `platform.env.ROOM.get(idFromName(code)).fetch(event.request)`를 그대로 반환, 아니면 `resolve(event)`. 형식 불일치 404, Upgrade 없음 426, 바인딩 호출 실패(dev) 503. 모듈 최상위 I/O 없음 |
+| `src/routes/api/room/+server.ts` | `POST` 방 생성: 코드 생성 → `ROOM` 스텁 `init` → 충돌 시 재시도(최대 5회) → `{ code }` |
+| `src/routes/api/rooms/+server.ts` | `GET` 공개 목록: `LOBBY` 스텁 `list` 결과 그대로 |
+| `scripts/postbuild-do.mjs` | `.svelte-kit/cloudflare/_worker.js` 끝에 `export { Room, Lobby } from "../../src/lib/server/mp/index.ts";`(Room·Lobby를 재export하는 barrel, 2026-11-05 스파이크) 추가. 파일이 없거나 기본 `export {` 블록이 없으면 **exit 1**(어댑터 구조 변경 감지). 이미 붙어 있으면 건너뜀(멱등). Node 스크립트라 Windows·WSL·CI 공통 |
+| `src/lib/mp/identity.ts` | `nkordle:mp-session`(localStorage, `$lib/storage` 재사용) 한 키의 읽기·쓰기: 토큰 보관, 부팅 시 `exp < now`면 삭제 후 닉네임 재입력, 서버가 준 `session` 반영(uid가 바뀌면 덮어쓰기, 슬라이딩 재발급), "임시 계정 지우기". 나가기는 세션을 지우지 않음 |
+| `src/lib/mp/api.ts` | `createRoom`, `listRooms` fetch 래퍼 |
+| `src/lib/mp/client.svelte.ts` | `MpClient`(runes 클래스): WS 연결·재연결·하트비트, 최신 스냅샷 `$state`, 서버 시계 오프셋, 내 입력 행(로컬), 전송 메서드, 무입력 타이머, 토스트 |
+| `src/lib/components/mp/ModeChoice.svelte` | 개인 / 멀티 선택 화면 |
+| `src/lib/components/mp/MultiApp.svelte` | 멀티 화면 전환(로비 ↔ 방) — `MpClient` 소유, 멀티 쪽 물리 키보드 처리 |
+| `src/lib/components/mp/LobbyView.svelte` | 닉네임, 공개 방 목록(3초 폴링, 탭이 보일 때만), 방 만들기, 코드 입력 |
+| `src/lib/components/mp/WaitingRoom.svelte` | 참가자·준비 상태·"n명 대기 중"·재촉·나가기·시작(방장). 재촉 알림 레이어(전체 화면 레이어, reduced-motion이면 상단 배너, 소리·흔들림·플래시·진동, 재촉 n회 배지) |
+| `src/lib/components/mp/RoomSettings.svelte` | 방장 설정 폼(종류·게임·시작 길이·시도·하드·힌트·제한 시간·협동 선택 방식). 단계별 미구현 선택지는 숨김 |
+| `src/lib/components/mp/MpGame.svelte` | 가운데 `Board`+`Keyboard`, 여백 상대 패널 최대 4개, 타이머, 협동/경쟁 액션 |
+| `src/lib/components/mp/OpponentPanel.svelte` | 이름·상태. 협동: 제안 중 단어. 경쟁: 제출 행의 **색만** 그리는 축소 격자(`Board`는 화면 폭 기준 타일이라 재사용하지 않음) |
+| `src/lib/components/mp/CoopPicker.svelte` | 후보 목록·투표 UI·돌림판 연출(약 1.5초, 결과는 서버가 미리 정함) |
+| `src/lib/components/mp/MpTimer.svelte` | 마감 시각 카운트다운(서버 `now`로 보정) |
+| `src/lib/components/mp/MpResult.svelte` | 결과·순위, 다음 게임 선택(방장)·"같은 설정으로 한 판 더" |
+| `tests/mp-*.test.mjs` | §7 |
+| `wrangler.dev.jsonc` | **스파이크 (c) 실패 시에만**: D1 바인딩만 있는 dev 전용 설정 |
+
+UI 컴포넌트 작업은 사용자 지침에 따라 위임 계약에 antislop 스킬(`antislop:antislop` + `-ui`·`-copywriting`·`-human`·`-layoutmobile`, 주석은 `-code`) 로드를 넣는다.
+
+### 3.2 손대는 기존 파일
+
+| 경로 | 변경 |
+|---|---|
+| `wrangler.jsonc` | `durable_objects.bindings` `ROOM`(`Room`)·`LOBBY`(`Lobby`), `migrations: [{ tag: "v1", new_sqlite_classes: ["Room", "Lobby"] }]` |
+| `src/app.d.ts` | `Platform.env`에 `ROOM: DurableObjectNamespace<import('./lib/server/mp/room').Room>`, `LOBBY: DurableObjectNamespace<import('./lib/server/mp/lobby').Lobby>`(타입 import만 → svelte-check가 DO 코드도 검사) |
+| `package.json` | `build`·`deploy` 스크립트(§0 `deploy` 스크립트) |
+| `src/lib/components/Board.svelte` | prop 타입을 `Game` → `BoardView` 인터페이스로. `<script module>`에 `export interface BoardView { n; maxTries; rows; marks; current; status; hints; invalid; shake }`(현재 Board가 읽는 필드 전부) — `Game`은 구조적으로 그대로 만족하므로 렌더·스타일 변경 없음 |
+| `src/routes/+page.svelte` | `screen: 'choose' \| 'solo' \| 'multi'` 상태. `onMount`에서 `?room=`이 있으면 `multi`, 아니면 `choose`. `game.newGame()`을 **`solo` 진입 시점으로 이동**. `onkeydown`은 `solo`일 때만 동작. 기존 마크업은 `{#if screen === 'solo'}` 안에 그대로. `const game = new Game()`·`applyTheme`·테마 리스너는 그대로(테마는 멀티 화면에도 필요) |
+| `scripts/smoke.py` | 끝에 멀티 검사 블록 추가(§8.3). 기존 기대값 셋은 손대지 않음 |
+| `README.md`, `docs/HANDOFF.md` §2·§11, `AGENTS.md`, `docs/MULTIPLAYER.md` | 구현 PR마다(설계 §8) |
+| `vite.config.ts` | **스파이크 (c) 실패 시에만**: `adapter({ platformProxy: { configPath: 'wrangler.dev.jsonc' } })` |
+
+개인 플레이 파일 중 수정은 `Board.svelte`·`+page.svelte`뿐이다. 다음은 **import만** 하고 고치지 않는다: `storage.ts`, `jamo.ts`(`KEY_ROWS`, `CODE_TO_JAMO`, `isJamo`, `MIN_N`/`MAX_N`), `types.ts`(`Mark`), `hard.ts`, `server/judge.ts`, `server/dict.ts`, `server/token.ts`(`randomIndex`), `Keyboard.svelte`, `Modal.svelte`.
+
+### 3.3 import 규칙 (설계 §7 + 구현 규칙)
+
+1. `src/lib/server/mp/**`와 그것이 끌어오는 파일은 `$lib`·`$app` **값 import 금지**, 상대 경로만. `import type`은 esbuild가 통째로 지우므로 허용(`dict.ts`·`judge.ts`·`hard.ts`의 `import type … from '$lib/types'`가 그 경우 [확인함]). 인라인 `import { type X }`는 금지 — `.svelte-kit/tsconfig.json`의 `verbatimModuleSyntax: true`에서 빈 `import {} from '$lib/…'`가 남을 수 있다.
+2. mp 순수 모듈끼리는 **`.ts` 확장자까지 쓴** 상대 import(`./rank.ts`). Node 테스트(`--experimental-strip-types`)가 확장자 없는 경로를 못 푼다. 루트 `tsconfig.json`에 `rewriteRelativeImportExtensions: true`가 있어 TS가 허용한다(스파이크 (e)에서 `pnpm check` 통과 확인). 기존 코드는 확장자 없는 import라 `daily.test.mjs`가 URL을 고쳐 쓰는 우회를 쓴다 — mp는 그 우회가 필요 없게 만든다.
+3. 순수 모듈은 `cloudflare:workers`·`@sveltejs/kit`를 import하지 않는다. `cloudflare:workers`는 `room.ts`·`lobby.ts`만.
+4. SvelteKit 쪽(`hooks.server.ts`, `api/room*`, 컴포넌트)은 `room.ts`·`lobby.ts`를 **`import type`으로만** 참조한다. 값 import하면 Vite SSR 빌드가 `cloudflare:workers`를 풀어야 해서 깨질 수 있고, DO 클래스가 SvelteKit 번들에 중복으로 들어간다.
+5. 순수 모듈은 지울 수 있는 TS 문법만: `enum`·`namespace`·생성자 매개변수 프로퍼티 금지(Node 22.17 strip-types).
+6. 정답 풀은 `server/mp/` 안의 상수 `MP_POOL_T = 3`. `POOL_THRESHOLD`는 import도 하지 않는다(설계 §3).
+
+
+---
+
+## 4. 서버 상태 모델·프로토콜·순위·타이머
+
+### 4.1 상태 타입 스케치 (`state.ts`, `Settings`는 `protocol.ts`)
+
+```ts
+type Pid = string;                       // 서버가 발급하는 공개 ID(8자). 스냅샷에 노출
+type Phase = 'lobby' | 'playing' | 'result';
+
+interface Settings {
+  kind: 'coop' | 'comp';
+  game: 'single' | 'climb';
+  length: number | 'random';            // 5..12
+  tries: number;                         // 4..10, 기본 6
+  hard: boolean;
+  hints: boolean;
+  timer: boolean;                        // 기본 true
+  pick: 'vote' | 'roulette';             // coop에서만 의미
+}
+
+interface Player {
+  pid: Pid;
+  uid: string;                           // 토큰의 uid(22자, 플레이어 키). 절대 스냅샷에 넣지 않음
+  name: string;                          // 확정 닉네임(충돌 시 접미사)
+  joinedAt: number;                      // 승계 순서
+  connected: boolean;
+  disconnectedAt: number | null;
+  ready: boolean;                        // 방장은 의미 없음
+  nudgedAt: number | null;               // 30초 쿨다운
+  inGame: boolean;                       // 현재 게임 참가자
+}
+
+interface Answer { word: string; jamo: string }
+
+interface RoomState {
+  v: 1;
+  code: string;
+  createdAt: number;
+  settings: Settings;
+  phase: Phase;
+  hostPid: Pid | null;
+  players: Player[];                     // 입장 순
+  emptySince: number | null;             // 접속자 0이 된 시각(생성 직후 포함)
+  game: CoopGame | CompGame | null;      // playing·result에서 유지(결과 화면용)
+  seq: number;                           // 스냅샷 버전(클라이언트가 역순 수신 무시)
+}
+
+interface GameBase {
+  settings: Settings;                    // 시작 시점 사본
+  startN: number;                        // 'random'이면 시작 때 결정
+  answers: Record<number, Answer>;       // n → 정답. 그 스테이지에 처음 도달할 때 D1에서 채움(pool_meta 1행 + pool 1행)
+  startedAt: number;
+  endedAt: number | null;
+}
+
+interface Board {                         // 협동 공유 보드 / 경쟁 개인 보드 공통
+  stage: number;                         // 1부터
+  n: number;
+  rows: string[];
+  marks: Mark[][];
+  hints: Record<number, string>;
+  hintUsed: boolean;
+  deadline: number | null;               // timer 꺼짐이면 null
+  cleared: number;                       // 클리어한 스테이지 수(= 등반 높이)
+}
+
+type CoopStep =
+  | { kind: 'propose'; proposals: Record<Pid, string>; drafts: Record<Pid, string> }
+  | { kind: 'vote'; candidates: { jamo: string; by: Pid[] }[]; votes: Record<Pid, number> };
+
+interface CoopGame extends GameBase {
+  kind: 'coop';
+  board: Board;
+  step: CoopStep;
+  lastPick: { candidates: string[]; chosen: number; how: 'single' | 'vote' | 'roulette'; tally?: number[]; at: number } | null;
+  status: 'playing' | 'won' | 'lost';
+  endReason?: 'solved' | 'tries' | 'timeout' | 'giveup';
+}
+
+type CompStatus = 'playing' | 'solved' | 'failed' | 'gaveup' | 'timeout' | 'eliminated';
+interface CompPlayer {
+  board: Board;
+  status: CompStatus;                    // 등반: solved = 12자 완주
+  finishedAt: number | null;
+  triesUsed: number;                     // 단판 정답자 정렬용
+}
+interface CompGame extends GameBase {
+  kind: 'comp';
+  players: Record<Pid, CompPlayer>;
+  finishOrder: Pid[];                    // 정답(단판)·완주(등반) 순
+  graceEnd: number | null;               // 등반 첫 완주 + 60초
+  standings: Standing[] | null;          // 종료 시 고정
+}
+```
+
+phase 상태기계:
+
+```
+lobby ──start(방장, 접속 2명↑, 방장 외 접속자 전원 ready)──▶ playing
+playing ──종료 조건──▶ result     (협동: 정답·시도 소진·만료·방장 포기 / 경쟁: 전원 종료 또는 유예 만료)
+result ──next(방장, 새 설정)──▶ lobby   (전원 ready 해제)
+result ──again(방장)──▶ lobby          ("같은 설정으로 한 판 더": 설정 유지, ready 해제)
+입장 허용: lobby, result.  playing은 신규 거부(4002), 기존 참가자 재입장은 허용
+```
+
+협동 한 행: `propose` → (접속 중인 참가자 전원 제안, 또는 방장 마감 + 제안 ≥1) → 같은 단어 병합 → 후보 1개면 즉시 제출 / `roulette`이면 서버가 즉시 고르고 `lastPick`에 기록 / `vote`면 `vote` 단계 → (접속자 전원 투표 또는 방장 마감) → 최다 득표, 동률(0표 포함)은 동률 후보 중 돌림판 → 제출 → 판정 → 다음 행 `propose`. "전원"은 **접속 중인 inGame 플레이어**(끊긴 사람 제외, 설계 §4).
+
+### 4.2 클라이언트 → 서버 메시지
+
+| type | 필드 | 누가·언제 | 서버 검사 |
+|---|---|---|---|
+| `hello` | `token?`, `name` | 연결 직후 1회 | 미초기화 방 → 4004, playing인데 신규 → 4002, 정원 5 초과 → 4001. 같은 `uid`의 기존 소켓은 4000으로 닫음(다른 탭, 새로고침 경합). 토큰 없음·만료·서명 불일치는 거절하지 않고 새 `uid`로 발급(4005로 닫지 않음). `name`이 토큰의 이름과 다르면 같은 `uid`로 새 이름에 서명. 같은 `uid` 재입장: 대기 중이면 자기 자리(준비 해제), 진행 중이고 끊김 60초 안이면 자기 자리, 60초가 지나 탈락했으면 결과 화면부터(관전 없음) |
+| `ready` | `on` | lobby·result, 방장 외 | |
+| `nudge` | — | lobby·result, 방장 외 | 30초 쿨다운 → 방장에게 `nudge` 이벤트 |
+| `leave` | — | 언제나 | 즉시 퇴장. 방장이면 유예 없이 승계 |
+| `settings` | `Settings` | 방장, lobby·result | 범위 검사, 전원 ready 해제 |
+| `start` | — | 방장, lobby | 시작 조건 |
+| `next` / `again` | `Settings?` | 방장, result | |
+| `draft` | `jamo` | 협동 propose, 내용이 바뀔 때만 300ms 디바운스(마지막 입력 뒤 300ms에 1회, 키 입력마다 아님) | 길이 ≤ n, 자모만. **D1 조회 없음** 수신 예산은 R28 |
+| `propose` | `jamo` | 협동 propose, 마감 전 재전송 = 덮어쓰기 | 길이 = n, `isValidJamo`(D1 1행), 하드모드(공유 보드 기준) |
+| `close` | — | 방장, 협동 propose(제안 ≥1)·vote | |
+| `vote` | `candidate` | 협동 vote | 자기 제안이 포함된 후보 금지 |
+| `guess` | `jamo` | 경쟁 playing 본인 | `tick` 후 본인 마감 검사, 사전(D1 1행), 하드모드(개인 보드 기준) |
+| `hint` | — | 설정 `hints` 켜짐. 협동 판당 1회(누구나), 경쟁 1인 1회 | 대상 = 해당 보드에서 처음 `p`를 받은 자모(개인 플레이 `keyStates`의 `find(m === 'p')`와 같은 순서 규칙), 위치 = 정답 내 첫 위치 |
+| `giveup` | — | 협동: 방장 / 경쟁: 본인 | |
+| `eliminate` | `pid` | 방장, 경쟁, 대상이 끊긴 상태 | |
+| `"ping"` | 문자열 | 25초마다 | DO를 깨우지 않는 auto-response(§4.7) |
+
+### 4.3 서버 → 클라이언트 메시지
+
+| type | 내용 |
+|---|---|
+| `welcome` | `{ pid, name }` — 확정 닉네임(접미사 반영, 설계 §2) |
+| `snap` | 개인화 전체 스냅샷 + `now`(서버 시각, 카운트다운 보정) + `seq`. 유효한 `hello` 직후 첫 `snap`에만 `session: { token, exp }`(재발급, `exp = iat + 24h`)를 싣는다 |
+| `error` | `{ code, msg }` — `invalid`(사전 밖), `hard`(위반 내용), `forbidden`, `phase`, `cooldown`, `unavailable`(D1 오류). 상태가 바뀌지 않으므로 스냅샷 없음 |
+| `nudge` | 방장에게만 `{ from }` → 토스트 + `navigator.vibrate` |
+
+닫기 코드: 4000 같은 `uid`의 새 소켓(새로고침, 두 번째 탭. "다른 탭에서 접속했습니다"), 4001 정원 초과, 4002 진행 중, 4004 방 없음, 4005 방 소멸(토큰 문제로는 쓰지 않는다).
+
+### 4.4 개인화 스냅샷 가공 규칙 (`snapshot.ts`)
+
+공통: 플레이어 목록 `{ pid, name, connected, ready, isHost, inGame, panel }`. `uid`·토큰은 어떤 경우에도 넣지 않는다. 방장에게는 `canStart`, `waiting`(준비 안 한 접속자 수).
+
+- **정답**: `phase === 'result'`일 때만 `answers`(도달한 스테이지의 단어)를 넣는다. 진행 중에는 아무에게도 보내지 않는다(경쟁에서 먼저 끝난 사람에게도 — 같은 스테이지를 푸는 사람이 남아 있을 수 있다) [결정 필요 Q3].
+- **협동**: 공유 보드 전체, 힌트, 모든 사람의 확정 제안과 초안(실시간 표시가 설계 요구), vote 단계는 후보와 "누가 투표했는가"만, **득표수는 집계 뒤 `lastPick.tally`로** [결정 필요 Q20]. 방 단위 `deadline`.
+- **경쟁**: 내 보드 전체. 남의 보드는 `{ stage, n, marks, status, cleared }`만 — `rows`(자모)·`hints`는 **필드째 제거**. 입력 중인 행은 애초에 서버에 없다(경쟁은 `draft`를 보내지 않는다). `standings`는 내가 끝났거나 `result`일 때만(설계 §5). `graceEnd` 공개.
+
+### 4.5 Lobby DO와 HTTP 엔드포인트
+
+Lobby(싱글턴). 이름은 설계대로 `list`/`upsert`/`remove`. 호출 형식은 경로 라우팅 대신 **DO RPC 메서드** 권장 [변경 제안 P3 — compat date 2026-06-01이라 RPC 사용 가능, `DurableObjectNamespace<Lobby>` 타입으로 호출이 검사되고 경로 파싱 코드가 없어진다. 의미는 동일].
+
+```ts
+interface RoomSummary { code; host: string; kind; game; players: number; max: 5; inProgress: boolean; updatedAt: number }
+list(): RoomSummary[]         // updatedAt 150초 초과 항목은 정리 후 제외. 입장 가능한 방 먼저, 최신순, 최대 50
+upsert(s: RoomSummary): void  // 저장 키 하나('rooms', JSON)
+remove(code: string): void
+```
+
+Room은 요약(인원·방장 이름·phase·종류/게임)이 바뀔 때만 `upsert`, 소멸 시 `remove`. 변화 없이 오래 머무는 방은 접속자가 있는 동안 알람 때 60초마다 재`upsert`(심장박동)해 정리 대상에서 빠진다. 접속자 0인 방은 목록에 올리지 않고, 재시작으로 소켓 없이 남은 방은 심장박동이 끊겨 150초 뒤 빠진다. DO가 깨어날 때는 저장된 접속 상태 대신 열린 소켓과 대조(reconcile)한다.
+
+| HTTP | 요청/응답 | 비고 |
+|---|---|---|
+| `POST /api/room` | `{ token?, name, settings? }` → `{ code, session }`(토큰이 없거나 무효면 발급해 `session`에 포함) | 생성자를 방장 자리로 예약(접속 전이라 `connected=false`, `emptySince=now`). 생성 직후 공개 목록에서 다른 사람이 먼저 들어와 방장이 되는 경쟁을 막는다 |
+| `GET /api/rooms` | → `RoomSummary[]` | 클라이언트 3초 폴링, 로비 화면이고 `document.visibilityState === 'visible'`일 때만 |
+| `GET /ws/<code>` (Upgrade) | 101 | `hooks.server.ts` → Room `fetch` |
+
+Room 내부 RPC: `init(code, creator, settings): boolean`(이미 초기화면 false → 생성 엔드포인트가 새 코드로 재시도). 미초기화 Room에 WS가 오면 수락 후 4004로 닫고 **아무것도 저장하지 않는다**(아무 코드나 쳐도 저장 공간이 생기지 않게).
+
+### 4.6 순위 지표 의사코드 (`rank.ts`)
+
+```
+metrics(board):                                   // 현재 스테이지 보드
+  greens  = |{ i : ∃r marks[r][i] == 'c' }|       // 초록 자리, 행 합집합
+  yellows = |{ rows[r][i] : marks[r][i] == 'p' }| // 노랑을 받은 자모 종류 [결정 필요 Q19]
+  tries   = board.rows.length                     // 현재 스테이지 시도 수 [결정 필요 Q18]
+  return { height: board.cleared, greens, yellows, tries }
+
+cmpMetrics(a, b, useHeight):                      // 음수면 a가 위
+  if useHeight and a.height != b.height: return b.height - a.height
+  if a.greens  != b.greens:  return b.greens  - a.greens
+  if a.yellows != b.yellows: return b.yellows - a.yellows
+  return a.tries - b.tries                        // 0이면 공동
+
+standings(game):
+  single:
+    top  = 정답자를 (triesUsed asc, finishedAt asc)로 — 둘 다 같으면 공동
+    rest = 미정답자(실패·포기·만료·탈락) cmpMetrics(useHeight = false)
+  climb:
+    top  = finishOrder(완주 시각 순) — 같은 시각이면 공동
+    rest = 미완주자 cmpMetrics(useHeight = true)
+  rank: 앞 사람과 비교 결과가 0이면 같은 순위 (1, 2, 2, 4)
+```
+
+경쟁 종료 조건: 단판 = 모든 inGame 플레이어 `status ≠ playing`. 등반 = 위 조건 **또는** `graceEnd ≤ now`(남은 사람은 그 시점 지표로 고정). 첫 완주 시 `graceEnd = finishedAt + 60s`.
+
+### 4.7 마감 시각과 DO 알람 하나 (`timers.ts`)
+
+상태에는 **시각만** 저장하고, 알람은 언제나 "가장 이른 마감" 하나만 건다. 알람 핸들러는 만료된 것을 전부 처리한 뒤 다음 최솟값으로 다시 건다.
+
+```
+nextDeadline(s, sockets) → number | null
+  c = []
+  s.emptySince != null   → c += s.emptySince + 120s                   // 빈 방 소멸
+  방장 끊김              → c += host.disconnectedAt + 5s               // 방장 승계 유예
+  s.phase == 'playing':
+    coop: board.deadline                                               // 방 단위
+    comp: 각 playing 플레이어 board.deadline                           // 플레이어 단위
+          각 playing·끊긴 플레이어 disconnectedAt + 60s                 // 자동 탈락 (5단계)
+          graceEnd                                                     // 등반 유예
+  접속 중 소켓 있음      → c += min(lastPong) + 45s                     // 반쯤 끊긴 소켓 정리 (5단계)
+  요약 재upsert 주기     → c += lastUpsert + 10min                       // Lobby 정리 방지
+  return c가 비면 null, 아니면 min(c)
+
+tick(s, now) → { changed, destroy }   // 멱등: 같은 now로 두 번 불러도 결과 동일
+  방장 끊김 ≥ 5s           → 입장 순 다음 접속자에게 승계(없으면 유지)
+  emptySince + 120s ≤ now  → destroy
+  coop deadline ≤ now      → 그 판/스테이지 실패 → result
+  comp 각 deadline ≤ now   → 그 플레이어 timeout(등반이면 높이 확정)
+  comp 끊김 60s 경과        → eliminated
+  graceEnd ≤ now           → standings 고정 → result
+  종료 조건 충족            → result
+```
+
+DO 셸 흐름:
+
+```
+mutate(fn):                          // 모든 메시지 처리·알람의 공통 경로
+  now = Date.now()
+  tick(state, now); fn(state, now)
+  storage.put('state', state)        // 변경마다 전체 저장(작다: 5명 × 10행 × 12자)
+  broadcast(socket마다 personalize(state, pid))
+  syncLobbyIfSummaryChanged()
+  t = nextDeadline(state, socketInfo())
+  t == null ? storage.deleteAlarm() : storage.setAlarm(max(t, now + 50ms))
+
+alarm():
+  reapStaleSockets(now)              // getWebSocketAutoResponseTimestamp < now − 45s → close → 끊김 처리
+  r = mutate(noop)                   // tick이 만료를 처리
+  if r.destroy: Lobby.remove(code); 소켓을 4005로 닫음; storage.deleteAlarm(); storage.deleteAll()
+```
+
+- 제출 시점 마감 검사(설계 §6)는 `reduce`가 맨 앞에서 `tick(now)`을 부르는 것으로 처리.
+- 하트비트: 생성자에서 `ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))` — 클라이언트 25초 ping이 DO를 깨우지 않는다. `ctx.getWebSocketAutoResponseTimestamp(ws)`로 마지막 응답 시각을 읽는다(`@cloudflare/workers-types` 5.20260908.1 index.d.ts 703·705행에 존재 [확인함]).
+- 무입력 60초 경고는 **서버 알람에 넣지 않고 클라이언트 타이머**로 처리할 것을 권한다 [변경 제안 P4 — 경고는 본인 화면에만 뜨고 자동 포기·퇴장이 없으므로(설계 §6) 서버가 알 필요가 없다. 알람 기상·요청 수를 아낀다]. 입력 = 키 입력 또는 제출. 경쟁에서 이미 끝난 사람, 협동에서 이번 단계에 이미 제안·투표한 사람은 대상에서 뺀다. 만료 실패는 서버 제한 시간이 그대로 처리한다.
+- 재촉 30초 쿨다운은 요청 시 `nudgedAt` 비교만 — 알람 불필요.
+- 돌림판 1.5초는 클라이언트 연출만. 서버는 결과를 즉시 반영하고 `lastPick`으로 알린다. 클라이언트는 새 `lastPick.at`을 보면 연출 뒤에 새 행을 보여 준다.
+- 스테이지 클리어 뒤: 자동 진행, 다음 마감은 클리어 시각 + 2초(연출 여유)부터 [결정 필요 Q7].
+
+### 4.8 임시 계정 토큰 (`session.ts`) [사용자 결정 2026-11-01]
+
+설계 §7 "브라우저 저장 최소화와 임시 계정"의 구현 사양이다. 순수 모듈이고 서버 저장은 없다(D1·DO 쓰기 없음).
+
+| 항목 | 내용 |
+|---|---|
+| 형식 | `mp1.<uid>.<name>.<iat>.<sig>`. `uid` = 16바이트 난수 base64url(22자), `name` = 닉네임 base64url(원문 1~12자, 앞뒤 공백 제거, NFC 정규화), `iat` = 발급 시각(초, 서버), `sig` = HMAC-SHA256(`KORDLE_SECRET`, `"mp1." + uid + "." + name + "." + iat`)의 base64url 앞 32자 |
+| 도메인 분리 | 개인 모드 정답 토큰(`n.t.idx`)과 별개 종류. `mp1.` 접두어가 아니면 거절. 기존 `token.ts`의 형식·검증은 건드리지 않음 |
+| 만료 | 마지막 사용 후 24시간(슬라이딩). `now - iat ≤ 24h`이면 유효. 시각은 서버 기준 |
+| 재발급 | 유효한 `hello`마다 `iat = now`로 재발급, 첫 `snap`에 `session: { token, exp }`(`exp = iat + 24h`) |
+| 발급 | 토큰이 없거나 만료·서명 불일치 → 새 `uid`로 발급. 서명 불일치도 거절(4005 등)하지 않고 새로 발급(오래된 토큰 때문에 못 들어오는 일을 막기 위함). 만료는 정상 경로 |
+| 이름 변경 | `hello.name`이 토큰의 이름과 다르면 같은 `uid`로 새 이름에 서명 |
+| 클라이언트 | `nkordle:mp-session` = `{ token, name, exp }`. 부팅 시 `exp < now`면 삭제하고 닉네임 재입력. `session.uid`가 바뀌면 덮어씀. 나가기는 세션을 지우지 않음. 설정 모달 "임시 계정 지우기" |
+| 방 안 | 플레이어 키 = `uid`, 공개 `pid`는 별도. 같은 `uid`의 새 소켓은 기존 소켓을 4000으로 닫음. 끊김 60초 → 탈락 유지, 같은 `uid`는 자동 재입장(대기: 자기 자리·준비 해제 / 진행 중 60초 안: 자기 자리 / 탈락 뒤: 결과 화면부터, 관전 없음) |
+
+
+---
+
+## 5. 작업 분해(WBS)
+
+기준은 설계 §8의 5단계다. 단계마다 **데모 조건·우선순위(PM)**, **작업 표(PL)**, **수용 기준(PM)**을 묶었다. 크기: S ≈ 150줄 이하, M ≈ 150–400줄, L ≈ 400줄 이상(테스트 포함). "∥" = 같은 선행 뒤 병렬 가능. 수용 기준 ID는 `US-영역-번호 (MoSCoW, 단계)`.
+
+**main 반영 시 자동 배포되므로 각 단계는 운영에 그대로 노출된다**(Q16).
+
+**검증 환경 공통(수용 기준 전체에 적용)**: 멀티 검증은 `pnpm build && pnpm preview`(wrangler dev)에서 한다 [설계 §7]. 참가자마다 **다른 브라우저 프로필 또는 시크릿 창**을 쓴다(같은 브라우저의 탭끼리는 localStorage의 `nkordle:mp-session`을 공유해 같은 `uid`가 된다 — R2). "브라우저 A/B/C"는 서로 다른 프로필, A가 먼저 들어온 방장이다. smoke는 API만 보므로 아래 절차는 브라우저에서 직접 본다.
+
+**각 PR 공통 완료 조건**: `pnpm check` · `pnpm test` · `python3 -m unittest discover -s tests -p 'test_*.py'` · `pnpm run build`(CI와 동일) → preview 수동 시나리오 → PR → CI → main → Actions 배포·smoke. 문서 갱신 포함(설계 §8). 개인 플레이 불변 검증(§13)이 하나라도 실패하면 그 단계는 완료가 아니다.
+
+### 5.1 1단계 — 스파이크 (브랜치 `spike/mp-do`, PR 없음)
+
+- **사용자 가치**: 없음(기술 확인)
+- **MoSCoW**: Must
+- **데모 조건**: 사용자 데모 없음. 내부 확인: `pnpm dev`로 개인 플레이 정상, `pnpm preview`에서 WS echo 응답, 빌드 산출물에 DO export. 결과를 설계 문서 "스파이크에서 확인" 항목에 실측으로 기록
+- **수용 기준**: 없음(스파이크 go/no-go는 §6)
+- **결과**: 2026-11-05 go. 브랜치 `spike/mp-do`(미커밋)
+
+| ID | 작업 | 산출 파일 | 완료 조건 | 검증 | 크기 | 선행 |
+|---|---|---|---|---|---|---|
+| 1.1 | 최소 DO: 에코 `Room`(Hibernation, 첨부, D1 조회 명령), 빈 `Lobby` | `src/lib/server/mp/room.ts`, `lobby.ts` | 타입 통과 | `pnpm check` | S | — |
+| 1.2 | 바인딩·마이그레이션·타입 | `wrangler.jsonc`, `src/app.d.ts` | | `pnpm check` | S | 1.1 |
+| 1.3 | 빌드 후처리 + 스크립트 | `scripts/postbuild-do.mjs`, `package.json` | `_worker.js` 끝에 export 한 줄, 두 번 돌려도 한 줄 | §6 (a) | S | 1.2 |
+| 1.4 | WS 라우팅 | `src/hooks.server.ts` | | §6 (b) | S | 1.2 ∥ 1.3 |
+| 1.5 | 실측 (a)–(e) + 로컬 `wrangler dev`에서 DO 동작 | 기록만 | §6 go 기준 전부 | §6 | M | 1.3, 1.4 |
+| 1.6 | 결과 반영 | `docs/MULTIPLAYER.md` §7 "스파이크에서 확인" 실측화(사실 정정 P1·P2와 `getPlatformProxy` 빌드 경로 항목은 이 문서 작성 때 이미 반영함), `wrangler.dev.jsonc` 불필요(P7, 스파이크 go) | | 문서 diff | S | 1.5 |
+
+### 5.2 2단계 — 선택 화면·로비·대기실·경쟁 단판 (PR 1개)
+
+- **사용자 가치**: 친구와 같은 단어로 겨룬다
+- **MoSCoW**: Must
+- **데모 조건**: 브라우저 A·B(다른 프로필): A가 방 생성 → B 목록에 3초 안에 표시 → B가 목록·코드·링크 세 방법으로 각각 입장 → B 준비 → A 시작 → 같은 정답, 상대 패널 색만 → 순위 결과. 재촉 알림 레이어, 방장 나가기 시 승계, 끊긴 사람 탈락 처리, 개인 플레이 회귀 없음(§13). 없는 것: 협동·등반·제한 시간·재접속·모바일 띠·다음 게임 루프
+
+**우선순위**
+
+| 항목 | MoSCoW | 비고 |
+|---|---|---|
+| 선택 화면, 로비 목록·생성·코드 입장, 링크 입장 | Must |  |
+| 닉네임 저장, 충돌 접미사 | Must |  |
+| 준비·시작 조건, 설정 변경 시 준비 해제 | Must |  |
+| 재촉 알림 레이어·쿨다운 | Must |  |
+| 재촉 소리·진동 | Should | 알림 레이어에 포함(2026-11-01 결정). iOS Safari는 진동 API 미지원(R5), 레이어와 소리만으로 기능 성립 |
+| 방장 승계(나감 즉시·끊김 5초) | Must |  |
+| 빈 방 소멸(전원 나가기는 즉시, 끊김은 30초) | Must |  |
+| 경쟁 단판 + 순위 지표(단판은 높이 제외) | Must |  |
+| 방장의 끊긴 사람 강제 탈락 | Must | 설계 §8이 단계를 정하지 않음. 2단계에 없으면 탭 하나로 게임이 끝나지 않는다(R3) [배정] |
+| 링크 복사 버튼 | Should | 없으면 주소창 복사로 대체 가능 |
+| 최소 "같은 설정으로 한 판 더" | Could | [변경 제안 CP-1], §12 |
+
+**작업**
+
+| ID | 작업 | 산출 파일 | 완료 조건 | 검증 | 크기 | 선행 |
+|---|---|---|---|---|---|---|
+| 2.1 | 공유 계약·상수·서버 상태 타입·코드 | `src/lib/mp/protocol.ts`, `rules.ts`, `server/mp/state.ts`, `code.ts` | 타입 확정 | `pnpm check`, `mp-code.test.mjs` | S | 1단계 go |
+| 2.2 | 멤버십 순수 로직 | `members.ts`, `reduce.ts`(골격), `timers.ts`(빈 방·방장 유예) | 입장/재입장/퇴장/준비/재촉/설정/시작 조건/승계/닉네임 접미사 | `mp-members.test.mjs`, `mp-timers.test.mjs` | M | 2.1 |
+| 2.3 | 경쟁 단판 순수 로직 | `comp.ts`, `rank.ts`(단판), `snapshot.ts`(경쟁 가공) | 제출·하드·힌트·포기·방장 강제 탈락·종료·순위 | `mp-comp.test.mjs`, `mp-rank.test.mjs`, `mp-snapshot.test.mjs`(누출) | M | 2.1 ∥ 2.2 |
+| 2.4 | Room DO 셸 | `room.ts` | 토큰 발급·검증(`session.ts`)·hello/재입장(같은 `uid`)·저장/복원·브로드캐스트·알람·D1(정답: `answerCount(3,n)` + `randomIndex` + `answerAt`)·소멸·Lobby 동기화. mp-imports 정적 검사 테스트 포함(스파이크에서 이월) | `pnpm build && pnpm preview` 수동(§7.3) | L | 2.2, 2.3 |
+| 2.5 | Lobby DO + HTTP | `lobby.ts`, `api/room/+server.ts`, `api/rooms/+server.ts` | 생성·목록·충돌 재시도 | preview에서 `curl`, smoke 신규 항목 | S | 2.1 ∥ 2.2·2.3 |
+| 2.6 | 클라이언트 상태 | `src/lib/mp/identity.ts`, `api.ts`, `client.svelte.ts` | 연결·기본 재연결(같은 `uid`: 새로고침·같은 브라우저 새 탭, 토큰 보관·만료 확인)·스냅샷 반영·`?room=` 유지 | `pnpm check`, preview 수동 | M | 2.1 ∥ 2.2–2.5 |
+| 2.7 | UI | `Board.svelte`(인터페이스), `+page.svelte`(선택 분기), `components/mp/` ModeChoice·MultiApp·LobbyView·WaitingRoom·RoomSettings(경쟁·단판만 노출)·MpGame·OpponentPanel·MpResult | 2인 경쟁 단판 한 판 완주 | preview 2창 수동 | L | 2.6 (가짜 스냅샷으로 2.4와 병렬 착수 가능) |
+| 2.8 | smoke·문서 | `scripts/smoke.py`, README, HANDOFF §2·§11, AGENTS 체크리스트 | | 로컬 preview 대상 smoke, PR CI | S | 2.4, 2.5 |
+| 2.9 | 개인 플레이 불변 확인 | — | §13 전부 | §13 | S | 2.7 |
+
+해석: 설계 §8은 "재접속"을 5단계에 두지만, 방장 승계(끊김 5초 유예)와 새로고침 복귀가 2단계에 이미 필요하므로 **같은 `uid`(`nkordle:mp-session` 토큰) 재입장 기본형은 2단계**, 백오프·탭 전환·반쯤 끊긴 소켓 정리는 5단계로 나눈다 [변경 제안 P8]. 경쟁 단판에서 끊긴 사람 때문에 게임이 안 끝나는 문제는 5단계 자동 탈락 전까지 방장 강제 탈락(설계 §2 방장 권한)으로 푼다.
+
+**선택 [변경 제안 P5]**: 2단계를 2a(인프라: DO 골격·후처리·hooks·마이그레이션·`/api/room*`·smoke 핸드셰이크, UI 미노출)와 2b(기능)로 나누면 운영 첫 DO 마이그레이션이 작은 diff로 따로 나간다. 근거: DO는 `wrangler versions upload`로 미리 올려 볼 수 없어(R20) **운영 배포가 DO의 첫 실가동**이다. 비용은 PR 하나.
+
+**수용 기준 연결**: 2.2·2.4 → E3, US-E2-2 · 2.3 → E4 · 2.5 → E2 · 2.6·2.7 → E1, E2, E3, E4 · US-E10-3(§5.5 E10)은 2단계부터 적용. (작업과 수용 기준의 대응은 합본 때 PL 산출 파일과 PM 기준을 맞춘 것이다.)
+
+#### 수용 기준 E1. 진입
+
+**US-E1-1 (Must, 2)** 처음 들어온 사람은 혼자 할지 같이 할지 고를 수 있다.
+- `/`를 열면 S0이 보이고 두 선택지가 있다.
+- 개인을 고르면 지금과 같은 화면이 뜨고 저장된 `config`의 모드로 게임이 시작된다(데일리면 그날 문제, 진행 복원 포함).
+- 멀티를 고르면 S1이 뜬다. URL은 `/` 그대로다(새 라우트 없음).
+
+**US-E1-2 (Must, 2)** 링크를 받은 사람은 선택 화면 없이 그 방으로 바로 들어갈 수 있다.
+- A가 만든 방의 링크 `/?room=CODE`를 B가 열면 S0을 거치지 않고 S2에 들어간다(B에게 닉네임이 없으면 S1-N 먼저).
+- 없는 코드의 링크는 오류 문구와 로비로 가는 버튼을 보인다.
+
+#### 수용 기준 E2. 닉네임·로비
+
+**US-E2-1 (Must, 2)** 닉네임을 정하고 다음 방문에도 그대로 쓸 수 있다.
+- 닉네임 입력 후 방에 들어갔다 나온 뒤 새로고침하면 입력칸에 같은 이름이 있다(`nkordle:mp-session`의 name).
+- 닉네임이 비어 있으면 방 만들기·입장이 비활성이다 [가정 Q13].
+
+**US-E2-2 (Must, 2)** 같은 이름이 이미 방에 있어도 입장할 수 있고, 내가 어떤 이름으로 들어갔는지 안다.
+- A·B가 같은 닉네임으로 같은 방에 들어가면 B의 이름에 접미사가 붙고 B 화면에 확정 이름 토스트가 뜬다. 두 화면의 참가자 목록이 같은 이름들을 보인다.
+
+**US-E2-3 (Must, 2)** 공개 방 목록을 보고 골라 들어갈 수 있다.
+- A가 방을 만들면 3초 안에 B의 목록에 그 방이 나타난다(새로고침 없이).
+- 인원이 바뀌면 3초 안에 `n/5`가 바뀐다.
+- A가 게임을 시작하면 3초 안에 그 행이 "진행 중"이 되고 입장 버튼이 비활성이다.
+- 방이 하나도 없으면 빈 상태 문구가 보인다.
+
+**US-E2-4 (Must, 2)** 방 코드를 입력해 들어갈 수 있다.
+- 6자 코드 입력 → 입장 → S2. 소문자로 쳐도 들어간다 [가정].
+- 6자 미만이면 입장이 막히고 문구가 보인다. 없는 코드는 "없는 방입니다", 진행 중이면 진행 중 문구, 5명 찬 방은 "방이 가득 찼습니다". 모든 경우 S1에 머문다.
+- 방 코드에 `0 O 1 I`가 나오지 않는다(방을 20번 만들어 코드를 확인).
+
+**US-E2-5 (Must, 2)** 방을 만들 수 있다.
+- 방 만들기 → 본인이 방장인 S2, 방 코드가 보인다. 링크 복사(Should) → 클립보드에 `/?room=CODE` 전체 URL.
+
+#### 수용 기준 E3. 대기실
+
+**US-E3-1 (Must, 2)** 참가자는 준비를 켜고 끌 수 있고, 방장은 전원이 준비되어야 시작할 수 있다.
+- A 혼자: 시작 비활성, 이유 문구 표시.
+- B 입장: A 화면 "1명 대기 중", 시작 비활성. B 준비 → A 시작 활성. B 준비 취소 → 다시 비활성.
+- C 입장: C만 `준비 전`, B는 `준비 완료` 유지. A 시작 비활성.
+
+**US-E3-2 (Must, 2)** 방장이 규칙을 바꾸면 모두 다시 준비해야 한다.
+- B·C 준비 완료 상태에서 A가 설정 하나(예: 시도 횟수)를 바꾸면 B·C가 `준비 전`이 되고 둘에게 토스트가 뜬다. 모든 설정 항목에 대해 같다.
+- B·C 화면의 설정 요약이 바뀐 값을 보인다.
+
+**US-E3-3 (Must, 2)** 참가자는 방장을 재촉할 수 있다.
+- B 재촉 → 방장 화면에 "{B}님이 재촉합니다!" 알림 레이어(닫을 때까지 유지).
+- B의 재촉 버튼이 30초간 비활성이고 남은 초를 보인다. C는 그 사이 재촉할 수 있다(쿨다운은 1인당).
+- 방장에게는 재촉 버튼이 없다.
+
+**US-E3-4 (Must, 2)** 방장이 나가도 방은 남는다.
+- A·B·C 순 입장. A 나가기 → 즉시 B가 방장(배지·토스트), B 화면이 방장 UI.
+- A가 탭을 닫으면(끊김) 5초 뒤 B가 방장.
+- 방장이 잠수해도 시스템은 아무것도 하지 않는다: 전원 준비 후 방장이 5분 무반응이어도 자동 시작·자동 교체가 없다.
+
+**US-E3-5 (Must, 2)** 언제든 방에서 나갈 수 있다.
+- 대기실·게임·결과 어디서나 나가기가 보이고 누르면 S1(게임 중이면 확인 후).
+
+**US-E3-6 (Must, 2)** 빈 방은 사라진다.
+- 전원이 나가기로 떠나면 방은 바로 사라진다. 끊김이 섞여 접속자가 0이 되면 30초가 지난 뒤 사라지고 그 링크는 "없는 방입니다". 30초 안에 링크로 들어가면 입장된다. 접속자가 0인 방은 그 사이에도 목록에 보이지 않는다.
+
+#### 수용 기준 E4. 경쟁 단판
+
+**US-E4-1 (Must, 2)** 같은 정답을 각자 풀고 상대의 진행을 색으로 볼 수 있다.
+- A·B 시작 → 두 화면의 보드 길이·시도 수가 같다.
+- A가 한 행 제출 → B 화면의 A 패널에 그 행이 색만(자모 없이) 나타난다. A가 입력 중인 자모는 B에게 보이지 않는다.
+- 같은 단어를 제출하면 두 사람의 색이 같다(같은 정답 확인).
+- 사전에 없는 단어·자모 부족·하드모드 위반은 개인과 같은 토스트.
+
+**US-E4-2 (Must, 2)** 힌트(허용 시)는 1인 1회, 포기는 나만 탈락이다.
+- 힌트 허용 방: A 힌트 사용 → A는 "힌트 사용함", B는 여전히 힌트 가능.
+- 힌트 끔 방: 힌트 버튼이 없다.
+- A 포기(두 번 눌러 확정) → A 패널 `탈락`, B는 계속 진행.
+
+**US-E4-3 (Must, 2)** 전원이 끝나면 순위를 본다.
+- 3인: A 3번째 정답, B 4번째 정답, C 실패 → A 1위, B 2위, C 3위.
+- 같은 시도 수로 정답이면 먼저 끝낸 쪽이 위.
+- 미정답자끼리는 초록 자리 수 → 노랑 자모 종류 수 → 시도 수 순서, 모두 같으면 공동 순위.
+- 먼저 끝난 사람은 남은 사람의 색 진행과 현재 순위를 계속 본다.
+- 결과 화면 후 개인 통계 모달 숫자가 바뀌지 않는다.
+
+**US-E4-4 (Must, 2 [배정])** 방장은 끊긴 사람을 탈락시켜 게임을 끝낼 수 있다.
+- B 탭을 닫음 → A 화면 B 패널 `접속 끊김` + 방장에게만 "탈락 처리". 확인 → B `탈락`. 남은 사람이 끝나면 S5.
+- 근거: 2단계에는 제한 시간·자동 탈락·재접속이 없어 탭 하나가 닫히면 경쟁 단판이 끝나지 않는다(R3).
+
+### 5.3 3단계 — 협동 단판
+
+- **사용자 가치**: 같은 보드를 함께 푼다
+- **MoSCoW**: Must
+- **데모 조건**: 브라우저 3개: 실시간 제안 표시, 전원 제안 자동 마감, 방장 마감, 같은 단어 병합, 제안 1개 바로 제출, 투표(자기 제안 불가), 동률 돌림판, 돌림판 방식, 공유 힌트, 방장 포기
+
+**우선순위**
+
+| 항목 | MoSCoW | 비고 |
+|---|---|---|
+| 협동 제안·마감·병합·즉시 제출 | Must |  |
+| 투표·동률 돌림판 | Must |  |
+| 돌림판 연출(약 1.5초 회전) | Should | 결과만 즉시 보여줘도 규칙은 성립 |
+
+**작업**
+
+| ID | 작업 | 산출 | 완료 조건 | 검증 | 크기 | 선행 |
+|---|---|---|---|---|---|---|
+| 3.1 | 협동 순수 로직 | `coop.ts`, `snapshot.ts`(협동 뷰) | 제안·초안·마감·병합·단일 후보 즉시 제출·투표(자기 제안 금지)·동률 돌림판·돌림판 방식·판정·힌트(판당 1)·방장 포기·끊긴 사람 집계 제외 | `mp-coop.test.mjs` | M~L | 2단계 |
+| 3.2 | DO 연결 | `room.ts`, `reduce.ts` | `propose`마다 D1 1행 검사 후 동기 반영 | preview 수동 | S | 3.1 |
+| 3.3 | UI | `MpGame`(초안 실시간 전송), `CoopPicker`, `OpponentPanel`(제안 단어), `RoomSettings`(협동·선택 방식 노출) | 2·3인 협동 단판 완주, 2인 동률 → 돌림판 | preview 2–3창 | L | 3.1 ∥ 3.2 |
+
+**수용 기준 연결**: 3.1 → E5 · 3.2 → E5 · 3.3 → E5.
+
+#### 수용 기준 E5. 협동 단판
+
+**US-E5-1 (Must, 3)** 각자 단어를 제안하고 다른 사람이 무엇을 치는지 실시간으로 본다.
+- A가 자모를 칠 때마다 B·C의 A 패널에 같은 자모가 보인다.
+- A Enter → 패널 상태 `제안함`. 사전에 없는 단어는 개인과 같은 토스트로 거부.
+- 하드모드 방에서 공유 보드의 초록·노랑을 어긴 제안은 개인 하드모드와 같은 토스트로 거부.
+- 마감 전 A가 지우고 다시 치면 패널이 갱신되고 다시 Enter로 확정한다.
+
+**US-E5-2 (Must, 3)** 모두 제안하거나 방장이 마감하면 단어를 고른다.
+- 3인 모두 제안 → 자동으로 선택 단계.
+- 2명만 제안 → A 마감 → 선택 단계. 제안 0개면 마감 비활성.
+- 두 사람이 같은 단어 → 선택지에 하나로, 제안자 이름 둘.
+- 제안이 하나뿐(병합 후 하나 포함) → 선택 단계 없이 바로 공유 보드에 제출.
+
+**US-E5-3 (Must, 3)** 투표로 고를 수 있다.
+- 투표 방식 3인, 제안 X(A)·Y(B)·Z(C): 각자 자기 항목에 투표 불가. 전원 투표 → 최다 득표 단어가 공유 보드에 들어간다.
+- 1:1:1 동률 → 동률 항목만 돌림판.
+- 방장이 투표 도중 마감 → 그 시점 집계(0표 동률도 돌림판).
+- 2인 방: 서로 상대 제안에 투표 → 동률 → 돌림판.
+
+**US-E5-4 (Must, 3)** 돌림판으로 고를 수 있다.
+- 돌림판 방식: 선택 단계에서 약 1.5초 연출 후 멈추고, 세 화면이 같은 단어에서 멈춘다.
+
+**US-E5-5 (Must, 3)** 공유 보드로 함께 맞힌다.
+- 선택된 단어가 세 화면 공유 보드 같은 행에 같은 색으로 들어가고, 입력 행이 비고, 키보드 색이 같다.
+- 힌트(허용 시) 판당 1회, 누구나: B 사용 → 세 화면 모두 힌트 점선 + 힌트 비활성.
+- 포기 버튼은 방장에게만 있다. 방장 포기 → 전원 실패 결과.
+- 정답 → 전원 성공 결과. 시도 소진 → 실패 결과와 정답.
+
+**US-E5-6 (Must, 3)** 끊긴 사람을 기다리지 않는다.
+- C 탭 닫음 → C 패널 `접속 끊김`. A·B 제안만으로 자동 선택 단계가 열리고, 투표도 A·B만으로 "전원 투표"가 된다. C는 탈락하지 않는다.
+
+### 5.4 4단계 — 등반 2종 + 다음 게임 루프
+
+- **사용자 가치**: 길게, 여러 판 이어서 논다
+- **MoSCoW**: Must
+- **데모 조건**: 협동 등반 완주(시작 10자로 짧게), 경쟁 독립 등반에서 첫 완주 → 60초 유예 → 지표 순위. 결과 → 같은 설정으로 한 판 더 → 대기실 준비 해제 → 다시 시작. 결과 화면 중 새 사람 입장
+
+**우선순위**
+
+| 항목 | MoSCoW | 비고 |
+|---|---|---|
+| 협동 등반, 경쟁 독립 등반·유예 | Must |  |
+| 결과 화면 피라미드 | Should | 순위표·높이만으로도 결과 성립 |
+| 다음 게임 루프(한 판 더·설정 바꾸기) | Must |  |
+
+**작업**
+
+| ID | 작업 | 산출 | 완료 조건 | 검증 | 크기 | 선행 |
+|---|---|---|---|---|---|---|
+| 4.1 | 등반 공통 | `climb.ts` | 스테이지 n 진행·높이·스테이지별 정답 지연 로드 | `mp-climb.test.mjs` | S | 3단계 |
+| 4.2 | 협동 등반 | `coop.ts` | 공유 보드 스테이지 이어가기, 실패/12자 완주 종료 | `mp-coop.test.mjs` 추가 | M | 4.1 ∥ 4.3 |
+| 4.3 | 경쟁 독립 등반 | `comp.ts`, `rank.ts`(등반 지표), `timers.ts`(유예) | 같은 단어 순서, 실패 즉시 종료, 첫 완주 1위 + 유예 60초, 유예 중 완주 순서, 만료 시 지표 고정, 전원 실패 종료 | `mp-comp`·`mp-rank` 추가 | M | 4.1 ∥ 4.2 |
+| 4.4 | 다음 게임 루프 | `members.ts`, `reduce.ts` | result → next/again → lobby(전원 ready 해제), result에서 신규 입장 | `mp-members` 추가 | M | 2단계 ∥ 4.1–4.3 |
+| 4.5 | UI | `MpGame`(스테이지 표시), `MpResult`(높이·순위·다음 게임·한 판 더) | 등반 2종 완주·유예 동작 | preview 수동 | M | 4.2–4.4 |
+
+**수용 기준 연결**: 4.1·4.2 → US-E6-1 · 4.1·4.3 → US-E6-2, US-E6-3 · 4.4 → E7 · 4.5 → E6, E7.
+
+#### 수용 기준 E6. 등반
+
+**US-E6-1 (Must, 4)** 협동으로 12자까지 오를 수 있다.
+- 시작 길이 10, 협동 등반: 10자 정답 → 11자 → 12자 정답 → 완주 결과(피라미드 3단).
+- 중간 스테이지 실패 → 등반 종료, 오른 스테이지 수와 멈춘 곳의 정답.
+- 스테이지 전환 방식은 Q7 결정에 따른다.
+
+**US-E6-2 (Must, 4)** 경쟁으로 각자 속도로 오른다.
+- 같은 시작 길이에서 A·B가 같은 단어 순서를 받는다(같은 스테이지에서 같은 단어를 넣으면 같은 색).
+- A가 B보다 빨라도 서로 기다리지 않는다. 패널에 상대 스테이지가 보인다 [가정].
+- B 스테이지 실패 → B `탈락`, 높이 확정. A는 계속.
+
+**US-E6-3 (Must, 4)** 첫 완주 뒤 60초 안에 따라올 수 있다.
+- A 12자 클리어 → A 1위 확정, 전원 화면에 60초 카운트다운.
+- 60초 안에 B 완주 → B 2위. 60초 종료 → C·D는 지표(높이 → 초록 자리 → 노랑 자모 종류 → 시도 수)로 순위 고정 → 결과.
+- 아무도 완주 못 하고 전원 실패 → 그 시점 결과.
+
+#### 수용 기준 E7. 결과·다음 게임
+
+**US-E7-1 (Must, 4)** 방장은 같은 설정으로 바로 한 판 더 할 수 있다.
+- 결과 화면 방장에게 "같은 설정으로 한 판 더" → 전원 S2, 전원 `준비 전`, 설정 동일. 참가자에게는 이 버튼이 없고 대기 문구가 보인다.
+
+**US-E7-2 (Must, 4)** 방장은 설정을 바꿔 다음 게임을 할 수 있다.
+- "설정 바꾸기" → 전원 S2, 방장은 설정 패널, 전원 준비 해제.
+
+**US-E7-3 (Must, 4)** 게임과 게임 사이에는 새 사람이 들어올 수 있다.
+- 게임 중 D가 코드로 입장 → 진행 중 문구. 게임이 끝난 뒤(결과 화면 중 또는 대기실) D 입장 → 성공, D만 `준비 전`. D가 결과 화면 중에 무엇을 보는지는 Q9 결정에 따른다.
+
+### 5.5 5단계 — 제한 시간·무입력·모바일·재접속·자동 탈락
+
+- **사용자 가치**: 낯선 사람과도 끝까지 문제없이 논다
+- **MoSCoW**: Must
+- **데모 조건**: 단판 180초 만료, 등반 180→165→… 스테이지 시간, 제한 시간 끔, 60초 무입력 경고, 폰 폭 가로 띠, 새로고침 복귀, 경쟁 60초 자동 탈락
+
+**우선순위**
+
+| 항목 | MoSCoW | 비고 |
+|---|---|---|
+| 제한 시간, 무입력 경고 | Must | 사용자 결정 |
+| 재접속, 경쟁 자동 탈락 | Must |  |
+| 모바일 가로 띠 | Must |  |
+
+**작업**
+
+| ID | 작업 | 산출 | 완료 조건 | 검증 | 크기 | 선행 |
+|---|---|---|---|---|---|---|
+| 5.1 | 제한 시간 | `timers.ts`, `climb.ts`, `coop.ts`, `comp.ts`, `MpTimer.svelte` | 단판 180초, 등반 180−15(k−1)≥60, 만료 = 실패, 꺼진 방은 null | `mp-timers` 확장 | M | 4단계 |
+| 5.2 | 무입력 경고(클라이언트) | `client.svelte.ts`, `MpGame`(`Modal` 재사용) | 60초 경고, 닫고 입력하면 계속 | preview 수동 | S | 2.6 ∥ 5.1 |
+| 5.3 | 모바일 패널 | `MpGame`, `OpponentPanel` | 좁은 화면에서 보드 위 가로 띠, 넘치면 띠만 가로 스크롤, 페이지 가로 스크롤 없음 | 브라우저 폭 360px 수동 | S~M | 2.7 ∥ 5.1 |
+| 5.4 | 재접속 강화 | `client.svelte.ts`, `room.ts` | 백오프, `visibilitychange` 재연결, 25초 ping, 45초 무응답 소켓 정리 | preview에서 네트워크 끊기·탭 전환 수동 | M | 2.6 ∥ 5.1 |
+| 5.5 | 자동 탈락 | `timers.ts`, `comp.ts` | 경쟁 playing 중 끊김 60초 → eliminated | `mp-timers` | S | 5.1 |
+
+**수용 기준 연결**: 5.1 → E8 · 5.2 → E9 · 5.3 → E11 · 5.4 → E10 · 5.5 → US-E10-2.
+
+#### 수용 기준 E8. 제한 시간
+
+**US-E8-1 (Must, 5)** 제한 시간이 켜진 단판은 180초 안에 끝난다.
+- 단판 시작 → 카운트다운 3:00. 경쟁은 각자, 협동은 방 하나.
+- 0이 되면 그 판 실패(경쟁: 그 사람 `탈락` 후 다른 사람 계속 / 협동: 실패 결과).
+- 새로고침해도 남은 시간이 이어진다(서버 마감 시각 기준).
+
+**US-E8-2 (Must, 5)** 등반은 스테이지마다 시간이 줄어든다.
+- 스테이지 1: 180초, 2: 165초, 3: 150초 … 9: 60초, 그 뒤 60초 유지.
+- 만료 → 그 스테이지 실패(경쟁: 그 사람 등반 종료 / 협동: 등반 종료).
+
+**US-E8-3 (Must, 5)** 제한 시간을 끌 수 있다.
+- 끈 방은 카운트다운이 없고 시간으로 끝나지 않는다.
+
+#### 수용 기준 E9. 무입력
+
+**US-E9-1 (Must, 5)** 오래 입력이 없으면 경고를 본다.
+- 게임 중 60초 동안 아무 키도 누르지 않으면 본인에게만 "진행 중입니다" 모달. 다른 사람 화면에는 변화 없음.
+- 닫고 입력하면 그대로 이어진다. 진행·자리·상태 변화 없음.
+- 경고를 무시해도 자동 포기·퇴장이 없다. 제한 시간 켬이면 만료로 실패, 끔이면 계속 기다린다.
+- 경고 대상 상태의 범위는 Q10 결정에 따른다.
+
+#### 수용 기준 E10. 끊김·재접속
+
+**US-E10-1 (Must, 5)** 새로고침하거나 탭을 바꿔도 같은 자리로 돌아온다.
+- 대기실에서 B 새로고침 → 같은 방, 같은 이름, 같은 입장 순서(준비는 끊김으로 해제된 상태).
+- 경쟁 게임 중 B 새로고침 → 같은 보드·행·힌트 사용 여부·남은 시간.
+- 협동 게임 중 새로고침 → 공유 보드와 현재 단계(제안/선택) 복원.
+- 모바일에서 다른 앱으로 갔다가 60초 안에 돌아오면 이어진다.
+
+**US-E10-2 (Must, 5)** 경쟁에서 오래 끊긴 사람은 자동 탈락한다.
+- B 탭 닫고 60초 → B `탈락`, 남은 사람이 끝나면 결과. 그 뒤 B가 돌아오면 `탈락` 상태로 남은 진행·순위를 본다.
+- 협동에서는 60초가 지나도 탈락하지 않는다.
+
+**US-E10-3 (Must, 2~5)** 내 연결이 끊기면 알 수 있다.
+- 개발자 도구에서 오프라인으로 바꾸면 오버레이와 입력 잠김. 5단계부터는 다시 켜면 자동 복귀 + 토스트. 그 전 단계는 오버레이 + 로비로 버튼.
+
+#### 수용 기준 E11. 모바일
+
+**US-E11-1 (Must, 5)** 휴대폰에서도 상대 진행을 보며 할 수 있다.
+- 폭 375px에서 상대 패널이 보드 위 가로 띠로 보이고, 4명이면 띠가 가로 스크롤된다. 페이지 전체 가로 스크롤은 없다.
+- 12자·시도 10회 + 띠에서 키보드 마지막 줄이 화면 안에 있다(R7).
+
+### 5.6 v1에 넣지 않는 것 (Won't)
+
+강퇴, 채팅, 관전, 멀티 전적 — 설계 §9. 근거와 나머지 제외 항목은 §1.2.
+
+---
+
+## 6. 스파이크 체크리스트
+
+전제: 브랜치 `spike/mp-do`. 로컬 D1이 비어 있으므로 먼저 미니 픽스처를 만든다(로컬 `.wrangler/state`에만 쓴다, 운영 무관). 스키마는 `export_d1.py` 42–49행과 같다 [확인함].
+
+```bash
+cp .dev.vars.example .dev.vars
+pnpm exec wrangler d1 execute kordle --local --command "CREATE TABLE IF NOT EXISTS valid (jamo TEXT PRIMARY KEY) WITHOUT ROWID; CREATE TABLE IF NOT EXISTS pool (t INTEGER NOT NULL, n INTEGER NOT NULL, idx INTEGER NOT NULL, word TEXT NOT NULL, jamo TEXT NOT NULL, PRIMARY KEY (t, n, idx)) WITHOUT ROWID; CREATE TABLE IF NOT EXISTS pool_meta (t INTEGER NOT NULL, n INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (t, n)) WITHOUT ROWID; INSERT OR IGNORE INTO valid VALUES ('ㄱㅗㅇㅑㅇㅇㅣ'); INSERT OR IGNORE INTO pool VALUES (3, 7, 0, '고양이', 'ㄱㅗㅇㅑㅇㅇㅣ'); INSERT OR IGNORE INTO pool_meta VALUES (3, 7, 1);"
+```
+
+### (a) 후처리 export와 비배포 번들 검증
+
+```bash
+pnpm build                                              # vite build && node scripts/postbuild-do.mjs
+tail -n 3 .svelte-kit/cloudflare/_worker.js             # 마지막 줄이 export { Room, Lobby } … 인가
+node scripts/postbuild-do.mjs && grep -c 'export { Room, Lobby }' .svelte-kit/cloudflare/_worker.js   # 멱등: 1
+pnpm exec wrangler deploy --dry-run --outdir .wrangler/dry   # wrangler 4.129 deploy에 --dry-run("Don't actually deploy")·--outdir 존재 [확인함]
+grep -n "class Room\|class Lobby" .wrangler/dry/*.js | head
+grep -n "^export {" .wrangler/dry/*.js                  # Room, Lobby, default가 함께 export되는가
+grep -c '\$lib/' .wrangler/dry/*.js                     # 0
+```
+
+- **go**: 빌드 성공, export 한 줄(멱등), dry-run 종료 코드 0, 번들에 두 클래스와 export 존재, `$lib/` 0.
+- **no-go**: dry-run이 export나 마이그레이션을 거부 → 오류 원문 기록 후 엔트리 구조를 재조사. dry-run은 Cloudflare API를 부르지 않으므로 "업로드 시 미export 거부"는 여기서 확인되지 않는다(선택 항목).
+
+**실측(2026-11-05): go** — `pnpm build` 뒤 `_worker.js` 끝에 `export { Room, Lobby } from "../../src/lib/server/mp/index.ts";`(barrel, `.ts` 확장자, 멱등). `wrangler deploy --dry-run` 종료 0, 바인딩 ROOM·LOBBY·DB·ASSETS, 번들 `export { Lobby, Room, worker_default as default }`, `$lib/` 0. 미확인: 실제 업로드 시 미export 거부(배포 금지).
+
+### (b) `hooks.server.ts`의 101 통과 — `pnpm preview`에서 에코
+
+```bash
+pnpm preview                                            # wrangler dev, 기본 :8787 (별도 터미널)
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+     -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" http://127.0.0.1:8787/ws/ABCDEF   # HTTP/1.1 101
+node -e "const w=new WebSocket('ws://127.0.0.1:8787/ws/ABCDEF');w.onopen=()=>w.send('hi');w.onmessage=e=>{console.log(e.data);w.close()};w.onerror=()=>process.exit(1)"
+curl -i http://127.0.0.1:8787/ws/ABCDEF                 # Upgrade 없음 → 426
+curl -i http://127.0.0.1:8787/ws/abc                    # 형식 불일치 → 404
+curl -s -o /dev/null -w "%{http_code}\n" "http://127.0.0.1:8787/?room=ABCDEF"   # 프리렌더 셸 200
+curl -s -X POST http://127.0.0.1:8787/api/check -H 'content-type: application/json' -d '{"jamo":"ㄱㅗㅇㅑㅇㅇㅣ"}'   # 개인 API 그대로 {"valid":true}
+```
+
+Windows 주의: Git Bash `curl -d`에 한글 JSON을 넣으면 인코딩이 깨져 `bad jamo`가 난다. 파일(`--data-binary @f`)이나 node fetch로 보낸다.
+
+Hibernation 참고 확인: 에코 응답에 `deserializeAttachment()` 값을 섞고, 30초 이상 쉬었다가 다시 보내도 첨부가 유지되는지(로컬 workerd가 실제로 hibernate하는지는 보장되지 않으므로 참고 수준). 같은 연결에서 `"ping"`을 보내 `"pong"`이 오는지(auto-response).
+
+- **go**: 101, 에코 수신, 426·404·셸 200·개인 API 정상.
+- **no-go**: 101이 아니면 상태·헤더를 기록하고 `respond.js`·`worker.js` 경로를 다시 본다(§0 착수 전 사실 재검토).
+
+**실측(2026-11-05): go** — `pnpm preview`(:8787)에서 `/ws/ABCDEF` 101 + 에코, `"ping"`→`"pong"` auto-response, Upgrade 없음 426, 형식 불일치 404, `/?room=` 200, 개인 `/api/check` 정상. 40초 idle 후 첨부 유지(실제 hibernate 여부는 미확인). hooks 순서: 형식 404 → Upgrade 426 → 바인딩 없음 503(분기는 미확인) → DO fetch. Room에 `webSocketClose`(1005/1006 → 1000으로 닫음) 추가.
+
+### (c) DO 바인딩이 있어도 `pnpm dev`·`pnpm build`가 사는가
+
+```bash
+pnpm build 2>&1 | tee .wrangler/spike-build.log          # 프리렌더도 getPlatformProxy를 띄운다(§0 `getPlatformProxy`와 빌드)
+grep -n "internal Durable Objects" .wrangler/spike-build.log   # 경고는 허용
+pnpm dev                                                # 기동 메시지 확인 (별도 터미널)
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5173/
+curl -s -X POST http://localhost:5173/api/check -H 'content-type: application/json' -d '{"jamo":"ㄱㅗㅇㅑㅇㅇㅣ"}'
+curl -i -H "Upgrade: websocket" -H "Connection: Upgrade" http://localhost:5173/ws/ABCDEF   # 503 또는 Vite가 가로챔 — 프로세스가 죽지 않으면 됨
+```
+
+Windows 주의: Git Bash `curl -d`에 한글 JSON을 넣으면 인코딩이 깨져 `bad jamo`가 난다. 파일(`--data-binary @f`)이나 node fetch로 보낸다.
+
+(픽스처 D1이라 `scripts/smoke.py`를 dev에 치면 `POOL_SIZE`·데일리 검사가 실패하는 것이 정상. 판정은 위 세 줄로 한다.)
+
+- **go**: build 성공(경고만), dev 기동, `GET /` 200, `/api/check` `{"valid":true}`.
+- **no-go → 환경 분리안 [변경 제안 P7]**: `wrangler.dev.jsonc`(`name`·`compatibility_date`·D1 바인딩만, DO 없음)를 만들고 `vite.config.ts`에서 `adapter({ platformProxy: { configPath: 'wrangler.dev.jsonc' } })`. 어댑터의 `platformProxy`는 `getPlatformProxy`에만 전달된다(`index.d.ts` 67행, `index.js` 185행 [확인함]) — `main`·`assets` 처리는 기존 `wrangler.jsonc`를 계속 쓴다. 설계 문서의 "wrangler 환경 분리"를 `env.dev` 블록 대신 별도 파일로 하는 이유: 최상위 `wrangler deploy`가 환경이 정의된 설정에서 "Multiple environments are defined … but no target environment was specified" 경고를 낸다(cli.js 222398행 [확인함]). 분리안 적용 후 다시 위 절차로 확인하고, dev의 `/api/check`가 픽스처 단어를 찾는지(같은 `.wrangler/state`를 보는지)도 본다.
+
+**실측(2026-11-05): go, P7 불필요** — 바인딩이 있어도 build·dev 정상(경고만: "internal Durable Objects", "no such Durable Object class is exported"). vite dev는 WS Upgrade를 hook 전에 가로채 dev에서는 WS 불가이고, WS 클라이언트가 붙었다 끊기면 Vite가 `ECONNRESET`으로 종료한다(DO 무관, 기준선에서도 재현, R32). 멀티 검증은 `pnpm preview`로만 한다.
+
+### (d) DO 안에서 `env.DB` D1 조회
+
+에코 Room에 명령 두 개를 둔다: `d1:<jamo>` → `dict(this.env.DB).isValidJamo`, `pool:<n>` → `answerCount(3, n)` + `answerAt(3, n, 0)`.
+
+```bash
+node -e "const w=new WebSocket('ws://127.0.0.1:8787/ws/ABCDEF');w.onopen=()=>w.send('d1:ㄱㅗㅇㅑㅇㅇㅣ');w.onmessage=e=>{console.log(e.data);w.close()}"   # true
+node -e "const w=new WebSocket('ws://127.0.0.1:8787/ws/ABCDEF');w.onopen=()=>w.send('pool:7');w.onmessage=e=>{console.log(e.data);w.close()}"          # 1 / 고양이
+```
+
+- **go**: `../dict.ts` 상대 import로 세 함수가 동작.
+- **no-go**: DO `env`에 `DB`가 없으면 바인딩 설정과 DO 생성자 `env` 전달 확인.
+
+**실측(2026-11-05): go** — DO 안에서 `../dict.ts` 상대 import로 `isValidJamo`·`answerCount`·`answerAt`이 동작했다.
+
+### (e) 상대 import 규칙 확인 방법
+
+1. 정적 검사: `tests/mp-imports.test.mjs`(§7)가 `src/lib/server/mp/**/*.ts`와 상대 import로 끌어오는 파일 전부에서 `$lib`·`$app` **값** import(= `import type`이 아닌 것)와 인라인 `type` 지정자를 찾으면 실패.
+2. 번들 검사: (a)의 `grep -c '\$lib/' .wrangler/dry/*.js` = 0.
+3. `.ts` 확장자 import가 `pnpm check`·`pnpm build`·`pnpm test`를 모두 통과하는지 스파이크 코드에 `import { x } from './util.ts'` 하나를 넣어 확인.
+4. 참고: esbuild는 `tsconfig.json`의 `paths`를 따르므로 `$lib`가 우연히 풀릴 수도 있다. 그래도 규칙을 유지한다 — `.svelte-kit/tsconfig.json`은 `svelte-kit sync` 산출물이라 없으면 깨진다.
+
+**실측(2026-11-05): go** — `.ts` 확장자 상대 import가 check·build·번들을 통과했다. `dict.ts`는 `$lib/types`를 `import type`으로만 쓴다. `tests/mp-imports.test.mjs`는 2단계로 이월.
+
+### (f) `hello` 토큰 발급과 재접속
+
+`hello` 무토큰 → 서버 발급 → 재접속 시 같은 `uid` 복귀, 24시간 만료 모의(서버 시계 주입)로 확인한다.
+
+**이월**: 2단계로 이월(코드 없음).
+
+### (g) 한도 합산 여부
+
+DO 요청이 Workers Free 10만/일에 합산되는지 대시보드 지표로 확인(공식 문서 미명시). WS 업그레이드 1회 = Worker 1 + DO 1 요청으로 센다고 가정하고 측정.
+
+**이월**: 2단계로 이월(코드 없음).
+
+### 로컬 `wrangler dev`에서 DO가 실제로 도는가
+
+(b)·(d)가 통과하면 DO 인스턴스화·Hibernation API·D1 접근이 로컬 workerd에서 확인된 것이다. 추가로 `ctx.storage`에 값을 넣고 `Ctrl+C` 후 재기동해 남는지(로컬 영속), `setAlarm(now + 3s)`가 실제로 `alarm()`을 부르는지 확인.
+
+**실측(2026-11-05): go** — `ctx.storage`는 재기동 후 유지됐고 `setAlarm(+3s)`는 3.0초에 `alarm()`을 불렀다.
+
+### 선택 항목 (외부 작업 — 사용자 승인 필요)
+
+별도 Worker 이름으로 실제 업로드: `pnpm exec wrangler deploy --name enhanced-kordle-spike`. 목적: 업로드 단계의 마이그레이션 적용·미export 거부·운영 엣지에서의 101을 PR 전에 확인. 끝나면 `pnpm exec wrangler delete --name enhanced-kordle-spike`. 운영 Worker는 건드리지 않지만 D1 바인딩이 운영 DB를 가리키므로 **읽기만** 하는 에코로 한정한다.
+
+### 종합 go/no-go
+
+(a)·(b)·(d) 전부 go, (c)는 go이거나 분리안으로 go → 2단계 착수. 분리안으로도 (c)가 no-go이거나 (a)·(b)·(d) 중 하나라도 no-go면 설계 §7 재검토를 사용자에게 올린다.
+
+
+---
+
+## 7. 테스트 전략
+
+### 7.1 순수 함수로 뽑는 것
+
+| 모듈 | 대표 함수 | 결정성 |
+|---|---|---|
+| `members.ts` | `join`, `leave`, `setReady`, `nudge`, `applySettings`, `canStart`, `succeedHost`, `uniqueName` | `now` 인자 |
+| `coop.ts` | `mergeProposals`, `closeProposals`, `tally`, `pickByRoulette`, `applyPick` | `rng(max)` 주입 |
+| `comp.ts` | `applyGuess`, `giveUp`, `eliminate`, `isOver` | `now` |
+| `climb.ts` | `stageSeconds(k)`, `nextStage` | — |
+| `rank.ts` | `metrics`, `standings` | — |
+| `timers.ts` | `nextDeadline`, `tick` | `now`, 소켓 정보 인자 |
+| `snapshot.ts` | `personalize(state, pid)` | — |
+| `code.ts` | `newCode(rng)`, `isCode` | `rng` |
+| `session.ts` | `issue`, `verify`, `refresh` | `now`, `KORDLE_SECRET` |
+
+D1 결과(사전 유효 여부, 정답)는 `reduce`에 **인자로** 들어간다. DO 셸이 먼저 조회하고 결과를 넘긴다 → 순수 로직 테스트에 D1이 필요 없다. 판정은 기존 `judge.ts`, 하드모드는 `hard.ts`를 그대로 쓴다(재구현 금지).
+
+### 7.2 테스트 파일 (기존 `tests/*.test.mjs` 스타일)
+
+`import assert from 'node:assert/strict'; import test from 'node:test'; import { … } from '../src/lib/server/mp/rank.ts';` — 한국어 테스트 이름, 실제 판정 예(`ㅂㅏㄴㅏㄴㅏ` 등) 재사용. `package.json` `test`의 글롭(`tests/*.test.mjs`)에 자동 포함되므로 스크립트 변경 없음.
+
+| 파일 | 핵심 케이스 |
+|---|---|
+| `mp-code.test.mjs` | 알파벳 32자(대문자 24 + 숫자 8), `0 O 1 I` 없음, 6자, `isCode` 소문자·7자 거부 |
+| `mp-token.test.mjs` | 서명 검증(변조 시 불일치), 만료(24h+1s 거절), 슬라이딩 재발급(`iat` 갱신·`uid` 유지), 이름 변경 시 `uid` 유지, 접두어가 `mp1.`이 아닌 토큰 거절, base64url 왕복. 개인 토큰 테스트(`server.test.mjs`)는 불변 |
+| `mp-members.test.mjs` | 6번째 입장 거부, playing 중 신규 거부·기존 재입장 허용, 닉네임 충돌 접미사, 방장 외 전원 ready여야 시작, 방장 혼자 시작 불가, 설정 변경 시 ready 전원 해제, 신규 입장자만 미준비, 방장 나감 즉시 승계·끊김 5초 뒤 승계·5초 안 복귀 시 유지, 재촉 30초 쿨다운, result에서 신규 입장 |
+| `mp-coop.test.mjs` | 같은 단어 병합, 제안 1개면 즉시 제출, 자기 제안 투표 거부, 2인 동률 → 돌림판, 0표 → 전체 돌림판, 끊긴 사람 제외 후 "전원 제안" 성립, 방장 마감은 제안 ≥1일 때만, 힌트 판당 1회, 하드모드는 공유 보드 기준 |
+| `mp-comp.test.mjs` | 보드 독립, 1인 1힌트, 포기는 본인만, 전원 종료 시 result, 등반 실패 즉시 종료, 첫 완주 → `graceEnd = t + 60s`, 유예 중 완주 순서 |
+| `mp-rank.test.mjs` | 단판: 정답자 시도 수 → 완료 시각, 미정답자 초록 자리(같은 자리 두 번 초록은 1) → 노랑 종류 → 시도 수 → 공동 순위(1,2,2,4). 등반: 높이 우선 |
+| `mp-timers.test.mjs` | `nextDeadline`이 여러 마감 중 최소, 없으면 null, `tick` 멱등(같은 now 두 번), 정확히 마감 시각에 만료, 빈 방 30초, 스테이지 시간 180/165/…/60 하한 |
+| `mp-snapshot.test.mjs` | **누출 검사**: 경쟁 상태를 만들고 각 pid의 `JSON.stringify(personalize(s, pid))`에 다른 사람의 추측 자모열·정답 `word`·`jamo`·모든 `uid`·토큰이 **부분 문자열로도** 없는지. result에서는 정답 포함. 협동은 초안·제안이 보임 |
+| `mp-imports.test.mjs` | §6 (e)-1 |
+
+`daily.test.mjs`처럼 runes를 컴파일해 `MpClient`를 검증하는 방식은 WS 의존이 커서 v1에서는 하지 않는다 — 클라이언트는 얇게 두고 규칙 판정을 서버 순수 로직에 모은다.
+
+### 7.3 DO 자체 — 통합 테스트 없이 수동 + smoke
+
+`pnpm build && pnpm preview` + 픽스처 D1(5–12자 각 1개씩 `pool` t=3, `valid`에 추측용 단어 몇 개로 늘림)에서 시나리오:
+
+1. 창 A 방 만들기 → 창 B(시크릿 창 또는 다른 프로필, 다른 `uid`) 목록에 보임(3초 안) → 링크(`/?room=CODE`)로 입장.
+2. 준비 → 시작 버튼 활성 → 시작 → 서로 추측 → B 패널에 A의 **색만**. 개발자 도구 WS 프레임에서 A의 자모·정답이 B에게 오지 않는지 직접 확인.
+3. B 새로고침 → 같은 자리 복귀. A(방장) 탭 닫기 → 5초 뒤 B가 방장.
+4. 모두 나감 → 즉시(끊김이면 30초 뒤) 목록에서 사라짐, 같은 코드로 WS → 4004.
+5. 단계별 추가: 협동 투표·돌림판, 등반 유예, 타이머 만료, 무입력 경고, 360px 폭.
+
+
+---
+
+## 8. CI·배포 영향
+
+### 8.1 `.github/workflows/ci.yml`
+
+**변경 불필요.** `pnpm run build`가 후처리를 포함하게 되고, 배포 단계 `pnpm exec wrangler deploy`가 그 산출물과 `migrations`를 그대로 올린다(첫 배포 때 v1 적용). (c)가 분리안으로 가면 CI 빌드도 `wrangler.dev.jsonc`를 읽으므로 그 파일을 커밋해야 한다.
+
+미확인: CI의 `CLOUDFLARE_API_TOKEN`(Workers 배포용 토큰, HANDOFF §6.1)이 DO 네임스페이스를 만드는 마이그레이션을 적용할 수 있는지. 첫 배포 로그에서 확인하고, 권한 오류면 토큰 권한 보강 후 Actions 재실행.
+
+### 8.2 첫 배포와 롤백
+
+첫 배포(2단계 또는 2a PR이 main에 반영될 때):
+1. PR CI에서 `pnpm run build` 통과(후처리 포함) 확인.
+2. main 반영 → Actions `wrangler deploy` 로그에서 마이그레이션 적용 확인.
+3. Actions smoke(기존 + 멀티 블록) 통과 확인.
+4. 실패 시 HANDOFF §6.2 판단표 + 아래 규칙.
+
+규칙:
+- `migrations` 배열은 **추가만**. v1 항목을 지우거나 고치지 않는다. 클래스 이름 변경은 `renamed_classes`, **`deleted_classes`는 쓰지 않는다**(방 데이터와 네임스페이스가 지워지고 되돌릴 수 없다).
+- `Room`·`Lobby` export는 이후 모든 버전에 있어야 한다 — 바인딩이 가리키는 클래스가 빠진 버전은 업로드가 거부될 것으로 본다(미확인).
+- `wrangler rollback`은 "bound resources(Durable Object, D1 …)를 되돌리지 않는다"고 경고한다(cli.js 345233행 [확인함]). v1 마이그레이션 **이전** 버전(DO export 없음)으로의 롤백이 허용되는지는 **확인하지 못했다**. 그래서 멀티 쪽 문제는 롤백보다 **전진 수정**(선택 화면에서 멀티 버튼만 숨기는 작은 PR)을 1순위로 하고, 개인 플레이가 깨졌을 때의 롤백 대상은 v1 이후 버전으로 한정한다. HANDOFF §6.2 판단표에 이 줄을 추가한다.
+- D1 사전 재임포트(`d1/import.sh --remote`)의 약 10초 빈 사전 구간에 진행 중인 방은 `propose`/`guess`가 "사전에 없는 단어", 새 스테이지 정답 조회가 `pool miss`가 될 수 있다. 정답은 스테이지 시작 때 DO 상태에 캐시하므로 진행 중 스테이지는 영향이 없다. Room은 D1 오류를 `error`(`unavailable`)로 돌려주고 상태를 바꾸지 않는다.
+
+### 8.3 smoke에 넣을 검사 (`scripts/smoke.py` 끝, 표준 라이브러리만)
+
+| 검사 | 방법 |
+|---|---|
+| `POST /api/room` → 200, `code`가 `^[A-HJ-NP-Z2-9]{6}$` | 기존 `post()` 재사용(토큰 생략: 서버가 발급, 이름 `smoke`) |
+| `GET /api/rooms` → 200, 방금 코드 포함 | `get()` + `json.loads` |
+| `GET /ws/<code>` + Upgrade 헤더 → **101** | `http.client.HTTPSConnection`(로컬은 `HTTPConnection`)으로 핸드셰이크만 보내 `getresponse().status == 101` 확인 후 닫기. 브라우저 UA 필수(HANDOFF §10) |
+| `GET /ws/<code>` Upgrade 없음 → 426 | |
+| `GET /ws/abc` → 404 | |
+| `GET /?room=<code>` → 200, 셸 HTML | 기존 `get()` |
+| 소멸 | smoke가 30초를 기다리지 않는다. smoke 방은 접속자가 없어 목록에 오르지 않고 `emptySince` 기준 30초 뒤 사라진다 — 운영 공개 목록에 보이지 않는다 [Q21 해소] |
+
+기존 기대값 셋(`EXPECTED_T`·`POOL_SIZE`·`MODE_FOR_T`)과 `DAILY_DEDUP_START`·`daily_idx`는 바꾸지 않는다. 멀티 t=3은 `POOL_THRESHOLD`와 무관한 상수라 `EXPECTED_T`에 넣지 않는다.
+
+
+---
+
+## 9. 문구(카피) 초안
+
+톤 기준: 기존 개인 문구 — 서술형 "~입니다", 짧게, 토스트는 마침표 없음(`사전에 없는 단어입니다`, `힌트는 한 판에 한 번입니다`, `서버에 연결할 수 없습니다`, `정답: {단어}`), 버튼은 명사·짧은 구(`힌트`, `포기`, `정말 포기?`, `다음 스테이지`, `처음부터`), 설명 문장은 마침표로 끝낸다.
+
+### 9.1 선택 화면(S0)
+
+| 위치 | 문구 |
+|---|---|
+| 선택지 1 | **혼자 하기** — 하루 1개, 등반, 랜덤 무한. |
+| 선택지 2 | **같이 하기** — 2~5명이 방에 모여 함께 풀거나 겨룹니다. |
+
+### 9.2 로비(S1)·닉네임
+
+| 위치 | 문구 |
+|---|---|
+| 화면 제목 | 같이 하기 |
+| 닉네임 라벨 / 자리표시 | 닉네임 / 이름 |
+| 버튼 | 방 만들기 · 입장 · 뒤로 |
+| 로비 문구 추가 | 공개 방 {n} · 새로고침(아이콘 버튼 라벨) · ← 뒤로 2026-11-01 배치 확정 |
+| 코드 입력 라벨 / 자리표시 | 방 코드 / 6자리 코드 |
+| 목록 열 | 방 · 방장 · 게임 · 인원 |
+| 인원 | {n}/5명 |
+| 상태 태그 | 대기 중 · 진행 중 · 가득 참 |
+| 빈 목록 | 열린 방이 없습니다. |
+| S1-N 제목 | 닉네임 |
+| S1-N 설명 | 방 {CODE}에 들어갈 이름을 정하세요. |
+| 세션 만료 안내 | 세션이 만료되어 이름을 다시 입력합니다 |
+| 설정 모달 버튼 | 임시 계정 지우기 |
+
+### 9.3 대기실(S2)·설정(S2-S)
+
+| 위치 | 문구 |
+|---|---|
+| 제목 | 방 {CODE} |
+| 링크 복사 버튼 / 토스트 | 링크 복사 / 링크를 복사했습니다 |
+| 배지 | 방장 · 나 |
+| 준비 상태 | 준비 완료 · 준비 전 · 접속 끊김 |
+| 참가자 버튼 | 준비 / 준비 취소 |
+| 방장 버튼 | 시작 |
+| 시작 버튼 (끊긴 사람이 있을 때) | {이름} 내보내고 시작 |
+| 시작 비활성 이유 | 혼자서는 시작할 수 없습니다 / {n}명 대기 중 |
+| 재촉 버튼 / 쿨다운 | 재촉 / 재촉 ({s}초) |
+| 방장 알림 레이어 문구 | {이름}님이 재촉합니다! / {이름}님 외 {n}명이 재촉합니다! |
+| 방장 알림 레이어 버튼 | 지금 시작 (시작 조건 미달이면 대기실 보기) / 닫기 |
+| 재촉 배지 (시작 버튼 옆) | 재촉 {n}회 |
+| 재촉 보낸 쪽 토스트 / 미리보기 배너 | 재촉했습니다 / 상대 화면에 이렇게 뜹니다 |
+| 설정 스위치 | 재촉 소리 |
+| 설정 변경 토스트(참가자) | 설정이 바뀌어 준비가 풀렸습니다 |
+| 승계 토스트 | {이름}님이 방장이 되었습니다 / (본인) 방장이 되었습니다 |
+| 입장·퇴장 토스트 | {이름}님이 들어왔습니다 / {이름}님이 나갔습니다 |
+| 확정 이름 토스트 | 같은 이름이 있어 {이름}(으)로 들어왔습니다 |
+| 혼자일 때 안내 | 링크나 코드를 보내 친구를 부르세요. |
+| 나가기 | 나가기 |
+| 대기실 문구 추가 | 빈 자리 · 방장 재촉(종 버튼 aria-label) · 방장이 시작하길 기다리는 중 · ← 나가기(S2·S3 헤더) 2026-11-01 배치 확정 |
+| 설정: 종류 | 협동 — 한 보드에 단어를 제안하고 골라 함께 풉니다. / 경쟁 — 같은 정답을 각자 풉니다. |
+| 설정: 게임 | 단판 — 한 단어. / 등반 — 시작 길이에서 12자까지 한 자모씩 올라갑니다. |
+| 설정: 길이 | 자모 수(단판) / 시작 길이(등반) — 랜덤, 5~12 |
+| 설정: 시도 횟수 | 4~10회. |
+| 설정: 하드모드 | 초록 자모는 그 자리에, 노란 자모는 어디든 반드시 다시 써야 합니다. (개인 문구 재사용) |
+| 설정: 힌트 | 노란 자모 하나의 실제 위치를 알려줍니다. 협동은 한 판에 한 번, 경쟁은 한 사람에 한 번. |
+| 설정: 제한 시간 | 단판 180초. 등반은 180초에서 스테이지마다 15초씩 줄어 60초까지. |
+| 설정: 선택 방식 | 투표 — 자기 제안에는 투표할 수 없습니다. 동률이면 돌림판. / 돌림판 — 제안 중 하나를 무작위로 고릅니다. |
+
+### 9.4 게임(S3)
+
+| 위치 | 문구 |
+|---|---|
+| 모드 줄 | 경쟁 · 단판 · 6자 · 하드 / 협동 · 등반 · 스테이지 3 |
+| 남은 시간 | 남은 시간 {m:ss} |
+| 패널 상태 | 풀이 중 · 제안함 · 완료 {n}위 · 탈락 · 접속 끊김 |
+| 협동 진행 | 제안 {k}/{m} |
+| 협동 방장 버튼 | 마감 |
+| 제안 1개 즉시 제출 토스트 | 제안이 하나라 바로 냅니다 |
+| 공유 힌트 토스트 | {이름}님 힌트: {자모}은(는) {k}번째 칸 |
+| 경쟁 정답 토스트 | 정답입니다 · {n}위 |
+| 경쟁 실패 토스트 | 탈락했습니다 (정답 공개 여부는 Q3) |
+| 시간 초과 토스트 | 시간이 다 됐습니다 |
+| 스테이지 토스트 | 스테이지 {k} 클리어 (개인 재사용) |
+| 유예 배너 | {이름}님 완주. 남은 시간 {s}초 |
+| 방장 강제 탈락 버튼 | 탈락 처리 |
+| 강제 탈락 확인 | {이름}님을 탈락 처리할까요? — 탈락 처리 / 취소 |
+| 게임 중 나가기 확인 | 나가면 이번 게임에서 빠집니다. — 나가기 / 취소 (Q4 결정에 따라 조정) |
+| 개인 재사용 | 자모가 부족합니다 · 사전에 없는 단어입니다 · {k}번째 칸은 {자모}입니다 · {자모}을(를) 포함해야 합니다 · 힌트는 한 판에 한 번입니다 · 힌트를 줄 노란 자모가 없습니다 · 힌트 · 힌트 사용함 · 포기 · 정말 포기? |
+
+### 9.5 선택 단계(S4)
+
+| 위치 | 문구 |
+|---|---|
+| 투표 제목 | 투표 |
+| 항목 버튼 | 투표 / (내 항목) 내 제안 |
+| 진행 | 투표 {k}/{m} |
+| 방장 버튼 | 마감 |
+| 동률 토스트 | 동률이라 돌림판으로 정합니다 |
+| 돌림판 제목 | 돌림판 |
+| 선택 결과 | {단어}(으)로 정했습니다 |
+
+### 9.6 결과(S5)
+
+| 위치 | 문구 |
+|---|---|
+| 제목 | 결과 · 등반 결과(개인 재사용) |
+| 협동 단판 | 정답입니다 / 정답: {단어} |
+| 등반 헤드라인 | 12자 완주! · 스테이지 {k}까지 올랐습니다 · 첫 스테이지에서 멈췄습니다 (개인 재사용) |
+| 멈춘 곳 | 멈춘 곳의 정답: {단어} (개인 재사용) |
+| 순위표 열 | 순위 · 이름 · 결과 · 시도 |
+| 결과 칸 | {k}번째 정답 · 실패 · 포기 · 시간 초과 · 탈락 · 완주 · 스테이지 {k} |
+| 공동 순위 | 공동 {n}위 |
+| 방장 버튼 | 같은 설정으로 한 판 더 / 설정 바꾸기 |
+| 참가자 안내 | 방장이 다음 게임을 고르는 중입니다. |
+
+### 9.7 오류·끊김(S7)·무입력(S8)
+
+| 위치 | 문구 |
+|---|---|
+| 없는 방 | 없는 방입니다 |
+| 진행 중 방 | 진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다 |
+| 가득 찬 방 | 방이 가득 찼습니다 |
+| 코드 형식 | 방 코드는 6자입니다 |
+| 서버 연결 불가 | 서버에 연결할 수 없습니다 (개인 재사용) |
+| 끊김 오버레이 | 연결이 끊겼습니다. 다시 연결하는 중… |
+| 재연결 성공 | 다시 연결되었습니다 |
+| 재연결 실패 | 방에 다시 들어갈 수 없습니다 — 로비로 |
+| 끊김 자동 탈락 | 접속이 끊겨 탈락했습니다 |
+| 다른 탭 접속 안내 (4000) | 다른 탭에서 접속했습니다 |
+| 무입력 모달 제목 | 진행 중입니다 (설계 문구) |
+| 무입력 모달 본문 | 60초 동안 입력이 없었습니다. |
+| 무입력 모달 버튼 | 계속하기 |
+
+
+---
+
+## 10. 리스크
+
+PM 리스크(R1~R9)와 PL 리스크(R1~R20)를 합쳐 R1~R27로 다시 번호를 매겼다. R1~R9는 PM 번호를 그대로 쓰고(이 문서 앞 절의 R 참조가 그대로 맞도록), PL R2~R19는 R10~R27이 된다. 같은 내용인 PM R2 = PL R20, PM R8 = PL R1은 한 행으로 합쳤다. 구분은 PL이 붙인 것이고 PM 항목은 "—"이다.
+
+| # | 리스크 | 대응·완화 | 구분 | 출처 |
+|---|---|---|---|---|
+| R1 | 화면 상태 방식이라 브라우저 뒤로가기가 사이트를 떠난다(로비→선택, 대기실→로비로 안 감) 영향: 휴대폰 사용자 이탈 | 화면 안 뒤로 버튼 제공. history 연동 여부는 구현 판단(라우트 추가 아님) | — | PM-R1 |
+| R2 | 같은 브라우저의 모든 탭은 localStorage의 토큰을 공유해 같은 `uid` → 나중 탭이 자리를 넘겨받고 앞 탭은 4000(의도된 동작, "다른 탭에서 접속했습니다" 안내) 영향: 검증 시 탭으로는 참가자를 흉내 낼 수 없음 | 새 소켓이 오면 기존 소켓을 4000으로 닫음. 검증은 다른 프로필·시크릿 창으로(§5 검증 환경 공통) | 설계로 회피 | PM-R2 / PL-R20 |
+| R3 | 2~4단계에는 제한 시간·자동 탈락·재접속이 없어, 탭 하나가 닫히면 경쟁 단판이 끝나지 않고 대기실 시작이 막힌다 영향: 운영 노출 시 멈춘 방 | 방장 강제 탈락을 2단계에 배정, Q1 답 | — | PM-R3 |
+| R4 | 공개 목록인데 강퇴·채팅이 없다 영향: 장난 입장 대응 수단이 나가기뿐 | Q11 | — | PM-R4 |
+| R5 | iOS Safari는 진동 API를 지원하지 않는다 영향: 재촉 진동이 일부 기기에서 없음 | 알림 레이어를 주 신호로, 진동·소리는 보조 | — | PM-R5 |
+| R6 | `Board.svelte` 인터페이스 변경이 개인 보드를 바꿀 수 있다 영향: 개인 회귀 | §13 NR-10 | — | PM-R6 |
+| R7 | 모바일에서 패널 띠가 세로 공간을 먹어 12자·10행이면 키보드가 화면 밖으로 밀릴 수 있다 영향: 폰에서 입력 불가 | US-E11-1에서 확인, 띠 높이 상한 | — | PM-R7 |
+| R8 | 내부 DO 바인딩이 `getPlatformProxy`를 깨뜨려 `pnpm dev`·**`pnpm build`(CI 포함)**가 실패 (PM 영향: 개인 개발 흐름 중단) | (c) 실측, 실패 시 `wrangler.dev.jsonc` + `platformProxy.configPath` (PM: 1단계 스파이크에서 확인(설계 §7)) | 스파이크에서 확인 | PM-R8 / PL-R1 |
+| R9 | 멀티 검증이 사람 손(브라우저 여러 개)에 의존한다. smoke는 방 생성·목록만 본다 영향: 회귀 놓침 | §5 수용 기준 절차를 단계별 체크리스트로 PR에 첨부 | — | PM-R9 |
+| R10 | 후처리를 우회하는 경로(`deploy` 스크립트)로 export 없는 번들 배포 | `deploy`를 `pnpm run build` 경유로 수정. 마이그레이션이 미export 번들을 업로드 단계에서 거부(미확인) | 설계로 회피 | PL-R2 |
+| R11 | 어댑터 갱신(`^7.2.9`)으로 `_worker.js` 위치·구조 변경 | 후처리가 파일·`export {` 블록이 없으면 exit 1 → lockfile 갱신 PR의 빌드가 먼저 깨짐 | 설계로 회피 | PL-R3 |
+| R12 | `hooks`의 101이 어딘가에서 변형 | 코드로 확인함(§0), (b) 실측 | 스파이크에서 확인 | PL-R4 |
+| R13 | wrangler 번들에서 `$lib` 미해결(또는 우연 해결로 숨은 의존) | 상대 import 규칙 + `mp-imports` 테스트 + 번들 grep | 설계로 회피 | PL-R5 |
+| R14 | SvelteKit 쪽이 DO 모듈을 값 import → Vite SSR이 `cloudflare:workers`를 못 풀거나 DO 코드 중복 | `import type`만 허용(§3.3-4), §13 NR-15 | 설계로 회피 | PL-R6 |
+| R15 | DO 안 `await`(D1 조회) 사이에 다른 메시지가 끼어 상태 경합 | D1 조회는 상태를 읽기만, 결과를 받은 뒤 **await 없이** 한 번에 변경 → 저장. 변경 직전에 phase·행 번호·스테이지를 다시 확인(조회 전 값과 다르면 버림) | 설계로 회피 | PL-R7 |
+| R16 | Hibernation으로 메모리 소실 | 변경마다 전체 상태 저장, 생성자 `blockConcurrencyWhile`로 복원, 소켓→pid는 `serializeAttachment` | 설계로 회피 (첨부 유지는 (b)에서 참고 확인) | PL-R8 |
+| R17 | 모바일 백그라운드 등 반쯤 끊긴 소켓이 "접속 중"으로 남아 준비·승계·자동 탈락이 멈춤 | auto-response ping 25초 + 알람에서 45초 무응답 소켓 정리 | 설계로 회피 (auto-response 동작은 (b)에서 확인) | PL-R9 |
+| R18 | 알람 중복·재시도(at-least-once), 시계 오차 | `tick` 멱등, `setAlarm(max(t, now + 50))`, 클라이언트는 서버 `now`로 오프셋 보정 | 설계로 회피 | PL-R10 |
+| R19 | 무료 한도(요청 10만/일): 로비 3초 폴링·Room→Lobby 호출·알람 기상 | 폴링은 로비 화면·탭 표시 중에만, `upsert`는 요약 변경 시만, 무입력은 클라이언트 처리 | 설계로 회피 | PL-R11 |
+| R20 | DO 마이그레이션은 `wrangler versions upload`로 미리 올릴 수 없어 운영 배포가 첫 실가동 | 스파이크 선택 항목(별도 Worker 업로드, 승인 필요), 2a/2b 분할(P5) | 스파이크에서 확인(선택) | PL-R12 |
+| R21 | v1 이전 버전으로 롤백 가능 여부 불명 | 전진 수정 우선, 롤백 대상은 v1 이후 | 설계로 회피 (가능 여부 자체는 미확인) | PL-R13 |
+| R22 | 경쟁 스냅샷에서 남의 자모·정답 누출 | `snapshot.ts`가 필드 제거, `mp-snapshot` 누출 테스트, 수동 WS 프레임 확인 | 설계로 회피 | PL-R14 |
+| R23 | 남의 ID로 `hello`해 자리 탈취 | 공개 `pid`와 비밀 토큰·`uid` 분리(P9), 스냅샷에 `uid`·토큰 없음. `sig`가 HMAC(`KORDLE_SECRET`)이라 위조 불가 | 설계로 회피 | PL-R15 |
+| R24 | 아무 코드로 WS를 쳐서 빈 DO 저장 공간 생성 | 미초기화 Room은 저장 없이 4004로 닫음 | 설계로 회피 | PL-R16 |
+| R25 | 로컬 Node 24 / CI Node 22.17 strip-types 차이 | 지울 수 있는 TS 문법만, CI가 Node 22.17에서 테스트 | 설계로 회피 | PL-R17 |
+| R26 | 협동 초안을 키 입력마다 전송 → 메시지 과다 | 클라이언트 300ms 디바운스(내용 변경 시에만). 수신 메시지는 20:1로 요청 한도에 세므로 예산 항목으로 관리(R28) | 설계로 회피 | PL-R18 |
+| R27 | D1 재임포트 중 진행 방 오류 | 정답 캐시, D1 오류는 `error`로 응답·상태 불변 | 설계로 회피 | PL-R19 |
+| R28 | 무료 플랜 하루 10만 요청 한도는 **수신** WS 메시지(20:1) 기준. 송신은 과금 없음. 5인 협동에서 초안이 100ms 스로틀이면 초당 수신 15건 → 10분 게임 하나가 과금 450요청(하루 한도의 약 0.5%지만 초안만으로) | 사람당 초안 ≤ 3/s(300ms 디바운스), 추측·투표·제안 확정은 건당 1, 클라이언트는 25초 ping 외 주기 메시지 없음, 스냅샷은 송신이라 자유. 역산: 최대 5인×3.3/s×600s ≈ 10,000건 ≈ 500요청(상한), 실제는 타자를 멈출 때만 보내므로 수백 건 | 설계로 회피 | 2026-11-01 서버 데이터 최적화 검토(개드립 모닥 온라인 글 참고: 계산 틱과 전송 분리, 이벤트 별도, 보간은 클라이언트) |
+| R29 | Free 플랜 DO SQLite **쓰기 10만 행/일**(`setAlarm`·삭제도 1행). 수(手)마다 상태 저장 + 알람 재설정이면 방 하나가 분당 수십 행 | 상태 저장은 턴(제출·투표·라운드 전환) 단위로 1회 배치, 알람은 방당 1개만 재설정, 끝난 방은 `deleteAll()`+`deleteAlarm()`. 예산: 방당 게임 1판 ≤ 300행 → 하루 300판 | 설계로 회피 | Cloudflare 무료 서빙 조사 2026-11-01 |
+| R30 | 배포 시 DO 코드 갱신은 기본 deferred(최대 300초)이고 강제 갱신이면 WS가 끊긴다. 일일 한도는 00:00 UTC(KST 09:00) 리셋, 초과 시 429 완충 없이 그 연산이 오류 | 클라이언트 자동 재접속(같은 토큰) + 서버는 저장된 상태로 복원, 한도 오류는 `error`로 응답하고 방 상태 불변(R27과 같은 경로) | 설계로 회피 | 같은 조사 |
+| R31 | 공용 PC에서 24시간 안에 다른 사람이 같은 `nkordle:mp-session`으로 같은 자리를 쓸 수 있다 | 허용(사내 소수 사용 전제). "임시 계정 지우기"로 지울 수 있음 | 허용 | 사용자 결정 2026-11-01 |
+| R32 | vite dev에 WS 클라이언트가 붙었다 끊기면 Vite가 ECONNRESET으로 종료(DO 무관, Vite 8.2.2/Node 24) | 멀티는 dev에서 WS를 붙이지 않는다. 클라이언트는 dev에서 WS 연결을 시도하지 않게(`import.meta.env.DEV`면 안내만) | 설계로 회피 | 스파이크 2026-11-05 |
+
+---
+
+## 11. 사용자 결정 필요
+
+PM 질문 Q1~Q16과 PL 부록 A~L을 한 표로 합쳤다. 같은 질문(Q1 = B, Q2 = A, Q3 = G, Q7 = F)은 한 행이다. **번호는 PM Q번호를 그대로 쓰고 PL 단독 질문은 Q17~Q25로 붙였다.** 표는 블로킹 단계 순이라 번호 순서가 아니다. "블로킹"은 그 단계 구현을 시작하기 전에 답이 필요하다는 뜻이다. 설계 §9 미확정 항목 중 v1과 관련된 것은 Q11(강퇴)·Q12(멀티 전적)이고 둘 다 v1 블로킹이 아니다. 블로킹 질문은 전부 §9 밖, 설계 본문이 정하지 않은 빈칸이다.
+
+† PL은 이 항목의 블로킹 단계를 적지 않았다. 합본 때 그 규칙이 구현되는 단계를 붙였다. PL이 기본값을 함께 제안했으므로 기본안으로 진행할 수 있다.
+
+| 번호 | 질문 | 왜 필요한가 | 블로킹 단계 | 기본안 | 출처 |
+|---|---|---|---|---|---|
+| Q25 | 구현 브랜치·워크트리를 만들기 전에 설계 문서(`docs/MULTIPLAYER.md`와 이 문서)를 어떻게 넣을지: 별도 문서 커밋 / 2단계 PR에 포함. `docs/MULTIPLAYER.md`는 미추적, `docs/HANDOFF.md`는 수정 미커밋 | 워크트리에서 작업하면 미추적 설계 문서가 보이지 않는다 | 구현 브랜치 생성 전 † | 없음 | PL §0.4 |
+| Q1 | 대기실에서 **끊긴 사람이 시작을 막는가?** 설계: "접속 끊긴 사람은 준비 해제로 본다" + "방장 제외 전원 준비". 그대로면 탭을 닫은 사람 하나가 방을 막는다(강퇴 없음, 2단계는 재접속도 없음). 시작 조건을 접속 중인 사람 기준으로 셀지, 일정 시간 뒤 자리를 비울지 | 시작 버튼 활성 조건 / 시작 조건·정원 | 2단계 블로킹 | PM: 시작 조건은 접속 중인 사람만 센다. PL: 대기실·결과 단계에서 끊긴 사람은 시작 조건·정원 계산에서 빼고, 60초 지나면 방에서 제거. 2026-11-01 기본값(제안): 60초 안의 끊김은 자리를 유지하고 시작을 막지 않는다. 시작 시점에 끊긴 사람이 있으면 방장 화면 시작 버튼이 "{이름} 내보내고 시작"으로 바뀐다 | PM Q1 = PL B |
+| Q2 | **선택 화면을 매번 보여주는가?** 매 방문마다면 데일리만 하는 기존 사용자에게 클릭이 하나 늘어난다. 마지막 선택을 기억하려면 새 localStorage 키가 필요하다(설계 §2 표에 없음). 개인 화면에서 선택 화면으로 돌아가는 버튼을 Header 등에 두면 "개인 쪽 변경은 Board와 선택 화면뿐" 범위를 넘는다 | 기존 사용자 첫 화면, 개인 쪽 변경 범위 / 기억하면 새 localStorage 키 필요(설계는 키 2개만 명시) | 2단계 블로킹 | PM: 없음 — 사용자 결정 필요. PL: 매 방문 표시(키 추가 없음) 2026-11-01 "브라우저 저장 최소화" 결정으로 마지막 선택을 기억하는 키는 두지 않는 쪽이 일관됨(= 매번 선택 화면). **결정됨**: 매 방문마다 선택 화면(S0) 표시, 마지막 선택 기억 안 함, 새 키 없음(2026-11-01 사용자 결정) | PM Q2 = PL A |
+| Q3 | 경쟁에서 **먼저 끝난(특히 실패한) 사람에게 정답을 언제 보여주는가?** 즉시 보여주면 같은 공간의 사람에게 말할 수 있다. 경쟁 등반에서는 실패한 스테이지 단어를 다른 사람이 아직 풀고 있다 | S3-K 종료 표시, S5 / 공정성 | 2단계 블로킹 | 게임이 끝나 S5에서 공개 (PL 안도 같음: 게임 종료(result)에만 공개) | PM Q3 = PL G |
+| Q4 | **게임 중 "나가기"는 어떻게 처리하는가?** 경쟁: 즉시 탈락인지, 같은 게임에 다시 들어올 수 있는지. 협동: 끊김과 같게 집계에서 빼는지. 설계는 나감/끊김을 방장 승계에서만 구분했다 | 확인 문구, 상태 표시 | **2단계 블로킹** | 경쟁은 즉시 탈락, 협동은 집계 제외. 같은 게임 재입장 불가 | PM Q4 |
+| Q16 | **2~4단계를 운영에 노출하는가?** main 반영 = 자동 배포라 2단계부터 모든 사용자가 선택 화면과 미완성 멀티(모바일 띠·재접속·제한 시간 없음)를 본다. 설계에 기능 플래그가 없다 | 릴리스 방식 | **2단계 머지 전 블로킹** | 없음 — 사용자 결정 필요 | PM Q16 |
+| Q5 | CP-1(2단계에 "한 판 더") 승인 여부 | 2단계 범위 | 비블로킹 (2단계 범위) | 승인 없으면 §8대로 4단계 | PM Q5 |
+| Q13 | 구현자 기본값(제안)으로 정해 설계 표에 기록할 것: 방 초기 설정값(종류·게임·길이·하드·힌트·선택 방식), 닉네임 길이·빈 값 처리, 방 목록 행 구성 | 화면 기본 상태 | 비블로킹 | 구현자가 정하고 MULTIPLAYER.md §2·§3에 기본값(제안)으로 추가 | PM Q13 |
+| Q14 | 게임 중 접속 인원이 1명이 되면 그대로 계속하는가(설계 문면상 계속이 자연스러운 해석) | 확인 | 비블로킹 | 계속 | PM Q14 |
+| Q15 | 끊긴 사람의 자리가 정원(5명)에 포함되는가 | "가득 참" 판정 | 비블로킹 | 포함(돌아올 자리 보장) | PM Q15 |
+| Q11 | **강퇴를 v1에 넣는가?**(설계 §9 미확정) 공개 목록 + 채팅 없음 + 강퇴 없음이면 장난 입장자에게 할 수 있는 일이 "나가기"뿐이다(R4) | 대기실·결과 화면 UI | 비블로킹(넣기로 하면 2단계 범위 추가) | 넣지 않음 | PM Q11 |
+| Q12 | 멀티 전적은 v1에서 저장하지 않는다(설계 §5 기본값)로 확정해도 되는가(설계 §9 미확정) | 확인 | 비블로킹 | 저장 안 함 | PM Q12 |
+| Q19 | 지표 3 "노랑으로 확인된 자모 종류" — 나중에 초록이 된 자모도 세나 | 순위 | 2단계 † | 문구대로 'p'를 받은 적 있는 자모 전부 | PL E |
+| Q21 | smoke 방이 운영 공개 목록에 노출 → 접속자 0인 방은 목록 비노출로 해소 (2026-11-05) | 운영 표시 | 2단계(작업 2.8) † | 감수(또는 이름 `smoke` 방은 목록에서 제외) | PL I |
+| Q22 | 생성 후 아무도 접속하지 않은 방의 소멸 시점 | 목록 청소 | 2단계 † | 생성 시각을 `emptySince`로 → 30초 | PL J |
+| Q6 | 투표: ①찍을 항목이 없는 사람(모든 항목이 자기 제안, 병합으로 공동 제안자가 된 경우)을 "전원 투표"에 세는가 ②투표를 바꿀 수 있는가 ③1인 1표인가 | 자동 집계 조건 | **3단계 블로킹**(①) | ① 세지 않는다 ② 집계 전까지 변경 가능 ③ 1인 1표 | PM Q6 |
+| Q20 | 투표 중 득표수 공개 여부 | 협동 UX | 3단계 † | 누가 투표했는지만, 득표는 집계 후 | PL H |
+| Q24 | 협동 제안 "마감 전 수정" — 다시 Enter로 덮어쓰기만인가, 철회도 있나 | 프로토콜 | 3단계 † | 덮어쓰기만 | PL L |
+| Q7 | **등반 스테이지 클리어 후 다음 스테이지로 자동인가, 버튼인가?** 경쟁은 버튼이면 누르는 시간이 제한 시간·순위에 걸리고, 협동은 누가 누르는지 정해야 한다. 다음 스테이지 제한 시간은 언제부터 세는가 | 등반 진행 흐름 / 등반 UX·타이머 | 4단계 블로킹 | PM: 짧은 결과 표시 뒤 자동 진행, 시간은 새 스테이지 표시 시점부터. PL: 자동 진행, 클리어 + 2초부터 | PM Q7 = PL F |
+| Q8 | **등반에서 힌트 횟수는 스테이지마다인가, 등반 전체 한 번인가?** 개인 등반은 스테이지마다 새로 생긴다(`begin()`이 `hints`를 비움) | 힌트 버튼 상태 | **4단계 블로킹** | 개인과 같게 스테이지마다 | PM Q8 |
+| Q9 | **결과 화면 중 들어온 사람은 무엇을 보는가?** 결과 화면 구간이 "게임과 게임 사이"인지, 목록에서 어떤 태그인지 | S5/S2 표시 | 비블로킹(4단계 전 결정) | 입장 가능, 들어온 사람은 S2, 목록 태그는 대기 중 | PM Q9 |
+| Q18 | 순위 지표 4 "시도 수" — 현재 스테이지인가 등반 누적인가 | 경쟁 등반 순위 | 4단계 † | 현재 스테이지(지표 2·3과 같은 범위) | PL D |
+| Q23 | 협동 등반 스테이지마다 시도 횟수 = 설정값인가 | 규칙 | 4단계 † | 설정값 그대로 | PL K |
+| Q10 | **무입력 판정 대상**: 협동에서 제안을 마치고 기다리는 사람, 경쟁에서 이미 끝난 사람, 투표 단계에서 투표하지 않은 사람에게도 경고하는가 | 오경고 방지 | **5단계 블로킹** | 지금 입력할 것이 있는 사람만(내 입력 행이 열려 있거나 투표 미참여) | PM Q10 |
+| Q17 | 단판 제한 시간 "라운드 상한 180초" — 판 전체인가, 협동의 행(라운드)마다인가 | 협동 타이머 | 5단계 † | 판 전체(설계 "만료 = 그 판 실패"와 맞음) | PL C |
+
+Q1과 Q15는 이어진다. Q1의 PL 안은 끊긴 사람을 시작 조건·정원에서 빼고 60초 뒤 방에서 제거하는 것이고, Q15의 PM 기본안은 끊긴 사람의 자리를 정원에 포함하는 것이다(돌아올 자리 보장). 두 기본안이 충돌하므로 함께 정한다.
+
+---
+
+## 12. 변경 제안 (미승인)
+
+설계 문서와 다르게 하자는 제안이다. **승인 전에는 설계가 우선**이다. P1·P2는 사실 정정이라 `MULTIPLAYER.md` §7에 이미 반영했다(상태 "반영됨"). 나머지는 설계 문서에 반영하지 않았다.
+
+| 번호 | 제안 | 근거 | 영향 범위 | 상태 |
+|---|---|---|---|---|
+| P1 | `deploy` 스크립트도 고친다: `"deploy": "pnpm run build && wrangler deploy"`(`build`는 `vite build && node scripts/postbuild-do.mjs`) | `package.json`의 `deploy`가 `build` 스크립트가 아니라 `vite build`를 직접 부른다 [확인함] | 설계 §7 "SvelteKit 연결" 문장, `package.json` | 반영됨 |
+| P2 | 설계 §7의 어댑터 행 번호 "52–57행"을 58–59행(`main` 대입)·78행(rimraf)·117행(copy)으로 정정하고, `main` 키가 아니라 그 경로의 파일을 지우고 다시 쓴다고 명시 | `adapter-cloudflare` 7.2.9 실코드 | 설계 §7 | 반영됨 |
+| P3 | Lobby 호출은 DO RPC 메서드로(이름 `list`/`upsert`/`remove` 유지) | compat date 2026-06-01이라 RPC 사용 가능. `DurableObjectNamespace<Lobby>` 타입으로 호출이 검사되고 경로 파싱 코드가 없어진다. 의미는 동일 | `lobby.ts`, `room.ts`, `api/rooms`, `app.d.ts` | 미승인 |
+| P4 | 무입력 60초 경고는 서버 알람이 아니라 클라이언트 타이머로 | 경고는 본인 화면에만 뜨고 자동 포기·퇴장이 없으므로(설계 §6) 서버가 알 필요가 없다. 알람 기상·요청 수를 아낀다 | `client.svelte.ts`, 작업 5.2 (`timers.ts`에는 무입력 항목 없음) | 미승인 |
+| P5 | (선택) 2단계를 2a 인프라 / 2b 기능으로 분할 | DO는 `wrangler versions upload`로 미리 올려 볼 수 없어(R20) 운영 배포가 DO의 첫 실가동이다. 작은 diff로 격리한다. 비용은 PR 하나 | 2단계 PR 구성 | 미승인 |
+| P6 | 현재 방은 URL `?room=CODE`(`history.replaceState`)로 기억한다 — 새 localStorage 키 없음 | 설계의 "새로고침 복귀"를 키 2개 제약 안에서 충족, 링크 입장과 같은 경로 | `client.svelte.ts`, `+page.svelte`의 `?room=` 처리 | 미승인 |
+| P7 | dev 분리는 `env.dev` 대신 `wrangler.dev.jsonc` + `platformProxy.configPath`(스파이크 (c)가 no-go일 때만) | 최상위 `wrangler deploy`가 환경이 정의된 설정에서 "Multiple environments are defined … but no target environment was specified" 경고를 낸다(cli.js 222398행 [확인함]). 어댑터의 `platformProxy`는 `getPlatformProxy`에만 전달된다(`index.d.ts` 67행, `index.js` 185행 [확인함]) | `wrangler.dev.jsonc`, `vite.config.ts`, 설계 §7 "개발" 절의 "wrangler 환경 분리" 표현 | 불필요(스파이크 go) |
+| P8 | 같은 `uid`(`nkordle:mp-session` 토큰) 재입장 기본형을 2단계로 당긴다(백오프·탭 전환·반쯤 끊긴 소켓 정리는 5단계) | 방장 승계 5초 유예와 새로고침 복귀가 2단계에 이미 필요 | 설계 §8의 2·5단계 경계, 작업 2.6 | 미승인 |
+| P9 | 공개 `pid`와 비밀 `uid`(서버 발급 토큰)를 분리한다 | 스냅샷에 노출된 ID로 자리 탈취를 막는다(R23) | `state.ts`, `snapshot.ts`, `protocol.ts` | 미승인 |
+| P10 | 모든 mp 순수 모듈 간 import에 `.ts` 확장자를 쓴다 | Node 내장 테스트가 우회 없이 import하도록(`rewriteRelativeImportExtensions` 설정 존재) | `server/mp/**`, `tests/mp-*.test.mjs` | 미승인 |
+| CP-1 | 2단계에 "같은 설정으로 한 판 더"만 먼저 넣는다(설계 §8은 4단계) | 2단계만으로는 한 판이 끝나면 방을 새로 만들어야 한다. 벤치마크 보고서 §6이 "판마다 방 새로 만들기"를 정식 출시에서 고친 사례(포트리스3 블루)를 든다. 2단계가 운영에 배포되면 실사용자가 처음 겪는 흐름이 된다 | 2단계 범위. 대기실 복귀 + 전원 준비 해제는 2단계에 이미 있는 기능(설정 변경 시 해제)의 재사용이다. "설정 바꾸기"와 결과 중 입장(Q9)은 4단계에 남긴다. 기각해도 다른 결정에 영향 없음 | 반영됨 (2026-11-05, Q5) |
+
+설계 §7 "개발" 절에 `getPlatformProxy`가 빌드의 프리렌더에서도 돈다는 사실(§0 착수 전 사실)도 `MULTIPLAYER.md`에 추가했다. 제안이 아니라 확인된 사실이며 스파이크 (c)의 범위를 넓힌다.
+
+---
+
+## 13. 개인 플레이 불변 검증
+
+모든 단계의 PR에 적용한다. **하나라도 실패하면 그 단계는 완료가 아니다.** PM의 수용 기준(NR-1~12)에 PL의 확인 절차(13.1)를 연결했다. NR-13~15는 PL 절차 3·7·10에서 NR이 없던 것을 합본 때 추가한 항목이다.
+
+| ID | 수용 기준 | 확인 방법 | 절차(13.1) |
+|---|---|---|---|
+| NR-1 | 선택 화면에서 개인을 고른 뒤의 동작이 지금과 같다: 저장된 모드로 시작, 데일리 진행 복원, 모드 바꾸기·설정·도움말·통계 모달, 힌트 1회, 포기 두 번 클릭, 종료 후 버튼 분기, 자동 모달 | `pnpm dev`, 다섯 모드 각각 한 판 | 9 |
+| NR-2 | localStorage: 멀티 한 판 전후로 `nkordle:` 키를 비교하면 새로 생긴 키는 `mp-session` 하나뿐이고, `config`·`settings`·`stats:*`·`best:*`·`daily:*`·`dclimb:*` 값이 그대로다. sessionStorage는 쓰지 않고 BroadcastChannel 사용도 없다 | 개발자 도구 Application 탭에서 전후 덤프 비교 | 5 |
+| NR-3 | 멀티 결과가 개인 통계에 들어가지 않는다 | 멀티 경쟁·협동 각 한 판 후 개인 통계 모달 숫자 불변 | — |
+| NR-4 | `/api/game`·`check`·`guess`·`hint`·`reveal` 요청·응답 형식 불변, `GameMode` 5종·`MODE_LABEL` 불변 | `git diff`에 `src/routes/api/*`·`types.ts`의 `GameMode` 변경 없음, 운영 smoke 통과 | 1, 8 |
+| NR-5 | `POOL_THRESHOLD` 불변, 멀티 t=3은 별도 상수. `export_d1.py`·사전 변경과 D1 재임포트 없음. `smoke.py`의 `EXPECTED_T`·`POOL_SIZE`·`MODE_FOR_T` 불변 | `git diff` | 1, 6, 8 |
+| NR-6 | 데일리 시드·토큰 형식(`n.t.idx`)·`DAILY_DEDUP_START`·순열 공식 불변. 배포 전후 같은 날 데일리 정답이 같다 | `git diff` `token.ts`, 운영 smoke의 데일리 검사 | 1, 8 |
+| NR-7 | `KORDLE_SECRET` 미사용·미변경(멀티는 HMAC을 쓰지 않음) | 멀티 코드에 `KORDLE_SECRET` 참조 없음 | — |
+| NR-8 | `+page.ts`의 `ssr = false; prerender = true` 유지, 새 라우트 없음(WS는 `hooks.server.ts`에서 처리) | `git diff`, 빌드 산출물에 프리렌더 `index.html` | 4 |
+| NR-9 | `pnpm dev`로 개인 플레이가 뜬다 | 각 단계에서 `pnpm dev` 기동 후 한 판 | 9 |
+| NR-10 | `Board.svelte` 변경 뒤 개인 보드 표시가 같다: 5자·12자 폭, 힌트 점선, 사전에 없는 단어 빨간 글자, 흔들림, 라이트·다크 | 변경 전후 스크린샷 비교 | 2 |
+| NR-11 | `JAMO`(`jamo.ts`)·`SPLIT`(`build_dict.py`)·localStorage 기존 키 형식 불변 | `git diff` | 1 |
+| NR-12 | 서버 모듈 최상위 I/O 없음, DO 코드는 `$lib`·`$app` 별칭 없이 상대 경로 | 코드 검토, `pnpm run build` 성공 | §7 `mp-imports` 테스트 |
+| NR-13 | `+page.svelte`는 화면 상태 분기만 바뀐다: 기존 마크업이 `{#if screen === 'solo'}` 안에 그대로, `game.newGame()` 호출 위치만 이동, 모달·자동 모달 `$effect`·하단 버튼 분기 불변, `onkeydown`이 solo에서 기존과 같게 동작 | diff 검수 | 3 |
+| NR-14 | 기존 테스트 파일 불변, `pnpm test`와 Python unittest 통과 | `git diff --stat`, 테스트 실행 | 7 |
+| NR-15 | SvelteKit 쪽(`src/routes`, `hooks.server.ts`, 컴포넌트, `src/lib/mp`, `app.d.ts`)이 `room.ts`·`lobby.ts`를 `import type`/`import(...)` 타입 참조로만 쓴다 | grep | 10 |
+
+### 13.1 확인 절차
+
+구현 중(각 PR)과 후에 같은 절차를 돈다.
+
+1. **파일 불변**: `git diff --stat main -- src/lib/types.ts src/lib/server/dict.ts src/lib/server/token.ts src/lib/server/judge.ts src/lib/server/env.ts src/lib/hard.ts src/lib/jamo.ts src/lib/game.svelte.ts src/lib/storage.ts src/lib/day.ts src/routes/api/check src/routes/api/game src/routes/api/guess src/routes/api/hint src/routes/api/reveal src/routes/+page.ts src/routes/+layout.svelte src/lib/components/Keyboard.svelte src/lib/components/Header.svelte src/lib/components/ModeModal.svelte src/lib/components/SettingsModal.svelte src/lib/components/StatsModal.svelte src/lib/components/ClimbModal.svelte src/lib/components/HelpModal.svelte src/lib/components/Countdown.svelte src/lib/components/Modal.svelte build_dict.py export_d1.py` → **비어 있어야 한다.** 바뀐 개인 쪽 파일은 `Board.svelte`·`+page.svelte`뿐.
+2. **`Board.svelte` diff 검수**: prop 타입 줄과 `<script module>` 인터페이스만 바뀌고 마크업·스타일 동일.
+3. **`+page.svelte` diff 검수**: 기존 마크업이 `{#if screen === 'solo'}` 안에 그대로인지, `game.newGame()` 호출 위치만 옮겼는지, 모달·자동 모달 `$effect`·하단 버튼 분기가 그대로인지, `onkeydown`이 solo에서 기존과 같게 동작하는지.
+4. **`+page.ts`**: `grep -n "ssr = false\|prerender = true" src/routes/+page.ts` → 두 줄. 빌드 후 `.svelte-kit/cloudflare/index.html` 존재(프리렌더 셸).
+5. **localStorage 키**: `grep -rn "save(\|load(\|removeWhere(" src/lib/mp src/lib/components/mp` → `mp-session`만. `grep -rn "localStorage" src/lib/mp src/lib/components/mp` → 없음(전부 `storage.ts` 경유). `grep -rn "sessionStorage\|BroadcastChannel" src/lib/mp src/lib/components/mp` → 없음.
+6. **서버 allowlist**: `POOL_THRESHOLD` 무변경(1번에 포함), `grep -rn "POOL_THRESHOLD" src/lib/server/mp src/routes/api/room src/routes/api/rooms` → 없음.
+7. **기존 테스트**: `git diff --stat main -- tests/server.test.mjs tests/hard.test.mjs tests/daily.test.mjs tests/day.test.mjs tests/test_build_dict.py tests/test_export_d1.py` 비어 있음 + `pnpm test` 통과 + Python unittest 통과.
+8. **smoke**: 기존 블록이 그대로 통과(CI 운영 smoke). `EXPECTED_T`·`POOL_SIZE`·`MODE_FOR_T`·`DAILY_DEDUP_START`·`daily_idx` diff 없음.
+9. **수동(preview 또는 dev)**: 선택 화면 → 개인 → 하루 1개 한 판(종료 시 통계 모달 자동 표시), 모드 바꾸기·하드모드·힌트·포기·등반 다음 스테이지, 새로고침 시 데일리 복원. 개발자 도구에서 기존 키(`config`, `settings`, `stats:*`, `best:*`, `daily:*`, `dclimb:*`) 형식 그대로.
+10. **번들 경계**: `grep -rn "server/mp/room\|server/mp/lobby" src/routes src/hooks.server.ts src/lib/components src/lib/mp src/app.d.ts` 결과가 `import type`/`import(...)` 타입 참조뿐.
+
+## 변경 이력
+
+| 날짜 | 내용 |
+|---|---|
+| 2026-11-01 | 합본 작성 |
+| 2026-11-05 | 2단계 구현에 맞춰 수치 갱신: 빈 방 소멸 2분 → 30초(전원 나가기는 즉시), Lobby 재upsert 10분 → 심장박동 60초(접속자 있을 때만), 목록 노출 30분 → 150초, 접속자 0인 방 비노출, DO 재시작 시 소켓 대조(reconcile). 한 판 더(CP-1)·결과표 박제·결과 중 입장(Q9 기본안)·timer 기본 false가 2단계에 들어감. Q21 해소 |

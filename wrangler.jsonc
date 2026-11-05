@@ -9,6 +9,14 @@
 	"d1_databases": [
 		{ "binding": "DB", "database_name": "kordle", "database_id": "49c1a78d-3a43-45ef-bdaf-e683f8bc8bb5" }
 	],
+	// 멀티플레이 방(ROOM)과 방 목록(LOBBY). 무료 플랜은 SQLite 백엔드만 되고, migrations는 추가만 한다.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "ROOM", "class_name": "Room" },
+			{ "name": "LOBBY", "class_name": "Lobby" }
+		]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room", "Lobby"] }],
 	// KORDLE_SECRET은 `wrangler secret put KORDLE_SECRET` (로컬은 .dev.vars)
 	"observability": { "enabled": true }
 }

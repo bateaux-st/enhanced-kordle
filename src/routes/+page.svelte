@@ -11,15 +11,25 @@
 	import HelpModal from '$lib/components/HelpModal.svelte';
 	import StatsModal from '$lib/components/StatsModal.svelte';
 	import ClimbModal from '$lib/components/ClimbModal.svelte';
+	import ModeChoice from '$lib/components/mp/ModeChoice.svelte';
+	import MultiApp from '$lib/components/mp/MultiApp.svelte';
 
 	const game = new Game();
+	// 초대 링크(?room=)는 선택 화면을 건너뛴다. 그 외에는 매 방문 선택 화면부터(기억하지 않음).
+	const linkRoom = new URLSearchParams(location.search).get('room');
+	let roomParam = $state(linkRoom);
+	let screen = $state<'choice' | 'solo' | 'multi'>(linkRoom !== null ? 'multi' : 'choice');
 	let panel = $state<Panel | 'climb' | null>(null);
 	// 포기는 실수 방지로 두 번 눌러 확정. 첫 클릭 후 3초 안에 다시 눌러야 한다.
 	let confirmGiveUp = $state(false);
 	let confirmTimer: ReturnType<typeof setTimeout> | undefined;
 
-	onMount(() => {
+	function startSolo() {
+		screen = 'solo';
 		void game.newGame();
+	}
+
+	onMount(() => {
 		// 인라인 스크립트가 첫 페인트에 이미 반영했지만, 그게 실패했을 때의 보정으로 한 번 더 건다.
 		game.applyTheme();
 		// 테마가 '시스템'이면 기기 설정이 바뀔 때 따라가야 한다.
@@ -59,6 +69,7 @@
 	}
 
 	function onkeydown(e: KeyboardEvent) {
+		if (screen !== 'solo') return;
 		if (panel) {
 			if (e.key === 'Escape') panel = null;
 			return;
@@ -87,75 +98,81 @@
 
 <svelte:window {onkeydown} />
 
-<div class="page">
-	<Header title="꼬들 - {game.n}자" onopen={(p) => (panel = p)} />
+{#if screen === 'choice'}
+	<ModeChoice theme={game.theme} onthemechange={(t) => game.setTheme(t)} onsolo={startSolo} onmulti={() => (screen = 'multi')} />
+{:else if screen === 'multi'}
+	<MultiApp theme={game.theme} onthemechange={(t) => game.setTheme(t)} initialCode={roomParam} onback={() => ((roomParam = null), (screen = 'choice'))} />
+{:else}
+	<div class="page">
+		<Header title="꼬들 - {game.n}자" onopen={(p) => (panel = p)} />
 
-	<div class="mode-line">
-		{MODE_LABEL[game.config.mode]} · {lengthText}
-		{#if isClimb(game.config.mode)}
-			· 스테이지 <b>{game.stage}</b>
-		{/if}
-		{#if game.hard}
-			· <b class="hard">하드</b>
-		{/if}
-	</div>
-
-	<Board {game} />
-	<Keyboard states={game.keyStates} {onkey} />
-
-	<div class="actions">
-		<button onclick={() => (panel = 'mode')}>모드 바꾸기</button>
-		{#if game.status === 'playing'}
-			<button onclick={() => game.hint()} disabled={game.hintUsed} title="노란 자모 하나의 실제 위치를 알려줍니다 (한 판에 한 번)">
-				{game.hintUsed ? '힌트 사용함' : '힌트'}
-			</button>
-			<button class:danger={confirmGiveUp} onclick={giveUp}>{confirmGiveUp ? '정말 포기?' : '포기'}</button>
-		{/if}
-		{#if over}
-			{#if game.config.mode === 'daily'}
-				<button onclick={() => (panel = 'stats')}>통계</button>
-			{:else if game.config.mode === 'endless'}
-				<button class="primary" onclick={() => game.newGame()}>다음 단어</button>
-			{:else if game.status === 'won' && !finishedClimb}
-				<button class="primary" onclick={() => game.nextStage()}>다음 스테이지</button>
-			{:else if game.config.mode === 'daily-climb'}
-				<button onclick={() => (panel = 'climb')}>결과</button>
-			{:else}
-				<button class="primary" onclick={() => game.newGame()}>
-					{finishedClimb ? '다시 등반' : '처음부터'}
-				</button>
+		<div class="mode-line">
+			{MODE_LABEL[game.config.mode]} · {lengthText}
+			{#if isClimb(game.config.mode)}
+				· 스테이지 <b>{game.stage}</b>
 			{/if}
+			{#if game.hard}
+				· <b class="hard">하드</b>
+			{/if}
+		</div>
+
+		<Board {game} />
+		<Keyboard states={game.keyStates} {onkey} />
+
+		<div class="actions">
+			<button onclick={() => (panel = 'mode')}>모드 바꾸기</button>
+			{#if game.status === 'playing'}
+				<button onclick={() => game.hint()} disabled={game.hintUsed} title="노란 자모 하나의 실제 위치를 알려줍니다 (한 판에 한 번)">
+					{game.hintUsed ? '힌트 사용함' : '힌트'}
+				</button>
+				<button class:danger={confirmGiveUp} onclick={giveUp}>{confirmGiveUp ? '정말 포기?' : '포기'}</button>
+			{/if}
+			{#if over}
+				{#if game.config.mode === 'daily'}
+					<button onclick={() => (panel = 'stats')}>통계</button>
+				{:else if game.config.mode === 'endless'}
+					<button class="primary" onclick={() => game.newGame()}>다음 단어</button>
+				{:else if game.status === 'won' && !finishedClimb}
+					<button class="primary" onclick={() => game.nextStage()}>다음 스테이지</button>
+				{:else if game.config.mode === 'daily-climb'}
+					<button onclick={() => (panel = 'climb')}>결과</button>
+				{:else}
+					<button class="primary" onclick={() => game.newGame()}>
+						{finishedClimb ? '다시 등반' : '처음부터'}
+					</button>
+				{/if}
+			{/if}
+		</div>
+
+		{#if game.toast}
+			<div class="toast">{game.toast}</div>
 		{/if}
 	</div>
 
-	{#if game.toast}
-		<div class="toast">{game.toast}</div>
+	{#if panel === 'mode'}
+		<ModeModal config={game.config} onstart={startMode} onclose={() => (panel = null)} />
+	{:else if panel === 'settings'}
+		<SettingsModal
+			tries={game.settingTries}
+			hard={game.hard}
+			canEnableHard={game.canEnableHard}
+			theme={game.theme}
+			onchange={(t) => game.setTries(t)}
+			onhard={(on) => game.setHard(on)}
+			onthemechange={(t) => game.setTheme(t)}
+			onclose={() => (panel = null)}
+		/>
+	{:else if panel === 'help'}
+		<HelpModal onclose={() => (panel = null)} />
+	{:else if panel === 'stats'}
+		<StatsModal {game} onclose={() => (panel = null)} />
+	{:else if panel === 'climb'}
+		<ClimbModal
+			{game}
+			onrestart={isDaily(game.config.mode) ? undefined : () => { panel = null; void game.newGame(); }}
+			onclose={() => (panel = null)}
+		/>
 	{/if}
-</div>
-
-{#if panel === 'mode'}
-	<ModeModal config={game.config} onstart={startMode} onclose={() => (panel = null)} />
-{:else if panel === 'settings'}
-	<SettingsModal
-		tries={game.settingTries}
-		hard={game.hard}
-		canEnableHard={game.canEnableHard}
-		theme={game.theme}
-		onchange={(t) => game.setTries(t)}
-		onhard={(on) => game.setHard(on)}
-		onthemechange={(t) => game.setTheme(t)}
-		onclose={() => (panel = null)}
-	/>
-{:else if panel === 'help'}
-	<HelpModal onclose={() => (panel = null)} />
-{:else if panel === 'stats'}
-	<StatsModal {game} onclose={() => (panel = null)} />
-{:else if panel === 'climb'}
-	<ClimbModal
-		{game}
-		onrestart={isDaily(game.config.mode) ? undefined : () => { panel = null; void game.newGame(); }}
-		onclose={() => (panel = null)}
-	/>
 {/if}
 
 <style>
