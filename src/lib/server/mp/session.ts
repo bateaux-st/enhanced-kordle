@@ -57,7 +57,7 @@ async function build(uid: string, name: string, now: number, secret: string): Pr
 	return { token: `${payload}.${await sign(secret, payload)}`, uid, name, exp: iat * 1000 + SESSION_TTL_MS };
 }
 
-/** 새 토큰. uid를 주면 유지하고 없으면 새로 만든다. name이 규칙(1..12자)에 안 맞으면 던진다. */
+/** 새 토큰. uid를 주면 유지하고 없으면 새로 만든다. name이 규칙(5..12자)에 안 맞으면 던진다. */
 export async function issue(uid: string | undefined, rawName: string, now: number, secret: string): Promise<Session> {
 	const name = normalizeName(rawName);
 	if (name === null) throw new RangeError('bad name');

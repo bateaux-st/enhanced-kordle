@@ -18,6 +18,7 @@ export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
 export const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;
 
+export const NAME_MIN = 5;
 export const NAME_MAX = 12;
 
 /** 상대 패널·결과표·토스트가 같은 말을 쓰도록 한 곳에 둔다. */
@@ -46,12 +47,12 @@ export const DEFAULT_SETTINGS: Settings = {
 	pick: 'vote'
 };
 
-/** 닉네임 정규화: NFC, 앞뒤 공백 제거, 1..12자(코드포인트). 규칙에 안 맞으면 null. */
+/** 닉네임 정규화: NFC, 앞뒤 공백 제거, NAME_MIN..NAME_MAX자(코드포인트). 규칙에 안 맞으면 null. */
 export function normalizeName(raw: unknown): string | null {
 	if (typeof raw !== 'string') return null;
 	const name = raw.normalize('NFC').trim();
 	const len = [...name].length;
-	return len >= 1 && len <= NAME_MAX ? name : null;
+	return len >= NAME_MIN && len <= NAME_MAX ? name : null;
 }
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;

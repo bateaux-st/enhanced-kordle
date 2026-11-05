@@ -1,7 +1,9 @@
 <script lang="ts">
 	import type { Theme } from '$lib/game.svelte';
 	import './mp.css';
+	import { readSession, writeName } from '$lib/mp/identity';
 	import MpSettings from './MpSettings.svelte';
+	import NickModal from './NickModal.svelte';
 
 	let {
 		theme,
@@ -11,6 +13,13 @@
 	}: { theme: Theme; onthemechange: (t: Theme) => void; onsolo: () => void; onmulti: () => void } = $props();
 
 	let settings = $state(false);
+	let askNick = $state(false);
+
+	// 저장된 닉네임이 있으면 바로 로비로, 없으면 여기서 먼저 받는다.
+	function multi() {
+		if (readSession()) onmulti();
+		else askNick = true;
+	}
 
 	// 같이 하기 카드의 장식 격자. c=초록 p=노랑 a=회색 .=빈칸
 	const MINI = [['apaac', 'ccacc', '.....'], ['aaapc', 'cpcac', 'ccccc'], ['paaaa', '.....', '.....']];
@@ -35,7 +44,7 @@
 					<div class="d">하루 1개, 등반, 랜덤 무한.</div>
 				</div>
 			</button>
-			<button class="pick main" type="button" onclick={onmulti}>
+			<button class="pick main" type="button" onclick={multi}>
 				<div class="pick-mini" aria-hidden="true">
 					{#each MINI as grid, g (g)}
 						<div>
@@ -54,6 +63,19 @@
 			</button>
 		</div>
 	</main>
+
+	{#if askNick}
+		<NickModal
+			lead="같이 하기에서 쓸 이름을 정하세요."
+			confirm="확인"
+			onsubmit={(name) => {
+				writeName(name);
+				askNick = false;
+				onmulti();
+			}}
+			oncancel={() => (askNick = false)}
+		/>
+	{/if}
 
 	{#if settings}
 		<MpSettings {theme} {onthemechange} onclose={() => (settings = false)} />
