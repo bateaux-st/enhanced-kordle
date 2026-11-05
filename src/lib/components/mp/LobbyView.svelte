@@ -2,7 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { listRooms, roomInfo } from '$lib/mp/api';
 	import type { RoomSummary } from '$lib/mp/protocol';
-	import { CODE_LENGTH, LOBBY_POLL_MS, MAX_PLAYERS, NAME_MAX, normalizeName } from '$lib/mp/rules';
+	import { CODE_LENGTH, LOBBY_POLL_MS, MAX_PLAYERS, NAME_MAX, NAME_MIN, normalizeName } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -36,6 +36,7 @@
 	let seq = 0;
 
 	const nameOk = $derived(normalizeName(nick) !== null);
+	const nameShort = $derived(nick.trim().length > 0 && !nameOk && [...nick.trim()].length < NAME_MIN);
 	const shownMsg = $derived(code.length > 0 && code.length < CODE_LENGTH ? '방 코드는 6자입니다' : notice || message);
 
 	async function load(showSpinner: boolean) {
@@ -159,7 +160,7 @@
 			/>
 			<span id="nick-count" class="note count"><span class="sr">글자 수 </span>{[...nick].length}/{NAME_MAX}</span>
 			<button class="btn primary" type="submit" disabled={!nameOk}>확인</button>
-			{#if !nameOk}<span class="note" role="status">닉네임을 입력해 주세요.</span>{/if}
+			{#if !nameOk}<span class="note" role="status">{nameShort ? `${NAME_MIN}자 이상 입력하세요` : '닉네임을 입력해 주세요.'}</span>{/if}
 		</form>
 	{:else}
 		<button class="btn chip" type="button" aria-label="닉네임 수정: {nick}" onclick={startEdit}>

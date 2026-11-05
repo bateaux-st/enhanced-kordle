@@ -177,6 +177,8 @@ st, room = post("room", {"name": "smoke"})
 code = room["code"] if st == 200 and room else ""
 check("POST /api/room → 200, 방 코드 6자", st == 200 and re.fullmatch(r"[A-HJ-NP-Z2-9]{6}", code) is not None)
 check("POST /api/room → session.token mp1.", st == 200 and room["session"]["token"].startswith("mp1."))
+st, _ = post("room", {"name": "abcd"})
+check("POST /api/room 닉네임 4자 → 400", st == 400)
 if code:
     st, _ = get(f"/api/room/{code}")
     check("GET /api/room/<code> → 200", st == 200)

@@ -151,7 +151,7 @@ export class Room extends DurableObject<RoomEnv> {
 	private async hello(ws: WebSocket, token: string | undefined, rawName: string): Promise<void> {
 		const name = normalizeName(rawName);
 		if (!name) {
-			this.sendTo(ws, { type: 'error', code: 'forbidden', msg: '닉네임은 1~12자여야 합니다' });
+			this.sendTo(ws, { type: 'error', code: 'forbidden', msg: '닉네임은 5~12자여야 합니다' });
 			return closeQuietly(ws, 1008, 'bad name');
 		}
 		const session = await refresh(token, name, Date.now(), mpSecret(this.env.KORDLE_SECRET));

@@ -5,15 +5,15 @@
 	import { MpClient, type CloseReason } from '$lib/mp/client.svelte';
 	import { clearSession, readSession, writeSession } from '$lib/mp/identity';
 	import type { Snapshot } from '$lib/mp/protocol';
-	import { CODE_RE, NAME_MAX, normalizeName, sameSettings } from '$lib/mp/rules';
+	import { CODE_RE, normalizeName, sameSettings } from '$lib/mp/rules';
 	import './mp.css';
 	import ConnectionOverlay from './ConnectionOverlay.svelte';
 	import Icon from './Icon.svelte';
 	import LobbyView from './LobbyView.svelte';
 	import MpGame from './MpGame.svelte';
-	import MpModal from './MpModal.svelte';
-	import MpSettings from './MpSettings.svelte';
+		import MpSettings from './MpSettings.svelte';
 	import MpToast from './MpToast.svelte';
+	import NickModal from './NickModal.svelte';
 	import NudgeLayer from './NudgeLayer.svelte';
 	import WaitingRoom from './WaitingRoom.svelte';
 	import { unlockAudio } from './nudgeFx';
@@ -50,7 +50,6 @@
 
 	/** 링크로 왔는데 저장된 닉네임이 없을 때 이름을 먼저 묻는다(S1-N). */
 	let pendingCode = $state<string | null>(null);
-	let pendingName = $state('');
 	let pendingMsg = $state('');
 
 	const snap = $derived(client.snap);
@@ -142,10 +141,9 @@
 		};
 	});
 
-	async function submitPending() {
-		const name = normalizeName(pendingName);
+	async function submitPending(name: string) {
 		const code = pendingCode;
-		if (!name || !code) return;
+		if (!code) return;
 		pendingMsg = '';
 		try {
 			const info = await roomInfo(code);
@@ -168,7 +166,7 @@
 		in_progress: '진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다',
 		no_room: '없는 방입니다',
 		destroyed: '없는 방입니다',
-		bad_name: '사용할 수 없는 닉네임입니다'
+		bad_name: '닉네임은 5~12자여야 합니다'
 	};
 
 	$effect(() => {
@@ -378,33 +376,13 @@
 	{/if}
 
 	{#if pendingCode}
-		<MpModal title="닉네임" small onclose={() => toLobby()}>
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					void submitPending();
-				}}
-			>
-				<p class="lead">방 {pendingCode}에 들어갈 이름을 정하세요.</p>
-				<label class="sr" for="pending-name">닉네임</label>
-				<input
-					id="pending-name"
-					class="input full"
-					type="text"
-					placeholder="이름"
-					maxlength={NAME_MAX}
-					autocomplete="off"
-					aria-describedby="pending-count"
-					bind:value={pendingName}
-				/>
-				<p id="pending-count" class="note count"><span class="sr">글자 수 </span>{[...pendingName].length}/{NAME_MAX}</p>
-				<p class="note msg" role="status">{pendingMsg}</p>
-				<div class="two">
-					<button class="btn primary big" type="submit" disabled={!normalizeName(pendingName)}>입장</button>
-					<button class="btn" type="button" onclick={() => toLobby()}>취소</button>
-				</div>
-			</form>
-		</MpModal>
+		<NickModal
+			lead="방 {pendingCode}에 들어갈 이름을 정하세요."
+			confirm="입장"
+			message={pendingMsg}
+			onsubmit={(name) => void submitPending(name)}
+			oncancel={() => toLobby()}
+		/>
 	{/if}
 
 	{#if settingsOpen}
@@ -439,20 +417,6 @@
 	}
 	code {
 		font-weight: 700;
-	}
-	.lead {
-		margin-bottom: 0.75rem;
-	}
-	.input.full {
-		width: 100%;
-	}
-	.count {
-		margin-top: 0.25rem;
-		text-align: right;
-	}
-	.msg {
-		min-height: 1.25rem;
-		margin: 0.125rem 0 0.75rem;
 	}
 	.two {
 		display: flex;
