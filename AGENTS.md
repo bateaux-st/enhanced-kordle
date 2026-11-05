@@ -21,6 +21,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 ## 반드시
 
+- 멀티 DO 코드(`src/lib/server/mp/**`)는 `$lib` 값 import를 쓰지 않고 `.ts` 확장자가 붙은 상대 import만 쓴다(`tests/mp-imports.test.mjs`가 검사). 멀티는 `pnpm build && pnpm preview`로만 검증한다 — `pnpm dev`는 WS 불가.
 - 정답 풀 조건(`familiar` 임계값, 후보 SQL)을 바꾸면 **`src/lib/server/dict.ts`의 `POOL_THRESHOLD`와 `export_d1.py`의 `POOL`/`THRESHOLDS`를 함께** 고친다. `THRESHOLDS`는 값을 **추가**한다(빼면 그 t를 쓰는 다른 모드가 `pool miss` 500). 런북: HANDOFF §6.6.
 - 새 게임 모드는 HANDOFF §6.7 체크리스트대로 — `types.ts`, `dict.ts`(`POOL_THRESHOLD`가 곧 서버 allowlist), `game.svelte.ts`(`isClimb`/`isDaily`, 통계), `api/game`, `ModeModal.svelte`, `+page.svelte` 버튼 분기, `smoke.py EXPECTED_T`.
 - `scripts/smoke.py`의 기대값 셋(`EXPECTED_T`, `POOL_SIZE`, `MODE_FOR_T`)은 코드·사전과 짝이다. 사전이나 임계값을 바꾸면 같은 커밋에서 갱신한다. `POOL_SIZE`는 `export_d1.py`가 마지막에 출력하는 블록을 붙인다.
@@ -34,6 +35,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 - `build_dict.py`의 `SPLIT` 맵과 `src/lib/jamo.ts`의 `JAMO`(자모 24종, `ㄲ`=`ㄱㄱ`)를 바꾸지 않는다. 바꾸면 모든 단어의 자모 수가 달라져 사전·풀·토큰·통계가 전부 무효다.
 - 데일리 시드 문자열(`n:${day}`, `${day}:${n}`, `${day}:${n}:climb`)과 토큰 payload 형식(`n.t.idx`)을 바꾸지 않는다. 바꾸면 그날 데일리가 바뀌고 진행 중 게임이 깨진다.
 - 데일리 중복 방지의 `DAILY_DEDUP_START`(`token.ts`), `perm:${n}[:climb]` 키 문자열, 순열 공식 `(a*d + b) % count`(a 서로소 보정 포함)를 바꾸지 않는다. 바꾸면 그날 데일리 정답이 바뀐다. `smoke.py`의 같은 상수·함수와 짝이다(HANDOFF §4.3).
+- `wrangler.jsonc`의 `migrations`는 추가만 한다. 배포된 태그(`v1`)를 지우거나 고치지 않는다 — Durable Object 클래스 이력이 깨진다.
 - `KORDLE_SECRET`을 사용자 지시 없이 재생성하지 않는다. 모든 토큰이 무효가 된다.
 - localStorage 키 형식(`nkordle:` 접두, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`, `stats:<mode>`, `best:<mode>:<lengthKey>`, `config`, `settings`)을 바꾸지 않는다. 사용자 진행·통계가 사라진다.
 - `+page.ts`의 `ssr = false; prerender = true` 둘 중 하나를 빼지 않는다.

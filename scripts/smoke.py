@@ -11,10 +11,13 @@
 """
 import json
 import hashlib
+import http.client
 import math
+import re
 from datetime import datetime, timedelta, timezone
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:5173").rstrip("/")
@@ -168,6 +171,24 @@ st, _ = post("reveal", {"token": "6.10384.abc"})
 check("옛 형식(n.idx.sig) 토큰 → 400", st == 400)
 st, h = post("hint", {"token": tok, "jamo": "ㅏ"})
 check("hint → pos 또는 400(정답에 ㅏ 없음)", (st == 200 and 0 <= h["pos"] < 6) or st == 400)
+
+# 7. 멀티플레이 — 방 생성·조회·목록·WS 핸드셰이크. 접속자 없는 방은 목록에 오르지 않고 30초 뒤 사라진다.
+st, room = post("room", {"name": "smoke"})
+code = room["code"] if st == 200 and room else ""
+check("POST /api/room → 200, 방 코드 6자", st == 200 and re.fullmatch(r"[A-HJ-NP-Z2-9]{6}", code) is not None)
+check("POST /api/room → session.token mp1.", st == 200 and room["session"]["token"].startswith("mp1."))
+if code:
+    st, _ = get(f"/api/room/{code}")
+    check("GET /api/room/<code> → 200", st == 200)
+    st, body = get("/api/rooms")
+    check("GET /api/rooms → 200, JSON 배열", st == 200 and isinstance(json.loads(body), list))
+    conn = (http.client.HTTPSConnection if BASE.startswith("https") else http.client.HTTPConnection)(urllib.parse.urlsplit(BASE).netloc, timeout=20)
+    conn.request("GET", f"/ws/{code}", headers={
+        "User-Agent": HDR["User-Agent"], "Connection": "Upgrade", "Upgrade": "websocket",
+        "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "c21va2Utc21va2Utc21va2U=",
+    })
+    check("GET /ws/<code> 핸드셰이크 → 101", conn.getresponse().status == 101)
+    conn.close()
 
 print()
 if failures:
