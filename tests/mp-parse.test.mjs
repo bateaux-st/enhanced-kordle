@@ -48,6 +48,12 @@ test('필드 타입·길이가 어긋나면 null', () => {
 	for (const m of bad) assert.equal(p(m), null, JSON.stringify(m));
 });
 
+test('초안은 빈 문자열도 받고(다 지운 입력), 제안·추측은 빈 문자열을 거절한다', () => {
+	assert.deepEqual(p({ type: 'draft', jamo: '' }), { type: 'draft', jamo: '' });
+	assert.deepEqual(p({ type: 'draft', jamo: 'ㄴㅏ' }), { type: 'draft', jamo: 'ㄴㅏ' });
+	for (const m of [{ type: 'draft' }, { type: 'draft', jamo: 'ㄴㅏA' }, { type: 'draft', jamo: 'ㄴ'.repeat(13) }, { type: 'propose', jamo: '' }]) assert.equal(p(m), null, JSON.stringify(m));
+});
+
 test('너무 긴 원문은 파싱하지 않는다', () => {
 	assert.equal(p(JSON.stringify({ type: 'hello', name: 'x', pad: 'y'.repeat(MAX_RAW_LENGTH) })), null);
 });

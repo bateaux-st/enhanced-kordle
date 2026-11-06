@@ -98,6 +98,74 @@ export interface CompGameView {
 	answers?: Record<number, { word: string; jamo: string }>;
 }
 
+/** 협동 공유 보드. 모두가 같은 것을 본다. */
+export interface CoopBoardView {
+	stage: number;
+	n: number;
+	rows: string[];
+	marks: Mark[][];
+	hints: Record<number, string>;
+	hintUsed: boolean;
+	/** 공유 힌트를 쓴 사람. 쓰기 전에는 null. */
+	hintBy: Pid | null;
+	deadline: number | null;
+}
+
+/** 같은 자모열을 낸 사람들이 한 후보로 합쳐진다. */
+export interface CoopCandidateView {
+	jamo: string;
+	by: Pid[];
+}
+
+export type CoopStepView =
+	| {
+			kind: 'propose';
+			/** 확정한 제안. 안 낸 사람은 키가 없다. 마감 전에는 다시 보내 덮어쓸 수 있다. */
+			proposals: Record<Pid, string>;
+			/** 입력 중인 글자. 확정 제안과 다를 수 있다. 비어 있으면 키가 없다. */
+			drafts: Record<Pid, string>;
+	  }
+	| {
+			kind: 'vote';
+			candidates: CoopCandidateView[];
+			/** 후보별 현재 득표수(candidates와 같은 순서). 누가 어느 후보를 찍었는지는 보내지 않는다. */
+			tally: number[];
+			/** 투표를 마친 사람. */
+			voted: Pid[];
+			/** 내 표의 후보 번호. 아직이면 null. */
+			myVote: number | null;
+	  };
+
+/**
+ * 직전에 고른 결과. 클라이언트는 `at`과 후보로 약 1.5초 돌림판 연출을 한다(서버는 기다리지 않고 이미 보드에 반영했다).
+ * `how`가 'roulette'이면 서버가 정했고, 투표 동률이면 `tally`도 있다.
+ */
+export interface CoopPickView {
+	/** 후보 자모열. */
+	candidates: string[];
+	/** 후보별 제안자(candidates와 같은 순서). 같은 단어를 낸 사람은 한 후보에 모인다. */
+	by: Pid[][];
+	chosen: number;
+	how: 'single' | 'vote' | 'roulette';
+	tally?: number[];
+	at: number;
+}
+
+export interface CoopGameView {
+	kind: 'coop';
+	startN: number;
+	startedAt: number;
+	endedAt: number | null;
+	board: CoopBoardView;
+	status: 'playing' | 'won' | 'lost';
+	endReason?: 'solved' | 'tries' | 'timeout' | 'giveup';
+	/** 끝나면 null. */
+	step: CoopStepView | null;
+	lastPick: CoopPickView | null;
+	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. */
+	answers?: Record<number, { word: string; jamo: string }>;
+}
+
 export interface HostView {
 	canStart: boolean;
 	/** 준비하지 않은 접속자 수. */
@@ -119,7 +187,7 @@ export interface Snapshot {
 	hostPid: Pid | null;
 	players: PlayerView[];
 	host: HostView | null;
-	game: CompGameView | null;
+	game: CompGameView | CoopGameView | null;
 }
 
 export interface SessionInfo {

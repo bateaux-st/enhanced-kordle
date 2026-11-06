@@ -25,8 +25,9 @@
 		onwait: () => void;
 	} = $props();
 
-	const game = $derived(snap.game);
-	const answer = $derived(game ? game.answers?.[game.startN]?.word : undefined);
+	const game = $derived(snap.game?.kind === 'comp' ? snap.game : null);
+	const coop = $derived(snap.game?.kind === 'coop' ? snap.game : null);
+	const answer = $derived((game ?? coop)?.answers?.[(game ?? coop)?.startN ?? 0]?.word);
 
 	// 상태·시도·정답 순서는 순위표가 확정 시점에 들고 있다. 결과 단계에서 사람이 나가 players에서 사라져도 표는 그대로다.
 	const rows = $derived(
@@ -44,20 +45,29 @@
 </script>
 
 <MpModal title="결과" {onclose}>
-	{#if answer}<p class="big">정답: {answer}</p>{/if}
-	<div class="table" role="table" aria-label="순위">
-		<div class="trow th" role="row">
-			<span role="columnheader">순위</span><span role="columnheader">이름</span><span role="columnheader">결과</span><span role="columnheader" class="tr">시도</span>
+	{#if coop}
+		<!-- 협동은 순위가 없다. 전원이 같은 결과를 받는다. -->
+		<div class="coop-res">
+			<p class="big">{coop.status === 'won' ? '정답입니다' : answer ? `정답: ${answer}` : '실패했습니다'}</p>
+			{#if coop.status === 'won' && answer}<p>정답: <b>{answer}</b></p>{/if}
+			<p class="note">{coop.board.rows.length}회 시도</p>
 		</div>
-		{#each rows as x, i (x.pid)}
-			<div class="trow" class:mine={x.me} role="row" style="animation-delay:{Math.min(i, 5) * 90}ms">
-				<span class="rk" role="cell">{#if i === 0}<span class="first">{x.rank}</span>{:else}{x.rank}{/if}</span>
-				<span class="nm" role="cell">{x.name}{#if x.me}<span class="bdg me">나</span>{/if}</span>
-				<span class="res" role="cell"><b>{x.result}</b></span>
-				<span class="tr" role="cell">{x.tries}</span>
+	{:else}
+		{#if answer}<p class="big">정답: {answer}</p>{/if}
+		<div class="table" role="table" aria-label="순위">
+			<div class="trow th" role="row">
+				<span role="columnheader">순위</span><span role="columnheader">이름</span><span role="columnheader">결과</span><span role="columnheader" class="tr">시도</span>
 			</div>
-		{/each}
-	</div>
+			{#each rows as x, i (x.pid)}
+				<div class="trow" class:mine={x.me} role="row" style="animation-delay:{Math.min(i, 5) * 90}ms">
+					<span class="rk" role="cell">{#if i === 0}<span class="first">{x.rank}</span>{:else}{x.rank}{/if}</span>
+					<span class="nm" role="cell">{x.name}{#if x.me}<span class="bdg me">나</span>{/if}</span>
+					<span class="res" role="cell"><b>{x.result}</b></span>
+					<span class="tr" role="cell">{x.tries}</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
 	<div class="dlg-act">
 		{#if isHost}
 			<button class="btn primary big block" type="button" onclick={onagain}>같은 설정으로 한 판 더</button>
@@ -75,6 +85,14 @@
 		margin-bottom: 0.75rem;
 		font-size: 1.125rem;
 		font-weight: 700;
+	}
+	.coop-res {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.coop-res .big {
+		margin-bottom: 0;
 	}
 	.table {
 		border: 1px solid var(--line);

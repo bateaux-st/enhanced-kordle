@@ -203,7 +203,7 @@ test('reduce 경유: guess/hint/giveup는 오류 이벤트로 돌아오고 chang
 	const hint = reduce(s, a, { type: 'hint' }, {}, T0 + 3, rng);
 	assert.equal(hint.changed, true);
 	assert.equal(reduce(s, a, { type: 'hint' }, {}, T0 + 4, rng).changed, false);
-	assert.equal(reduce(s, a, { type: 'vote', candidate: 0 }, {}, T0 + 5, rng).events[0].code, 'unavailable');
+	assert.equal(reduce(s, a, { type: 'vote', candidate: 0 }, {}, T0 + 5, rng).events[0].code, 'phase', '경쟁 방에서 협동 메시지');
 	assert.equal(reduce(s, 'p-nobody', { type: 'giveup' }, {}, T0 + 6, rng).events[0].code, 'forbidden');
 });
 

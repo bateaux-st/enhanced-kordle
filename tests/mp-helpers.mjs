@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS } from '../src/lib/mp/rules.ts';
 import { initRoom } from '../src/lib/server/mp/state.ts';
 import { join } from '../src/lib/server/mp/members.ts';
 import { startGame } from '../src/lib/server/mp/comp.ts';
+import { startGame as startCoop } from '../src/lib/server/mp/coop.ts';
 
 export const T0 = 1_000_000;
 
@@ -42,5 +43,13 @@ export function started(names = ['가', '나'], settings = {}) {
 	const s = lobby(settings);
 	const pids = joinAll(s, names);
 	startGame(s, { n: 6, answer: ANSWER }, T0);
+	return { s, pids };
+}
+
+/** 방장 + names를 입장시켜 협동 단판을 시작한 상태. 정답은 바나나(6). */
+export function coopStarted(names = ['가', '나'], settings = {}) {
+	const s = lobby({ kind: 'coop', ...settings });
+	const pids = joinAll(s, names);
+	startCoop(s, { n: 6, answer: ANSWER }, T0);
 	return { s, pids };
 }

@@ -5,6 +5,7 @@ import { LOBBY_REFRESH_MS, normalizeName } from '../../mp/rules.ts';
 import { dict } from '../dict.ts';
 import { randomIndex } from '../token.ts';
 import { chooseStartN } from './comp.ts';
+import * as coop from './coop.ts';
 import type { Lobby } from './lobby.ts';
 import * as members from './members.ts';
 import { parseClientMsg } from './parse.ts';
@@ -79,6 +80,7 @@ export class Room extends DurableObject<RoomEnv> {
 		const now = Date.now();
 		const live = this.ctx.getWebSockets().flatMap((ws) => attOf(ws).pid ?? []);
 		if (!members.reconcile(s, live, now)) return;
+		coop.advance(s, randomIndex, now);
 		s.seq++;
 		await this.ctx.storage.put(STATE_KEY, s);
 		this.syncLobby(s, now);
@@ -167,6 +169,8 @@ export class Room extends DurableObject<RoomEnv> {
 				other.serializeAttachment({ pid: null, uid: null } satisfies Att);
 				closeQuietly(other, CLOSE.REPLACED, 'replaced');
 			}
+			// 이미 제안한 사람이 돌아오면 "접속 중 전원 제안"이 채워질 수 있다.
+			coop.advance(s, randomIndex, now);
 			ws.serializeAttachment({ pid: r.pid, uid: session.uid } satisfies Att);
 			this.pendingSession.set(ws, { token: session.token, exp: session.exp });
 			this.sendTo(ws, { type: 'welcome', pid: r.pid, name: r.name });
@@ -179,20 +183,24 @@ export class Room extends DurableObject<RoomEnv> {
 		if (!this.state || !members.findPlayer(this.state, pid)) return closeQuietly(ws, CLOSE.NO_ROOM, 'no seat');
 		// D1은 await 사이에 다른 메시지가 끼어들 수 있으므로 조회를 먼저 하고, 적용(reduce)은 동기 구간에서 다시 검증한다.
 		const io: Io = {};
-		if (msg.type === 'guess') io.valid = await this.lookupValid(pid, msg.jamo);
+		if (msg.type === 'guess' || msg.type === 'propose') io.valid = await this.lookupValid(pid, msg.type, msg.jamo);
 		else if (msg.type === 'start') io.start = await this.lookupStart(pid);
 		await this.run((s, now) => {
 			const r = reduce(s, pid, msg, io, now, randomIndex);
 			this.deliver(r.events);
-			return { changed: r.changed, destroy: r.destroy };
+			return { changed: r.changed, skipSave: r.skipSave, destroy: r.destroy };
 		});
 	}
 
 	/** 제출할 수 있는 상태일 때만 D1을 읽는다(그 밖에는 reduce가 D1 없이 거절한다). 실패하면 undefined. */
-	private async lookupValid(pid: Pid, jamo: string): Promise<boolean | undefined> {
+	private async lookupValid(pid: Pid, type: 'guess' | 'propose', jamo: string): Promise<boolean | undefined> {
 		const s = this.state;
-		const me = s?.phase === 'playing' && s.game?.kind === 'comp' ? s.game.players[pid] : undefined;
-		if (!me || me.status !== 'playing' || [...jamo].length !== me.board.n) return undefined;
+		if (!s || s.phase !== 'playing') return undefined;
+		const game = s.game;
+		let n: number | undefined;
+		if (type === 'guess' && game?.kind === 'comp' && game.players[pid]?.status === 'playing') n = game.players[pid].board.n;
+		else if (type === 'propose' && game?.kind === 'coop' && game.status === 'playing' && game.step.kind === 'propose' && coop.seated(s, pid)) n = game.board.n;
+		if (n === undefined || [...jamo].length !== n) return undefined;
 		try {
 			return await dict(this.env.DB).isValidJamo(jamo);
 		} catch {
@@ -204,7 +212,7 @@ export class Room extends DurableObject<RoomEnv> {
 	private async lookupStart(pid: Pid): Promise<Io['start']> {
 		const s = this.state;
 		if (!s || s.hostPid !== pid || !members.canStart(s).ok) return undefined;
-		if (s.settings.kind !== 'comp' || s.settings.game !== 'single') return undefined;
+		if (s.settings.game !== 'single') return undefined;
 		const n = chooseStartN(s.settings, randomIndex);
 		try {
 			const d = dict(this.env.DB);
@@ -238,30 +246,38 @@ export class Room extends DurableObject<RoomEnv> {
 		if (this.socketsOf(pid).some((w) => w !== ws)) return;
 		await this.run((s, now) => {
 			members.disconnect(s, pid, now);
+			// 끊긴 사람이 마지막 미제안·미투표자였다면 기다리지 않고 진행한다.
+			coop.advance(s, randomIndex, now);
 			return { changed: true };
 		});
 	}
 
 	// ---- 변경 공통 경로 ----
 
-	private async run(fn?: (s: RoomState, now: number) => { changed: boolean; destroy?: boolean }): Promise<void> {
+	private async run(fn?: (s: RoomState, now: number) => { changed: boolean; skipSave?: boolean; destroy?: boolean }): Promise<void> {
 		const s = this.state;
 		if (!s) return;
 		const now = Date.now();
 		const t = tick(s, now);
 		let changed = t.changed;
+		let save = t.changed;
 		let destroy = t.destroy;
 		if (!destroy && fn) {
 			const r = fn(s, now);
 			changed ||= r.changed;
+			save ||= r.changed && !r.skipSave;
 			destroy = r.destroy ?? false;
 		}
 		if (destroy) return this.destroy(s);
 
 		if (changed) {
-			s.seq++;
-			// 상태는 작아서(5명 x 10행 x 12자) 바뀐 메시지마다 통째로 1회만 쓴다.
-			await this.ctx.storage.put(STATE_KEY, s);
+			// 초안만 바뀐 경우는 저장하지 않고 seq도 올리지 않는다: 올리면 재시작 뒤 저장된 seq가 클라이언트가 본 값보다 낮아져
+			// 클라이언트가 한동안 스냅샷을 낡았다고 버린다. 클라이언트는 같은 seq를 받아들인다.
+			if (save) {
+				s.seq++;
+				// 상태는 작아서(5명 x 10행 x 12자) 바뀐 메시지마다 통째로 1회만 쓴다.
+				await this.ctx.storage.put(STATE_KEY, s);
+			}
 			this.broadcast(s, now);
 		}
 		this.syncLobby(s, now);

@@ -46,7 +46,9 @@ export function parseClientMsg(raw: string): ClientMsg | null {
 			const settings = parseSettings(m.settings);
 			return settings ? { type: 'next', settings } : null;
 		}
+		// 초안은 다 지운 빈 문자열도 보낸다.
 		case 'draft':
+			return typeof m.jamo === 'string' && (m.jamo === '' || isJamoWord(m.jamo)) ? { type: 'draft', jamo: m.jamo } : null;
 		case 'propose':
 		case 'guess':
 			return isJamoWord(m.jamo) ? { type: m.type, jamo: m.jamo } : null;

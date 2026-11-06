@@ -15,7 +15,7 @@ export function chooseStartN(settings: Settings, rng: Rng): number {
 	return settings.length === 'random' ? LENGTH_MIN + rng(LENGTH_MAX - LENGTH_MIN + 1) : settings.length;
 }
 
-function freshBoard(n: number): Board {
+export function freshBoard(n: number): Board {
 	return { stage: 1, n, rows: [], marks: [], hints: {}, hintUsed: false, deadline: null, cleared: 0 };
 }
 
@@ -79,19 +79,28 @@ function finish(game: CompGame, pid: Pid, status: Exclude<CompPlayer['status'], 
 	me.triesUsed = me.board.rows.length;
 }
 
-/** `valid`는 DO 셸이 D1에서 읽은 사전 여부. 조회에 실패했으면 undefined. */
+/**
+ * 제출 전 검사(경쟁 guess와 협동 propose가 같은 문구를 쓴다). `valid`는 DO 셸이 D1에서 읽은 사전 여부이고 조회에 실패했으면 undefined.
+ * 통과하면 null.
+ */
+export function checkGuess(board: Board, jamo: string, valid: boolean | undefined, hard: boolean): ReturnType<typeof fail> | null {
+	if ([...jamo].length !== board.n || ![...jamo].every(isJamo)) return fail('invalid', '자모가 부족합니다');
+	if (valid === undefined) return fail('unavailable', '서버에 연결할 수 없습니다');
+	if (!valid) return fail('invalid', '사전에 없는 단어입니다');
+	if (hard) {
+		const v = hardViolation(board.rows, board.marks, jamo);
+		if (v) return fail('hard', v.kind === 'pos' ? `${v.pos + 1}번째 칸은 ${v.jamo}입니다` : `${v.jamo}을(를) 포함해야 합니다`);
+	}
+	return null;
+}
+
 export function applyGuess(s: RoomState, pid: Pid, jamo: string, valid: boolean | undefined, now: number): Result<{ marks: Mark[] }> {
 	const a = activePlayer(s, pid);
 	if (!a.ok) return a;
 	const { game, me } = a;
 	const board = me.board;
-	if ([...jamo].length !== board.n || ![...jamo].every(isJamo)) return fail('invalid', '자모가 부족합니다');
-	if (valid === undefined) return fail('unavailable', '서버에 연결할 수 없습니다');
-	if (!valid) return fail('invalid', '사전에 없는 단어입니다');
-	if (game.settings.hard) {
-		const v = hardViolation(board.rows, board.marks, jamo);
-		if (v) return fail('hard', v.kind === 'pos' ? `${v.pos + 1}번째 칸은 ${v.jamo}입니다` : `${v.jamo}을(를) 포함해야 합니다`);
-	}
+	const bad = checkGuess(board, jamo, valid, game.settings.hard);
+	if (bad) return bad;
 
 	const marks = judge(game.answers[board.n].jamo, jamo);
 	board.rows.push(jamo);
@@ -111,16 +120,9 @@ export function applyGuess(s: RoomState, pid: Pid, jamo: string, valid: boolean 
 
 /**
  * 개인 플레이와 같은 규칙: 노랑을 받은 자모 중 첫 번째(행·칸 순으로 처음 나온 자모)의 정답 안 첫 위치.
- * 같은 자모가 나중에 초록을 받았으면 노랑 후보가 아니다.
+ * 같은 자모가 나중에 초록을 받았으면 노랑 후보가 아니다. 경쟁 개인 보드와 협동 공유 보드가 함께 쓴다.
  */
-export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: string }> {
-	const a = activePlayer(s, pid);
-	if (!a.ok) return a;
-	const { game, me } = a;
-	const board = me.board;
-	if (!game.settings.hints) return fail('forbidden', '힌트를 쓸 수 없는 방입니다');
-	if (board.hintUsed) return fail('forbidden', '힌트는 한 판에 한 번입니다');
-
+export function hintFor(board: Board, answerJamo: string): Result<{ pos: number; jamo: string }> {
 	const rank: Record<Mark, number> = { a: 1, p: 2, c: 3 };
 	const best = new Map<string, Mark>();
 	board.rows.forEach((row, r) => {
@@ -132,11 +134,22 @@ export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: str
 	});
 	const jamo = [...best].find(([, m]) => m === 'p')?.[0];
 	if (!jamo) return fail('forbidden', '힌트를 줄 노란 자모가 없습니다');
+	return { ok: true, pos: answerJamo.indexOf(jamo), jamo };
+}
 
-	const pos = game.answers[board.n].jamo.indexOf(jamo);
-	board.hints[pos] = jamo;
+export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: string }> {
+	const a = activePlayer(s, pid);
+	if (!a.ok) return a;
+	const { game, me } = a;
+	const board = me.board;
+	if (!game.settings.hints) return fail('forbidden', '힌트를 쓸 수 없는 방입니다');
+	if (board.hintUsed) return fail('forbidden', '힌트는 한 판에 한 번입니다');
+
+	const h = hintFor(board, game.answers[board.n].jamo);
+	if (!h.ok) return h;
+	board.hints[h.pos] = h.jamo;
 	board.hintUsed = true;
-	return { ok: true, pos, jamo };
+	return h;
 }
 
 export function giveUp(s: RoomState, pid: Pid, now: number): Result {
