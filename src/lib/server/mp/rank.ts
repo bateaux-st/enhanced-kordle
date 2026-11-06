@@ -41,8 +41,11 @@ export function standings(game: CompGame, nameOf: (pid: Pid) => string): Standin
 	const done = all.filter(([, p]) => p.status === 'solved');
 	const rest = all.filter(([, p]) => p.status !== 'solved');
 
+	// 등반 완주자는 finishedAt(ms)이 아니라 finishOrder(처리 순서)로 가른다. 같은 ms에 끝나도 공동 순위가 되면 안 된다.
 	const cmpDone = (a: (typeof all)[number], b: (typeof all)[number]) =>
-		climb ? a[1].finishedAt! - b[1].finishedAt! : a[1].triesUsed - b[1].triesUsed || a[1].finishedAt! - b[1].finishedAt!;
+		climb
+			? game.finishOrder.indexOf(a[0]) - game.finishOrder.indexOf(b[0])
+			: a[1].triesUsed - b[1].triesUsed || a[1].finishedAt! - b[1].finishedAt!;
 	const cmpRest = (a: (typeof all)[number], b: (typeof all)[number]) => cmpMetrics(metrics(a[1].board), metrics(b[1].board), climb);
 
 	const out: Standing[] = [];
