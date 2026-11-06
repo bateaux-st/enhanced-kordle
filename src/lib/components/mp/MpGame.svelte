@@ -573,7 +573,6 @@
 {#if modal === 'result'}
 	<MpResult
 		{snap}
-		peakCleared={client.peakCleared}
 		{isHost}
 		onclose={() => (modal = null)}
 		{onleave}

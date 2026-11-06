@@ -228,6 +228,19 @@ test('경쟁 등반: 남은 사람이 모두 끝나면 유예를 기다리지 �
 	assert.equal(tick(s, T0 + 1 + CLIMB_GRACE_MS).changed, false);
 });
 
+test('경쟁 등반: 게임 중 나간 사람의 높이가 결과 순위표(스냅샷 포함)에 남는다', () => {
+	const { s, pids } = compClimbStarted(['가']);
+	const [host, a] = pids;
+	climbTo(s, a, 10, 10, T0 + 1);
+	reduce(s, a, { type: 'leave' }, {}, T0 + 2, rng);
+	giveUp(s, host, T0 + 3);
+	assert.equal(s.phase, 'result');
+	const view = snapOf(s, host);
+	const left = view.game.standings.find((x) => x.pid === a);
+	assert.deepEqual([left.status, left.height], ['eliminated', 1]);
+	assert.equal(view.players.some((p) => p.pid === a), false, '결과 players에는 나간 사람이 없다');
+});
+
 test('경쟁 등반: 아무도 완주 못 하고 전원 실패하면 그 시점에 결과(유예 없음)', () => {
 	const { s, pids } = compClimbStarted(['가'], { tries: 4 });
 	const [host, a] = pids;
