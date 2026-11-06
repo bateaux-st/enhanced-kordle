@@ -18,8 +18,9 @@
 
 <style>
 	.pyramid {
-		/* 모달 본문 폭(30rem 상한, 좁은 화면은 100vw 기준) 안에 12자 단어가 들어가도록 줄인다. %는 flex 자식 폭을 0으로 만들어 쓰지 않는다. */
-		--tile: min(2.25rem, calc(25rem / var(--n)), calc((100vw - 6rem) / var(--n)));
+		/* 모달 본문 폭(스크림 2rem + 본문 패딩 2.5rem을 뺀 100vw, 데스크톱은 25rem 상한) 안에 칸 사이 gap까지 포함해 12자 행이 들어가도록 줄인다. %는 flex 자식 폭을 0으로 만들어 쓰지 않는다. */
+		--gaps: calc(3px * (var(--n) - 1));
+		--tile: min(2.25rem, calc((25rem - var(--gaps)) / var(--n)), calc((100vw - 4.75rem - var(--gaps)) / var(--n)));
 		display: flex;
 		flex-direction: column;
 		align-items: center;

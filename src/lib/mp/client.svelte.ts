@@ -44,6 +44,9 @@ export class MpClient {
 	nudge = $state.raw<{ id: number; from: string } | null>(null);
 	/** 방장이 "설정 바꾸기"를 눌렀다. 대기실이 한 번 읽고 지운다. */
 	wantSettings = $state(false);
+	/** 게임 중 본 사람별 최고 클리어 수. 서버는 게임 중에 나간 사람을 결과 스냅샷의 players에서 지우므로, 결과의 높이 칸이 이 값으로 채운다. */
+	peakCleared = $state.raw<Record<Pid, number>>({});
+	private peakGame: number | null = null;
 
 	code = '';
 	private typedName = '';
@@ -75,6 +78,8 @@ export class MpClient {
 		this.snap = null;
 		this.closeReason = null;
 		this.wantSettings = false;
+		this.peakCleared = {};
+		this.peakGame = null;
 		setRoomParam(code);
 		this.open();
 	}
@@ -113,6 +118,7 @@ export class MpClient {
 			if (m.snap.seq < this.seq) return; // 역순으로 온 낡은 스냅샷
 			this.seq = m.snap.seq;
 			this.snap = m.snap;
+			this.trackPeaks(m.snap);
 			this.clockOffset = m.snap.now - Date.now();
 			this.status = 'open';
 			this.attempts = 0;
@@ -124,6 +130,17 @@ export class MpClient {
 		} else if (m.type === 'opensettings') {
 			this.wantSettings = true;
 		}
+	}
+
+	private trackPeaks(snap: Snapshot): void {
+		const game = snap.game?.startedAt ?? null;
+		let next = game === this.peakGame ? this.peakCleared : {};
+		for (const p of snap.players) {
+			const c = p.panel?.cleared;
+			if (c !== undefined && c > (next[p.pid] ?? -1)) next = { ...next, [p.pid]: c };
+		}
+		this.peakGame = game;
+		this.peakCleared = next;
 	}
 
 	/** 끊김: 즉시 1회, 2초 뒤 1회 다시 붙는다. 백오프와 탭 전환 대응은 5단계. */

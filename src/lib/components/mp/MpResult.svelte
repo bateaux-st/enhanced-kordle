@@ -8,6 +8,7 @@
 
 	let {
 		snap,
+		peakCleared = {},
 		isHost,
 		onclose,
 		onleave,
@@ -16,6 +17,8 @@
 		onwait
 	}: {
 		snap: Snapshot;
+		/** 게임 중 본 사람별 최고 클리어 수. 나간 사람의 높이를 채운다. */
+		peakCleared?: Record<string, number>;
 		isHost: boolean;
 		onclose: () => void;
 		onleave: () => void;
@@ -34,11 +37,17 @@
 	const wordAt = (len: number) => (game ?? coop)?.answers?.[len]?.word;
 	const answer = $derived(wordAt(startN));
 
-	// 높이(클리어한 스테이지 수)는 순위표에 없고 패널에 있다. 결과 중에 나간 사람은 패널이 없어 '-'로 둔다.
-	const heightOf = (pid: string) => snap.players.find((p) => p.pid === pid)?.panel?.cleared ?? null;
+	const full = $derived(LENGTH_MAX - startN + 1);
+	// 결과 시점에 나간 사람은 players에서 지워져 패널이 없다. 높이와 피라미드는 players가 아니라 서버가 확정해 보낸 값에서 구한다:
+	// 완주자는 순위표(finishOrder), 그 밖의 도달 높이는 answers의 가장 큰 길이(못 넘은 스테이지)다.
+	const solvedAny = $derived((game?.standings ?? []).some((s) => s.finishOrder !== null));
+	const stoppedN = $derived(Math.max(startN, ...Object.keys((game ?? coop)?.answers ?? {}).map(Number)));
+	const reached = $derived(coop ? coop.cleared : solvedAny ? full : stoppedN - startN);
+	const top = $derived(reached >= full);
+	// 행별 높이: 완주자는 풀 높이, 그 외는 남아 있는 패널, 나간 사람은 게임 중 본 최고치. 어느 것도 없으면 '-'.
+	const heightOf = (pid: string, finished: boolean) =>
+		finished ? full : (snap.players.find((p) => p.pid === pid)?.panel?.cleared ?? peakCleared[pid] ?? null);
 	// 코스는 모두 같은 단어 순서라 가장 높이 오른 사람까지의 단어가 피라미드가 된다.
-	const reached = $derived(coop ? coop.cleared : Math.max(0, game?.me?.cleared ?? 0, ...snap.players.map((p) => p.panel?.cleared ?? 0)));
-	const top = $derived(reached >= LENGTH_MAX - startN + 1);
 	const pyramid = $derived(
 		Array.from({ length: reached }, (_, i) => wordAt(startN + i)).filter((w): w is string => w !== undefined)
 	);
@@ -55,7 +64,7 @@
 				me: s.pid === snap.you,
 				rank: `${s.tied ? '공동 ' : ''}${s.rank}위`,
 				result: s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : statusLabel(s.status, climb),
-				height: heightOf(s.pid),
+				height: heightOf(s.pid, s.finishOrder !== null),
 				tries: s.tries
 			};
 		})
