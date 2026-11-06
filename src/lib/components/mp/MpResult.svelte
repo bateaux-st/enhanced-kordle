@@ -25,7 +25,7 @@
 		onwait: () => void;
 	} = $props();
 
-	const game = $derived(snap.game);
+	const game = $derived(snap.game?.kind === 'comp' ? snap.game : null);
 	const answer = $derived(game ? game.answers?.[game.startN]?.word : undefined);
 
 	// 상태·시도·정답 순서는 순위표가 확정 시점에 들고 있다. 결과 단계에서 사람이 나가 players에서 사라져도 표는 그대로다.

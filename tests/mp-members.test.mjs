@@ -204,7 +204,7 @@ test('start: D1 조회 실패(io.start 없음)와 미지원 종류는 상태를 
 	send(s, a, { type: 'ready', on: true });
 	assert.equal(errorOf(send(s, host, { type: 'start' }, T0, {})).code, 'unavailable');
 	assert.equal(s.phase, 'lobby');
-	send(s, host, { type: 'settings', settings: { ...DEFAULT_SETTINGS, kind: 'coop' } });
+	send(s, host, { type: 'settings', settings: { ...DEFAULT_SETTINGS, game: 'climb' } });
 	send(s, a, { type: 'ready', on: true });
 	assert.equal(errorOf(send(s, host, { type: 'start' }, T0, START_IO)).code, 'unavailable');
 	assert.equal(s.phase, 'lobby');

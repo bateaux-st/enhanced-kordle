@@ -1,6 +1,7 @@
 // 메시지 디스패치. hello와 소켓 끊김은 세션·소켓을 아는 DO 셸이 members.join/disconnect를 직접 부른다.
 import type { ClientMsg, ErrorCode, Pid } from '../../mp/protocol.ts';
 import * as comp from './comp.ts';
+import * as coop from './coop.ts';
 import * as members from './members.ts';
 import { fail } from './state.ts';
 import type { Answer, Result, Rng, RoomState } from './state.ts';
@@ -8,7 +9,7 @@ import { abandoned, tick } from './timers.ts';
 
 /** DO 셸이 D1에서 미리 읽어 넘기는 값. 순수 로직은 D1을 부르지 않는다. */
 export interface Io {
-	/** guess: 추측의 사전 여부. D1 조회가 실패하면 undefined. */
+	/** guess·propose: 추측·제안의 사전 여부. D1 조회가 실패하면 undefined. */
 	valid?: boolean;
 	/** start: 시작 길이(comp.chooseStartN)와 그 길이의 정답. 조회가 실패하면 undefined. */
 	start?: { n: number; answer: Answer };
@@ -26,6 +27,8 @@ export interface ReduceResult {
 	events: Effect[];
 	/** 저장·브로드캐스트가 필요한지. */
 	changed: boolean;
+	/** changed여도 저장은 건너뛴다(초안만 바뀐 경우). 메모리 상태에는 남아 다음 저장 때 함께 나간다. */
+	skipSave: boolean;
 	/** 방을 지워야 하는지(빈 방 유예 EMPTY_ROOM_MS 경과). */
 	destroy: boolean;
 }
@@ -38,11 +41,13 @@ const START_BLOCKED = {
 };
 
 const UNSUPPORTED = fail('unavailable', '아직 지원하지 않는 기능입니다');
+const NOT_COOP = fail('phase', '협동 게임에서만 쓸 수 있습니다');
+const NOT_COMP = fail('phase', '경쟁 게임에서만 쓸 수 있습니다');
 
 /** 항상 tick(now)부터 돌려 만료된 마감을 먼저 처리한다. */
-export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: number, _rng: Rng): ReduceResult {
+export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: number, rng: Rng): ReduceResult {
 	const t = tick(s, now);
-	if (t.destroy) return { events: [], changed: false, destroy: true };
+	if (t.destroy) return { events: [], changed: false, skipSave: false, destroy: true };
 
 	const events: Effect[] = [];
 	let changed = t.changed;
@@ -55,7 +60,7 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 	const me = members.findPlayer(s, pid);
 	if (!me) {
 		apply(fail('forbidden', '방에 없는 사람입니다'));
-		return { events, changed, destroy: false };
+		return { events, changed, skipSave: false, destroy: false };
 	}
 
 	switch (msg.type) {
@@ -71,6 +76,7 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 		case 'leave':
 			members.leave(s, pid, now);
 			comp.forfeit(s, pid, now);
+			coop.forfeit(s, pid, rng, now);
 			events.push({ type: 'drop', pid });
 			changed = true;
 			// 전원이 나가기로 떠나 자리가 없으면 유예 없이 소멸한다.
@@ -85,17 +91,35 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 			apply(start(s, pid, msg.kickDisconnected === true, io, now));
 			break;
 		case 'guess':
-			apply(comp.applyGuess(s, pid, msg.jamo, io.valid, now));
+			apply(isCoop(s) ? NOT_COMP : comp.applyGuess(s, pid, msg.jamo, io.valid, now));
 			break;
 		case 'hint':
-			apply(comp.useHint(s, pid));
+			apply(isCoop(s) ? coop.useHint(s, pid) : comp.useHint(s, pid));
 			break;
 		case 'giveup':
-			apply(comp.giveUp(s, pid, now));
+			apply(isCoop(s) ? coop.giveUp(s, pid, now) : comp.giveUp(s, pid, now));
 			break;
 		case 'eliminate':
-			apply(comp.eliminate(s, pid, msg.pid, now));
+			apply(isCoop(s) ? NOT_COMP : comp.eliminate(s, pid, msg.pid, now));
 			break;
+		case 'draft': {
+			const r = isCoop(s) ? coop.draft(s, pid, msg.jamo) : NOT_COOP;
+			apply(r, r.ok && r.changed);
+			break;
+		}
+		case 'propose': {
+			const r = isCoop(s) ? coop.propose(s, pid, msg.jamo, io.valid, rng, now) : NOT_COOP;
+			apply(r, r.ok && r.changed);
+			break;
+		}
+		case 'close':
+			apply(isCoop(s) ? coop.close(s, pid, rng, now) : NOT_COOP);
+			break;
+		case 'vote': {
+			const r = isCoop(s) ? coop.vote(s, pid, msg.candidate, rng, now) : NOT_COOP;
+			apply(r, r.ok && r.changed);
+			break;
+		}
 		case 'again':
 			apply(members.backToLobby(s, pid));
 			break;
@@ -108,16 +132,19 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 		default:
 			apply(UNSUPPORTED);
 	}
-	return { events, changed, destroy };
+	// 초안만 바뀐 메시지: 타이핑마다 저장하면 SQLite 쓰기 한도(무료 10만 행/일)를 빨리 쓴다.
+	return { events, changed, skipSave: msg.type === 'draft' && changed && !t.changed, destroy };
 }
+
+const isCoop = (s: RoomState): boolean => s.game?.kind === 'coop';
 
 function start(s: RoomState, pid: Pid, kickDisconnected: boolean, io: Io, now: number): Result {
 	if (s.hostPid !== pid) return fail('forbidden', '방장만 시작할 수 있습니다');
 	const check = members.canStart(s);
 	if (!check.ok) return fail(check.reason === 'phase' ? 'phase' : 'forbidden', START_BLOCKED[check.reason!](check.waiting));
-	if (s.settings.kind !== 'comp' || s.settings.game !== 'single') return UNSUPPORTED;
+	if (s.settings.game !== 'single') return UNSUPPORTED;
 	if (!io.start) return fail('unavailable', '서버에 연결할 수 없습니다');
 	if (kickDisconnected) members.removeDisconnected(s);
-	comp.startGame(s, io.start, now);
+	(s.settings.kind === 'coop' ? coop : comp).startGame(s, io.start, now);
 	return { ok: true };
 }

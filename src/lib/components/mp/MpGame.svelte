@@ -15,7 +15,7 @@
 
 	let { client, snap, onleave, onwait }: { client: MpClient; snap: Snapshot; onleave: () => void; onwait: () => void } = $props();
 
-	const game = $derived(snap.game);
+	const game = $derived(snap.game?.kind === 'comp' ? snap.game : null);
 	const me = $derived(game?.me ?? null);
 	const n = $derived(me?.n ?? game?.startN ?? 6);
 	const tries = $derived(snap.settings.tries);

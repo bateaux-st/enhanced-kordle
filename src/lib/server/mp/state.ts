@@ -60,6 +60,8 @@ export interface CoopGame extends GameBase {
 	board: Board;
 	step: CoopStep;
 	lastPick: { candidates: string[]; chosen: number; how: 'single' | 'vote' | 'roulette'; tally?: number[]; at: number } | null;
+	/** 공유 힌트를 쓴 사람. 쓰기 전에는 null. */
+	hintBy: Pid | null;
 	status: 'playing' | 'won' | 'lost';
 	endReason?: 'solved' | 'tries' | 'timeout' | 'giveup';
 }
