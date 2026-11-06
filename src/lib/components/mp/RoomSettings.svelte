@@ -9,7 +9,7 @@
 		onchange
 	}: { settings: Settings; editable: boolean; onchange: (next: Settings) => void } = $props();
 
-	// 2단계 범위는 경쟁 단판뿐이라 종류·게임·선택 방식·제한 시간 컨트롤은 두지 않는다(서버가 아직 집행하지 않는다).
+	// 게임(단판/등반)과 제한 시간은 서버가 아직 집행하지 않아 컨트롤을 두지 않는다.
 	const LENS: Settings['length'][] = ['random', ...Array.from({ length: LENGTH_MAX - LENGTH_MIN + 1 }, (_, i) => LENGTH_MIN + i)];
 	const lenIdx = $derived(LENS.indexOf(settings.length));
 
@@ -24,10 +24,38 @@
 	}
 
 	const lenText = (l: Settings['length']) => (l === 'random' ? '랜덤' : `${l}자`);
+	const coop = $derived(settings.kind === 'coop');
 </script>
 
 {#if editable}
 	<div class="stack">
+		<div class="pair">
+			<fieldset>
+				<legend>종류</legend>
+				<div class="opts">
+					<button class="opt" class:flash={flash === 'kind' && coop} type="button" aria-pressed={coop} onclick={() => set('kind', { kind: 'coop' })}>
+						<b>협동</b><span class="d">한 보드에 단어를 제안하고 골라 함께 풉니다.</span>
+					</button>
+					<button class="opt" class:flash={flash === 'kind' && !coop} type="button" aria-pressed={!coop} onclick={() => set('kind', { kind: 'comp' })}>
+						<b>경쟁</b><span class="d">같은 정답을 각자 풉니다.</span>
+					</button>
+				</div>
+			</fieldset>
+			{#if coop}
+				<fieldset>
+					<legend>선택 방식</legend>
+					<div class="opts">
+						<button class="opt" class:flash={flash === 'pick' && settings.pick === 'vote'} type="button" aria-pressed={settings.pick === 'vote'} onclick={() => set('pick', { pick: 'vote' })}>
+							<b>투표</b><span class="d">자기 제안에는 투표할 수 없습니다. 동률이면 돌림판.</span>
+						</button>
+						<button class="opt" class:flash={flash === 'pick' && settings.pick === 'roulette'} type="button" aria-pressed={settings.pick === 'roulette'} onclick={() => set('pick', { pick: 'roulette' })}>
+							<b>돌림판</b><span class="d">제안 중 하나를 무작위로 고릅니다.</span>
+						</button>
+					</div>
+				</fieldset>
+			{/if}
+		</div>
+
 		<div class="stepper" class:flash={flash === 'length'}>
 			<div class="lab">
 				<b id="len-label">자모 수</b>
@@ -74,7 +102,7 @@
 			<button class="sw" class:flash={flash === 'hints'} type="button" role="switch" aria-checked={settings.hints} onclick={() => set('hints', { hints: !settings.hints })}>
 				<span class="lab">
 					<b>힌트</b>
-					<span class="note">노란 자모 하나의 실제 위치를 알려줍니다. 한 사람에 한 번.</span>
+					<span class="note">노란 자모 하나의 실제 위치를 알려줍니다. {coop ? '한 판에 한 번.' : '한 사람에 한 번.'}</span>
 				</span>
 				<span class="oo">{settings.hints ? '켬' : '끔'}</span>
 				<span class="trk" aria-hidden="true"><i></i></span>
@@ -84,7 +112,8 @@
 	</div>
 {:else}
 	<dl class="card sum">
-		<div><dt>종류</dt><dd>경쟁</dd></div>
+		<div><dt>종류</dt><dd>{coop ? '협동' : '경쟁'}</dd></div>
+		{#if coop}<div><dt>선택 방식</dt><dd>{settings.pick === 'vote' ? '투표' : '돌림판'}</dd></div>{/if}
 		<div><dt>게임</dt><dd>단판</dd></div>
 		<div><dt>자모 수</dt><dd>{lenText(settings.length)}</dd></div>
 		<div><dt>시도 횟수</dt><dd>{settings.tries}회</dd></div>
@@ -98,6 +127,43 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1.25rem;
+	}
+	.pair {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+	.opts {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.5rem;
+	}
+	.opt {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.125rem;
+		min-height: 44px;
+		padding: 0.5rem 0.625rem;
+		text-align: left;
+		border: 2px solid var(--line);
+		border-radius: 0.375rem;
+		background: transparent;
+		color: var(--text);
+	}
+	.opt .d {
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.opt[aria-pressed='true'] {
+		border-color: var(--sel-line);
+		background: var(--sel-bg);
+	}
+	.opt[aria-pressed='true'] .d {
+		color: var(--text);
+	}
+	.opt.flash {
+		animation: mp-selbg var(--mo-drop) ease-out both;
 	}
 	.stepper {
 		display: flex;

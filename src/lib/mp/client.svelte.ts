@@ -190,6 +190,21 @@ export class MpClient {
 	guess(jamo: string) {
 		return this.sendRaw({ type: 'guess', jamo });
 	}
+	/** 협동: 입력 중인 글자를 알린다(확정 아님). */
+	draft(jamo: string) {
+		return this.sendRaw({ type: 'draft', jamo });
+	}
+	/** 협동: 제안 확정. 마감 전에는 다시 보내 덮어쓸 수 있다. */
+	propose(jamo: string) {
+		return this.sendRaw({ type: 'propose', jamo });
+	}
+	/** 협동 방장: 제안(또는 투표)을 지금까지로 마감한다. 소켓을 닫는 close()와 구분한다. */
+	closeStep() {
+		return this.sendRaw({ type: 'close' });
+	}
+	vote(candidate: number) {
+		return this.sendRaw({ type: 'vote', candidate });
+	}
 	hint() {
 		return this.sendRaw({ type: 'hint' });
 	}

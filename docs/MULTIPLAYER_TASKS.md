@@ -799,7 +799,7 @@ alarm():
 
 ### 5.3 3단계 — 협동 단판
 
-**진행 (2026-11-06)**: 3.1·3.2(서버) 구현 완료, 브랜치 `feat/mp-coop`. 3.3(UI)은 아직. 프로토콜은 `protocol.ts`의 `CoopGameView`.
+**진행 (2026-11-06)**: 3.1·3.2(서버)·3.3(UI) 구현 완료, 브랜치 `feat/mp-coop`. 3.3은 preview 2~3개 origin으로 E5 전 항목을 확인했다. 프로토콜은 `protocol.ts`의 `CoopGameView`.
 
 - **사용자 가치**: 같은 보드를 함께 푼다
 - **MoSCoW**: Must
