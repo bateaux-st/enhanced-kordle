@@ -1,5 +1,6 @@
-// 상태에는 마감 시각만 저장하고 알람은 가장 이른 하나만 건다. 제한 시간·끊김 탈락은 5단계에서 이 파일에 더한다.
+// 상태에는 마감 시각만 저장하고 알람은 가장 이른 하나만 건다. 등반 유예는 여기서 처리하고, 제한 시간·끊김 탈락은 5단계에서 더한다.
 import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS } from '../../mp/rules.ts';
+import { expireGrace } from './comp.ts';
 import { hostSuccessionAt, succeedHost } from './members.ts';
 import { isListed } from './rooms.ts';
 import type { RoomState } from './state.ts';
@@ -13,6 +14,7 @@ export function nextDeadline(s: RoomState): number | null {
 	if (s.emptySince !== null) due.push(s.emptySince + EMPTY_ROOM_MS);
 	const succession = hostSuccessionAt(s);
 	if (succession !== null) due.push(succession);
+	if (s.phase === 'playing' && s.game?.kind === 'comp' && s.game.graceEnd !== null) due.push(s.game.graceEnd);
 	return due.length ? Math.min(...due) : null;
 }
 
@@ -32,5 +34,7 @@ export function alarmTarget(s: RoomState, lastUpsert: number): number | null {
 export function tick(s: RoomState, now: number): { changed: boolean; destroy: boolean } {
 	if (abandoned(s)) return { changed: false, destroy: true };
 	if (s.emptySince !== null && now >= s.emptySince + EMPTY_ROOM_MS) return { changed: false, destroy: true };
-	return { changed: succeedHost(s, now), destroy: false };
+	const succeeded = succeedHost(s, now);
+	const graced = expireGrace(s, now);
+	return { changed: succeeded || graced, destroy: false };
 }

@@ -141,3 +141,14 @@ test('finishOrder는 정답자끼리 순위표 순서(공동 순위가 있어도
 		['fail', null, 'failed', 3]
 	]);
 });
+
+test('등반: 시도 수는 현재 스테이지 보드의 행 수(누적이 아니다)', () => {
+	// 둘 다 높이 3. 지표는 초록·노랑이 같고 현재 스테이지 시도 수만 다르다.
+	const g = game('climb', {
+		two: entry('timeout', filler(2), { cleared: 3 }),
+		one: entry('timeout', filler(1), { cleared: 3 })
+	});
+	assert.deepEqual(ranks(g), ['one1', 'two2']);
+	assert.equal(metrics(board(filler(2), 3)).tries, 2);
+	assert.deepEqual(standings(g, (p) => p).map((x) => [x.pid, x.status, x.tries]), [['one', 'timeout', 1], ['two', 'timeout', 2]]);
+});

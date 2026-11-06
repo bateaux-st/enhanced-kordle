@@ -1,18 +1,20 @@
 // 메시지 디스패치. hello와 소켓 끊김은 세션·소켓을 아는 DO 셸이 members.join/disconnect를 직접 부른다.
 import type { ClientMsg, ErrorCode, Pid } from '../../mp/protocol.ts';
+import { hasAllStages, isClimb } from './climb.ts';
+import type { Start } from './climb.ts';
 import * as comp from './comp.ts';
 import * as coop from './coop.ts';
 import * as members from './members.ts';
 import { fail } from './state.ts';
-import type { Answer, Result, Rng, RoomState } from './state.ts';
+import type { Result, Rng, RoomState } from './state.ts';
 import { abandoned, tick } from './timers.ts';
 
 /** DO 셸이 D1에서 미리 읽어 넘기는 값. 순수 로직은 D1을 부르지 않는다. */
 export interface Io {
 	/** guess·propose: 추측·제안의 사전 여부. D1 조회가 실패하면 undefined. */
 	valid?: boolean;
-	/** start: 시작 길이(comp.chooseStartN)와 그 길이의 정답. 조회가 실패하면 undefined. */
-	start?: { n: number; answer: Answer };
+	/** start: 시작 길이(comp.chooseStartN)와 정답. 등반이면 12자까지 모든 스테이지의 정답. 조회가 실패하면 undefined. */
+	start?: Start;
 }
 
 export type Effect =
@@ -142,8 +144,7 @@ function start(s: RoomState, pid: Pid, kickDisconnected: boolean, io: Io, now: n
 	if (s.hostPid !== pid) return fail('forbidden', '방장만 시작할 수 있습니다');
 	const check = members.canStart(s);
 	if (!check.ok) return fail(check.reason === 'phase' ? 'phase' : 'forbidden', START_BLOCKED[check.reason!](check.waiting));
-	if (s.settings.game !== 'single') return UNSUPPORTED;
-	if (!io.start) return fail('unavailable', '서버에 연결할 수 없습니다');
+	if (!io.start || (isClimb(s.settings) && !hasAllStages(io.start))) return fail('unavailable', '서버에 연결할 수 없습니다');
 	if (kickDisconnected) members.removeDisconnected(s);
 	(s.settings.kind === 'coop' ? coop : comp).startGame(s, io.start, now);
 	return { ok: true };

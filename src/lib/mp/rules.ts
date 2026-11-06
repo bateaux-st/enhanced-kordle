@@ -10,6 +10,8 @@ export const HOST_GRACE_MS = 5_000;
 export const EMPTY_ROOM_MS = 30_000;
 export const DISCONNECT_GRACE_MS = 60_000;
 export const IDLE_WARNING_MS = 60_000;
+/** 경쟁 등반에서 첫 완주자가 나온 뒤 나머지가 따라올 수 있는 시간. */
+export const CLIMB_GRACE_MS = 60_000;
 export const LOBBY_POLL_MS = 3_000;
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 

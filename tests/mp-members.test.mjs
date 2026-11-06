@@ -198,7 +198,7 @@ test('접속 중인 사람이 방장 하나뿐이면 끊긴 사람이 있어도 
 	assert.equal(canStart(s).reason, 'alone');
 });
 
-test('start: D1 조회 실패(io.start 없음)와 미지원 종류는 상태를 바꾸지 않는다', () => {
+test('start: D1 조회 실패(io.start 없음)와 위쪽 스테이지 정답이 빠진 등반은 상태를 바꾸지 않는다', () => {
 	const s = lobby();
 	const [host, a] = joinAll(s, ['가']);
 	send(s, a, { type: 'ready', on: true });

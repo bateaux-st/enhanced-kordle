@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_SETTINGS, EMPTY_ROOM_MS, HOST_GRACE_MS, LOBBY_REFRESH_MS } from '../src/lib/mp/rules.ts';
+import { CLIMB_GRACE_MS, DEFAULT_SETTINGS, EMPTY_ROOM_MS, HOST_GRACE_MS, LOBBY_REFRESH_MS } from '../src/lib/mp/rules.ts';
+import { applyGuess } from '../src/lib/server/mp/comp.ts';
 import { disconnect, join, leave, reconcile } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { initRoom } from '../src/lib/server/mp/state.ts';
 import { abandoned, alarmTarget, nextDeadline, tick } from '../src/lib/server/mp/timers.ts';
-import { joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
+import { compClimbStarted, joinAll, lobby, rng, stageAnswer, started, T0 } from './mp-helpers.mjs';
 
 test('마감이 없으면 null', () => {
 	const s = lobby();
@@ -225,4 +226,26 @@ test('재시작 화해 뒤의 방: 소켓이 없으면 emptySince가 시작돼 3
 	reconcile(s, [], T0 + 100);
 	assert.equal(nextDeadline(s), T0 + 100 + EMPTY_ROOM_MS);
 	assert.equal(tick(s, T0 + 100 + EMPTY_ROOM_MS).destroy, true);
+});
+
+test('등반 유예 마감: 첫 완주 뒤 playing인 동안만 마감 후보, 알람은 그 시각 하나로 걸린다', () => {
+	const { s, pids } = compClimbStarted(['가'], { tries: 4 });
+	assert.equal(nextDeadline(s), null);
+	for (let n = 10; n <= 12; n++) applyGuess(s, pids[0], stageAnswer(n).jamo, true, T0 + 5);
+	assert.equal(nextDeadline(s), T0 + 5 + CLIMB_GRACE_MS);
+	assert.equal(alarmTarget(s, T0 + 30_000), T0 + 5 + CLIMB_GRACE_MS, '재알림이 더 늦으면 유예 마감이 알람 시각');
+	s.phase = 'lobby';
+	assert.equal(nextDeadline(s), null, '게임이 끝나면 마감이 남지 않는다');
+});
+
+test('등반 유예 만료 tick: 같은 now로 두 번 불러도 같고, 한 틱에 방장 승계와 함께 처리된다', () => {
+	const { s, pids } = compClimbStarted(['가'], { tries: 4 });
+	for (let n = 10; n <= 12; n++) applyGuess(s, pids[0], stageAnswer(n).jamo, true, T0 + 5);
+	disconnect(s, pids[0], T0 + 6);
+	const due = T0 + 5 + CLIMB_GRACE_MS;
+	assert.deepEqual(tick(s, due), { changed: true, destroy: false });
+	assert.deepEqual([s.phase, s.game.players[pids[1]].status, s.hostPid], ['result', 'timeout', pids[1]]);
+	const after = JSON.stringify(s);
+	assert.deepEqual(tick(s, due), { changed: false, destroy: false });
+	assert.equal(JSON.stringify(s), after);
 });

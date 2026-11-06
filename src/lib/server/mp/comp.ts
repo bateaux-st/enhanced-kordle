@@ -1,14 +1,16 @@
-// 경쟁 단판. 같은 정답을 각자 개인 보드로 푼다. 제한 시간·등반·유예는 뒤 단계에서 더한다.
+// 경쟁 게임. 단판은 같은 정답을, 등반은 같은 단어 순서를 각자 개인 보드로 푼다. 제한 시간은 5단계에서 더한다.
 import { judge } from '../judge.ts';
 import { hardViolation } from '../../hard.ts';
 import { isJamo } from '../../jamo.ts';
-import { LENGTH_MAX, LENGTH_MIN } from '../../mp/rules.ts';
+import { CLIMB_GRACE_MS, LENGTH_MAX, LENGTH_MIN } from '../../mp/rules.ts';
 import type { Mark } from '../../types.ts';
 import type { Pid, Settings } from '../../mp/protocol.ts';
+import { climbUp, hintUsedMsg, isClimb, isTop, startAnswers } from './climb.ts';
+import type { Start } from './climb.ts';
 import { findPlayer } from './members.ts';
 import { standings } from './rank.ts';
 import { fail } from './state.ts';
-import type { Answer, Board, CompGame, CompPlayer, Result, Rng, RoomState } from './state.ts';
+import type { Board, CompGame, CompPlayer, Result, Rng, RoomState } from './state.ts';
 
 /** 시작 길이. 'random'이면 5..12에서 하나. DO 셸이 이 값으로 D1에서 정답을 읽어 startGame에 넘긴다. */
 export function chooseStartN(settings: Settings, rng: Rng): number {
@@ -20,17 +22,17 @@ export function freshBoard(n: number): Board {
 }
 
 /** 현재 방에 있는 모두가 참가자다. 끊긴 채 남은 사람도 자리를 지키며 포함된다. */
-export function startGame(s: RoomState, start: { n: number; answer: Answer }, now: number): void {
+export function startGame(s: RoomState, start: Start, now: number): void {
 	const players: Record<Pid, CompPlayer> = {};
 	for (const p of s.players) {
 		p.inGame = true;
-		players[p.pid] = { board: freshBoard(start.n), status: 'playing', finishedAt: null, triesUsed: 0 };
+		players[p.pid] = { board: freshBoard(start.n), status: 'playing', finishedAt: null, triesUsed: 0, lastClear: null };
 	}
 	s.game = {
 		kind: 'comp',
 		settings: { ...s.settings },
 		startN: start.n,
-		answers: { [start.n]: start.answer },
+		answers: startAnswers(start),
 		startedAt: now,
 		endedAt: null,
 		players,
@@ -106,9 +108,19 @@ export function applyGuess(s: RoomState, pid: Pid, jamo: string, valid: boolean 
 	board.rows.push(jamo);
 	board.marks.push(marks);
 	if (marks.every((m) => m === 'c')) {
-		board.cleared = 1;
-		finish(game, pid, 'solved', now);
-		game.finishOrder.push(pid);
+		board.cleared += 1;
+		if (isClimb(game.settings) && !isTop(board)) {
+			// 서버는 기다리지 않고 바로 다음 스테이지로 넘긴다. 클리어 연출은 lastClear로 클라이언트가 맡는다.
+			const up = climbUp(board, now);
+			me.board = up.next;
+			me.lastClear = up.clear;
+			me.triesUsed = 0;
+		} else {
+			finish(game, pid, 'solved', now);
+			game.finishOrder.push(pid);
+			// 첫 완주자만 유예를 연다. 이미 열렸으면 그 마감을 바꾸지 않는다.
+			if (isClimb(game.settings) && game.graceEnd === null) game.graceEnd = now + CLIMB_GRACE_MS;
+		}
 	} else if (board.rows.length >= game.settings.tries) {
 		finish(game, pid, 'failed', now);
 	} else {
@@ -143,7 +155,7 @@ export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: str
 	const { game, me } = a;
 	const board = me.board;
 	if (!game.settings.hints) return fail('forbidden', '힌트를 쓸 수 없는 방입니다');
-	if (board.hintUsed) return fail('forbidden', '힌트는 한 판에 한 번입니다');
+	if (board.hintUsed) return fail('forbidden', hintUsedMsg(game.settings));
 
 	const h = hintFor(board, game.answers[board.n].jamo);
 	if (!h.ok) return h;
@@ -158,6 +170,16 @@ export function giveUp(s: RoomState, pid: Pid, now: number): Result {
 	finish(a.game, pid, 'gaveup', now);
 	settle(s, now);
 	return { ok: true };
+}
+
+/** 유예가 끝났다. 아직 오르는 사람은 그 시점 높이에서 멈춘다(시간 초과). 같은 now로 다시 불러도 결과가 같다. */
+export function expireGrace(s: RoomState, now: number): boolean {
+	const game = compGame(s);
+	if (!game || game.graceEnd === null || now < game.graceEnd) return false;
+	// 알람이 늦게 울려도 순위 입력이 흔들리지 않도록 마감 시각으로 기록한다.
+	for (const [pid, p] of Object.entries(game.players)) if (p.status === 'playing') finish(game, pid, 'timeout', game.graceEnd);
+	settle(s, now);
+	return true;
 }
 
 /** 방장이 끊긴 사람을 탈락시킨다. 접속 중인 사람은 대상이 아니다. */

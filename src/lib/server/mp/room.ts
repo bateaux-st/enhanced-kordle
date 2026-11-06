@@ -4,6 +4,7 @@ import type { ClientMsg, ServerMsg, SessionInfo, Settings, RoomSummary } from '.
 import { LOBBY_REFRESH_MS, normalizeName } from '../../mp/rules.ts';
 import { dict } from '../dict.ts';
 import { randomIndex } from '../token.ts';
+import { isClimb, stageLengths } from './climb.ts';
 import { chooseStartN } from './comp.ts';
 import * as coop from './coop.ts';
 import type { Lobby } from './lobby.ts';
@@ -208,17 +209,26 @@ export class Room extends DurableObject<RoomEnv> {
 		}
 	}
 
-	/** 시작 길이를 정하고 그 길이의 정답을 풀에서 읽는다(pool_meta 1행 + pool 1행). 실패하면 undefined. */
+	/**
+	 * 시작 길이를 정하고 정답을 풀에서 읽는다(길이마다 pool_meta 1행 + pool 1행).
+	 * 등반은 12자까지 모든 스테이지를 시작 때 읽어 두어 진행 중 순수 로직이 D1을 부르지 않게 한다(최대 16행). 실패하면 undefined.
+	 */
 	private async lookupStart(pid: Pid): Promise<Io['start']> {
 		const s = this.state;
 		if (!s || s.hostPid !== pid || !members.canStart(s).ok) return undefined;
-		if (s.settings.game !== 'single') return undefined;
 		const n = chooseStartN(s.settings, randomIndex);
+		const lengths = isClimb(s.settings) ? stageLengths(n) : [n];
 		try {
 			const d = dict(this.env.DB);
-			const count = await d.answerCount(MP_POOL_T, n);
-			if (count <= 0) return undefined;
-			return { n, answer: await d.answerAt(MP_POOL_T, n, randomIndex(count)) };
+			const answers = await Promise.all(
+				lengths.map(async (k) => {
+					const count = await d.answerCount(MP_POOL_T, k);
+					if (count <= 0) throw new Error(`pool empty n=${k}`);
+					return [k, await d.answerAt(MP_POOL_T, k, randomIndex(count))] as const;
+				})
+			);
+			const stages = Object.fromEntries(answers);
+			return { n, answer: stages[n], ...(lengths.length > 1 ? { stages } : {}) };
 		} catch {
 			return undefined;
 		}

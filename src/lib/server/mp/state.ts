@@ -1,6 +1,6 @@
 // 서버 전용 상태. 정답과 uid가 들어 있으므로 스냅샷 가공(snapshot.ts)을 거치지 않고 클라이언트로 보내지 않는다.
 import type { Mark } from '../../types.ts';
-import type { CompStatus, ErrorCode, Pid, Phase, Settings, Standing } from '../../mp/protocol.ts';
+import type { CompStatus, ErrorCode, Pid, Phase, Settings, Standing, StageClearView } from '../../mp/protocol.ts';
 
 export type { Pid, Phase, CompStatus };
 
@@ -62,6 +62,8 @@ export interface CoopGame extends GameBase {
 	lastPick: { candidates: string[]; by: Pid[][]; chosen: number; how: 'single' | 'vote' | 'roulette'; tally?: number[]; at: number } | null;
 	/** 공유 힌트를 쓴 사람. 쓰기 전에는 null. */
 	hintBy: Pid | null;
+	/** 등반에서 방금 클리어한 스테이지. 이전 저장본에는 없을 수 있다. */
+	lastClear?: StageClearView | null;
 	status: 'playing' | 'won' | 'lost';
 	endReason?: 'solved' | 'tries' | 'timeout' | 'giveup';
 }
@@ -71,6 +73,8 @@ export interface CompPlayer {
 	status: CompStatus;
 	finishedAt: number | null;
 	triesUsed: number;
+	/** 등반에서 방금 클리어한 스테이지. 이전 저장본에는 없을 수 있다. */
+	lastClear?: StageClearView | null;
 }
 
 export interface CompGame extends GameBase {

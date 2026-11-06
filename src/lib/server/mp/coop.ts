@@ -3,10 +3,12 @@
 import { isJamo } from '../../jamo.ts';
 import { judge } from '../judge.ts';
 import type { Pid } from '../../mp/protocol.ts';
+import { climbUp, hintUsedMsg, isClimb, isTop, startAnswers } from './climb.ts';
+import type { Start } from './climb.ts';
 import { checkGuess, freshBoard, hintFor } from './comp.ts';
 import { findPlayer } from './members.ts';
 import { fail } from './state.ts';
-import type { Answer, CoopGame, CoopStep, Player, Result, Rng, RoomState } from './state.ts';
+import type { CoopGame, CoopStep, Player, Result, Rng, RoomState } from './state.ts';
 
 type ProposeStep = Extract<CoopStep, { kind: 'propose' }>;
 type VoteStep = Extract<CoopStep, { kind: 'vote' }>;
@@ -16,19 +18,20 @@ const emptyPropose = (): ProposeStep => ({ kind: 'propose', proposals: {}, draft
 
 const noGame = () => fail('phase', '진행 중인 협동 게임이 없습니다');
 
-export function startGame(s: RoomState, start: { n: number; answer: Answer }, now: number): void {
+export function startGame(s: RoomState, start: Start, now: number): void {
 	for (const p of s.players) p.inGame = true;
 	s.game = {
 		kind: 'coop',
 		settings: { ...s.settings },
 		startN: start.n,
-		answers: { [start.n]: start.answer },
+		answers: startAnswers(start),
 		startedAt: now,
 		endedAt: null,
 		board: freshBoard(start.n),
 		step: emptyPropose(),
 		lastPick: null,
 		hintBy: null,
+		lastClear: null,
 		status: 'playing'
 	};
 	s.phase = 'playing';
@@ -82,8 +85,14 @@ function submit(s: RoomState, game: CoopGame, cands: VoteStep['candidates'], cho
 	// by는 클라이언트가 돌림판 후보 옆에 제안자 이름을 그리는 데 쓴다. 투표 단계가 아닌 즉시 제출도 같은 모양이다.
 	game.lastPick = { candidates, by: cands.map((c) => [...c.by]), chosen, how, ...(tally ? { tally } : {}), at: now };
 	game.step = emptyPropose();
-	if (marks.every((m) => m === 'c')) endGame(s, game, 'won', 'solved', now);
-	else if (board.rows.length >= game.settings.tries) endGame(s, game, 'lost', 'tries', now);
+	if (marks.every((m) => m === 'c')) {
+		board.cleared += 1;
+		if (isClimb(game.settings) && !isTop(board)) {
+			const up = climbUp(board, now);
+			game.board = up.next;
+			game.lastClear = up.clear;
+		} else endGame(s, game, 'won', 'solved', now);
+	} else if (board.rows.length >= game.settings.tries) endGame(s, game, 'lost', 'tries', now);
 }
 
 /** 제안을 닫는다. 후보가 하나면 바로 제출, 돌림판 방식이면 서버가 즉시 고르고, 투표 방식이면 투표 단계로 간다. */
@@ -199,14 +208,14 @@ export function vote(s: RoomState, pid: Pid, candidate: number, rng: Rng, now: n
 	return { ok: true, changed };
 }
 
-/** 판당 1회, 참가자 누구나. 계산은 경쟁 힌트와 같고 쓴 사람을 남긴다. */
+/** 판당 1회(등반은 등반 전체에서 1회), 참가자 누구나. 계산은 경쟁 힌트와 같고 쓴 사람을 남긴다. */
 export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: string }> {
 	const m = member(s, pid);
 	if (!m.ok) return m;
 	const { game } = m;
 	const board = game.board;
 	if (!game.settings.hints) return fail('forbidden', '힌트를 쓸 수 없는 방입니다');
-	if (board.hintUsed) return fail('forbidden', '힌트는 한 판에 한 번입니다');
+	if (board.hintUsed) return fail('forbidden', hintUsedMsg(game.settings));
 	const h = hintFor(board, game.answers[board.n].jamo);
 	if (!h.ok) return h;
 	board.hints[h.pos] = h.jamo;
