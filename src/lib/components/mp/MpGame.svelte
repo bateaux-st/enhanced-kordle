@@ -356,7 +356,8 @@
 	// 서버는 모른다. 지금 입력할 것이 있는 사람 화면에서만 60초 타이머가 돌고, 경고는 자동 포기나 퇴장으로 이어지지 않는다.
 	// 경쟁은 내가 풀이 중일 때, 협동은 제안 단계에서 아직 안 냈거나 투표 단계에서 찍을 후보가 있는데 안 찍었을 때다.
 	const idleTarget = $derived.by(() => {
-		if (snap.phase !== 'playing' || modal !== null || kickPid !== null) return false;
+		// 끊긴 동안은 스냅샷이 얼어 있어 서버 상태를 믿을 수 없고, 끊김 오버레이가 포커스를 쥐고 있다.
+		if (snap.phase !== 'playing' || modal !== null || kickPid !== null || client.status !== 'open') return false;
 		if (!coop) return me?.status === 'playing';
 		const mine = snap.players.find((p) => p.pid === snap.you);
 		const st = coop.step;
@@ -711,7 +712,9 @@
 		display: none;
 	}
 	.arena {
-		--cw: min(28rem, calc(100vw - 32px - 26rem - 8rem));
+		/* 100vw는 클래식 스크롤바 폭을 포함해 보드가 좌우로 넘친다. 컨테이너 폭(cqw)은 스크롤바와 좌우 여백을 뺀 값이다. */
+		container-type: inline-size;
+		--cw: min(28rem, calc(100cqw - 26rem - 8rem));
 		display: grid;
 		grid-template-columns: 13rem minmax(0, 28rem) 13rem;
 		column-gap: 4rem;
@@ -813,7 +816,7 @@
 	/* 900px 미만: 상대 카드는 보드 위 한 줄로, 보드는 세로 공간에 맞춰 줄인다 */
 	@media (max-width: 899.98px) {
 		.arena {
-			--cw: calc(100vw - 32px);
+			--cw: 100cqw;
 			--chrome-h: 494px;
 			display: block;
 		}
@@ -853,7 +856,8 @@
 			gap: 0.75rem;
 		}
 		.center :global(.board) {
-			--tile: max(26px, min(56px, calc(var(--cw) / var(--n) - 4px), calc((100dvh - var(--chrome-h)) / var(--rows) - 4px)));
+			/* 세로 바닥(26px)은 높이가 모자란 가로 화면용이다. 12자가 폭에 들어가는지가 먼저라 폭 상한은 바닥 밖에 둔다. */
+			--tile: min(56px, calc(var(--cw) / var(--n) - 4px), max(26px, calc((100dvh - var(--chrome-h)) / var(--rows) - 4px)));
 		}
 		.center :global(.keyboard) {
 			--kw: min(36px, calc((var(--cw) - 18px) / 10.27));

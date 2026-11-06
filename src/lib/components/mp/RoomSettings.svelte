@@ -121,7 +121,7 @@
 			<button class="sw" class:flash={flash === 'timer'} type="button" role="switch" aria-checked={settings.timer} onclick={() => set('timer', { timer: !settings.timer })}>
 				<span class="lab">
 					<b>제한 시간</b>
-					<span class="note">{climb ? '스테이지마다 3분에서 15초씩 줄어 1분까지.' : '한 판에 3분.'} {coop ? '방 전체가 한 시계를 씁니다.' : '시계는 각자 따로 갑니다.'}</span>
+					<span class="note">단판 180초. 등반은 180초에서 스테이지마다 15초씩 줄어 60초까지.</span>
 				</span>
 				<span class="oo">{settings.timer ? '켬' : '끔'}</span>
 				<span class="trk" aria-hidden="true"><i></i></span>

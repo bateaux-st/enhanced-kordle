@@ -54,7 +54,6 @@
 			<span class="t" {id}>{kind === 'replaced' ? '다른 탭에서 접속했습니다' : '방에 다시 들어갈 수 없습니다'}</span>
 			{#if kind === 'replaced'}<span class="note">이 탭은 더 이상 이 방에 연결되어 있지 않습니다.</span>{/if}
 			{#if kind === 'lost'}
-				<span class="note">네트워크 상태를 확인한 뒤 다시 연결해 보세요.</span>
 				<button class="btn primary" type="button" onclick={onretry}>다시 연결</button>
 				<button class="btn" type="button" onclick={onlobby}>로비로</button>
 			{:else}

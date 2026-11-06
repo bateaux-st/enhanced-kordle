@@ -31,8 +31,16 @@
 
 	let said = $state('');
 	let prev = untrack(() => secs);
+	let prevDeadline = untrack(() => deadline);
 	$effect(() => {
 		const s = secs;
+		// 등반은 같은 컴포넌트에 새 마감이 들어온다. 이전 스테이지의 값으로 문턱 통과를 판정하지 않고, 같은 문구가 다시 낭독되도록 비운다.
+		if (deadline !== prevDeadline) {
+			prevDeadline = deadline;
+			prev = s;
+			said = '';
+			return;
+		}
 		const crossed = ANNOUNCE_AT.find((m) => s <= m && prev > m);
 		prev = s;
 		if (crossed) said = crossed === 60 ? '남은 시간 1분' : `남은 시간 ${crossed}초`;
