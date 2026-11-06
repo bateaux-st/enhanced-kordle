@@ -72,13 +72,15 @@ function endGame(s: RoomState, game: CoopGame, status: 'won' | 'lost', reason: N
 }
 
 /** 고른 후보를 공유 보드에 넣고 판정한다. 제안·초안·투표는 모두 비우고 다음 행 제안으로 돌아간다. */
-function submit(s: RoomState, game: CoopGame, candidates: string[], chosen: number, how: Pick['how'], tally: number[] | undefined, now: number): void {
+function submit(s: RoomState, game: CoopGame, cands: VoteStep['candidates'], chosen: number, how: Pick['how'], tally: number[] | undefined, now: number): void {
 	const board = game.board;
+	const candidates = cands.map((c) => c.jamo);
 	const jamo = candidates[chosen];
 	const marks = judge(game.answers[board.n].jamo, jamo);
 	board.rows.push(jamo);
 	board.marks.push(marks);
-	game.lastPick = { candidates, chosen, how, ...(tally ? { tally } : {}), at: now };
+	// by는 클라이언트가 돌림판 후보 옆에 제안자 이름을 그리는 데 쓴다. 투표 단계가 아닌 즉시 제출도 같은 모양이다.
+	game.lastPick = { candidates, by: cands.map((c) => [...c.by]), chosen, how, ...(tally ? { tally } : {}), at: now };
 	game.step = emptyPropose();
 	if (marks.every((m) => m === 'c')) endGame(s, game, 'won', 'solved', now);
 	else if (board.rows.length >= game.settings.tries) endGame(s, game, 'lost', 'tries', now);
@@ -87,9 +89,8 @@ function submit(s: RoomState, game: CoopGame, candidates: string[], chosen: numb
 /** 제안을 닫는다. 후보가 하나면 바로 제출, 돌림판 방식이면 서버가 즉시 고르고, 투표 방식이면 투표 단계로 간다. */
 function closePropose(s: RoomState, game: CoopGame, step: ProposeStep, rng: Rng, now: number): void {
 	const candidates = mergeProposals(step.proposals);
-	const jamos = candidates.map((c) => c.jamo);
-	if (candidates.length === 1) submit(s, game, jamos, 0, 'single', undefined, now);
-	else if (game.settings.pick === 'roulette') submit(s, game, jamos, rng(jamos.length), 'roulette', undefined, now);
+	if (candidates.length === 1) submit(s, game, candidates, 0, 'single', undefined, now);
+	else if (game.settings.pick === 'roulette') submit(s, game, candidates, rng(candidates.length), 'roulette', undefined, now);
 	else game.step = { kind: 'vote', candidates, votes: {} };
 }
 
@@ -99,9 +100,8 @@ function closeVote(s: RoomState, game: CoopGame, step: VoteStep, rng: Rng, now: 
 	for (const c of Object.values(step.votes)) tally[c]++;
 	const top = Math.max(...tally);
 	const tied = tally.flatMap((t, i) => (t === top ? [i] : []));
-	const jamos = step.candidates.map((c) => c.jamo);
-	if (tied.length === 1) submit(s, game, jamos, tied[0], 'vote', tally, now);
-	else submit(s, game, jamos, tied[rng(tied.length)], 'roulette', tally, now);
+	if (tied.length === 1) submit(s, game, step.candidates, tied[0], 'vote', tally, now);
+	else submit(s, game, step.candidates, tied[rng(tied.length)], 'roulette', tally, now);
 }
 
 /**
@@ -248,7 +248,7 @@ export function forfeit(s: RoomState, pid: Pid, rng: Rng, now: number): void {
 		const votes: Record<Pid, number> = {};
 		for (const [voter, idx] of Object.entries(step.votes)) if (kept.includes(idx)) votes[voter] = kept.indexOf(idx);
 		if (candidates.length === 0) game.step = emptyPropose();
-		else if (candidates.length === 1) submit(s, game, [candidates[0].jamo], 0, 'single', undefined, now);
+		else if (candidates.length === 1) submit(s, game, [candidates[0]], 0, 'single', undefined, now);
 		else game.step = { kind: 'vote', candidates, votes };
 	}
 	advance(s, rng, now);

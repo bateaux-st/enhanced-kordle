@@ -261,7 +261,7 @@ test('협동 결과: 정답이 모두에게 나가고 단계는 null, 마지막 
 		assert.deepEqual(view.game.answers, { 6: ANSWER });
 		assert.equal(view.game.step, null);
 		assert.deepEqual([view.game.status, view.game.endReason, view.game.endedAt], ['won', 'solved', T0 + 5]);
-		assert.deepEqual(view.game.lastPick, { candidates: [ANSWER.jamo], chosen: 0, how: 'single', at: T0 + 5 });
+		assert.deepEqual(view.game.lastPick, { candidates: [ANSWER.jamo], by: [pids], chosen: 0, how: 'single', at: T0 + 5 });
 		const json = JSON.stringify(view);
 		assert.ok(!json.includes('uid-'));
 		assert.ok(!json.includes('mp1.'));

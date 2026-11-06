@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as coop from '../src/lib/server/mp/coop.ts';
 import { disconnect, join, leave } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
+import { personalize } from '../src/lib/server/mp/snapshot.ts';
 import { ANSWER, coopStarted, joinAll, lobby, rng, T0 } from './mp-helpers.mjs';
 
 // 정답 바나나(ㅂㅏㄴㅏㄴㅏ). 난방은 p c c p p a — mp-comp.test.mjs와 같은 실제 판정 예.
@@ -151,7 +152,7 @@ test('제안이 병합 뒤 하나뿐이면 선택 단계 없이 공유 보드에
 	assert.equal(r.changed, true);
 	assert.deepEqual(s.game.board.rows, [NANBANG]);
 	assert.deepEqual(s.game.board.marks, [NANBANG_MARKS]);
-	assert.deepEqual(s.game.lastPick, { candidates: [NANBANG], chosen: 0, how: 'single', at: T0 + 7 });
+	assert.deepEqual(s.game.lastPick, { candidates: [NANBANG], by: [[host, a, b]], chosen: 0, how: 'single', at: T0 + 7 });
 	assert.deepEqual(step(s), { kind: 'propose', proposals: {}, drafts: {} }, '제안·초안이 비워진다');
 	assert.equal(s.game.status, 'playing');
 });
@@ -187,7 +188,7 @@ test('전원 투표하면 최다 득표 후보가 선택되고 득표수가 last
 	assert.equal(step(s).kind, 'vote');
 	vote(s, b, 1, first, T0 + 9);
 	assert.deepEqual(s.game.board.rows, [Y]);
-	assert.deepEqual(s.game.lastPick, { candidates: [X, Y, Z], chosen: 1, how: 'vote', tally: [0, 2, 1], at: T0 + 9 });
+	assert.deepEqual(s.game.lastPick, { candidates: [X, Y, Z], by: [[host], [a], [b]], chosen: 1, how: 'vote', tally: [0, 2, 1], at: T0 + 9 });
 	assert.deepEqual(step(s), { kind: 'propose', proposals: {}, drafts: {} });
 });
 
@@ -276,7 +277,7 @@ test('돌림판 방식: 후보가 둘 이상이면 서버가 투표 없이 바�
 	propose(s, host, X);
 	propose(s, a, Y, last, T0 + 6);
 	assert.deepEqual(s.game.board.rows, [Y]);
-	assert.deepEqual(s.game.lastPick, { candidates: [X, Y], chosen: 1, how: 'roulette', at: T0 + 6 });
+	assert.deepEqual(s.game.lastPick, { candidates: [X, Y], by: [[host], [a]], chosen: 1, how: 'roulette', at: T0 + 6 });
 	assert.equal(step(s).kind, 'propose');
 	// 후보가 하나면 방식과 무관하게 single
 	everyoneProposes(s, Z, T0 + 8);
@@ -385,6 +386,7 @@ test('투표 중 나가기: 표와 후보가 빠지고, 후보가 하나 남으�
 	coop.forfeit(s, a, first, T0 + 3);
 	// Y(a)가 사라져 후보는 X(0), Z(1)로 당겨지고, host의 표(Z)도 번호가 따라간다. 투표자가 모두 끝나 바로 집계된다.
 	assert.deepEqual(s.game.lastPick.candidates, [X, Z]);
+	assert.deepEqual(s.game.lastPick.by, [[host], [b]], '나간 사람의 후보는 빠지고 제안자 목록도 같은 순서로 당겨진다');
 	assert.deepEqual(s.game.lastPick.tally, [1, 1]);
 
 	const t = votingRoom();
@@ -396,6 +398,33 @@ test('투표 중 나가기: 표와 후보가 빠지고, 후보가 하나 남으�
 	leave(t.s, t.b, T0 + 4);
 	coop.forfeit(t.s, t.b, first, T0 + 4);
 	assert.deepEqual([t.s.game.lastPick.how, t.s.game.board.rows], ['single', [X]]);
+	assert.deepEqual(t.s.game.lastPick.by, [[t.host]]);
+});
+
+test('lastPick.by: 같은 단어를 낸 두 사람은 한 후보에 함께 들어가고 스냅샷에도 나간다', () => {
+	// 돌림판 방식: X를 낸 host·a가 한 후보, Y를 낸 b가 다른 후보
+	const r = coopStarted(['가', '나'], { pick: 'roulette' });
+	const [host, a, b] = r.pids;
+	propose(r.s, host, X);
+	propose(r.s, a, X);
+	propose(r.s, b, Y, last, T0 + 6);
+	assert.deepEqual(r.s.game.lastPick.candidates, [X, Y]);
+	assert.deepEqual(r.s.game.lastPick.by, [[host, a], [b]]);
+	assert.equal(r.s.game.lastPick.how, 'roulette');
+
+	// 투표 방식: 병합 후보 X(host·a)와 Y(b). host·a는 X를 찍을 수 없으니 둘 다 Y, b는 X → X 1표 Y 2표
+	const v = coopStarted(['가', '나']);
+	const [h2, a2, b2] = v.pids;
+	propose(v.s, h2, X);
+	propose(v.s, a2, X);
+	propose(v.s, b2, Y);
+	vote(v.s, h2, 1);
+	vote(v.s, a2, 1);
+	vote(v.s, b2, 0, first, T0 + 9);
+	assert.deepEqual(v.s.game.lastPick.by, [[h2, a2], [b2]]);
+	assert.deepEqual(v.s.game.lastPick.tally, [1, 2]);
+	// 스냅샷에도 그대로 나간다
+	assert.deepEqual(personalize(v.s, h2, T0 + 10).game.lastPick.by, [[h2, a2], [b2]]);
 });
 
 test('reduce 경로의 leave가 자동 진행까지 이어진다', () => {

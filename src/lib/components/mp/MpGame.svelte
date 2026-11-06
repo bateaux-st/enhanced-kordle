@@ -4,7 +4,7 @@
 	import Keyboard from '$lib/components/Keyboard.svelte';
 	import { CODE_TO_JAMO } from '$lib/jamo';
 	import type { MpClient } from '$lib/mp/client.svelte';
-	import type { CoopPickView, CoopStepView, PlayerView, Snapshot } from '$lib/mp/protocol';
+	import type { CoopPickView, PlayerView, Snapshot } from '$lib/mp/protocol';
 	import { STATUS_LABEL } from '$lib/mp/rules';
 	import type { Mark } from '$lib/types';
 	import CoopPicker from './CoopPicker.svelte';
@@ -31,42 +31,6 @@
 	let seenPickAt = $state(untrack(() => coop?.lastPick?.at ?? 0));
 	const unseen = $derived(coop?.lastPick && coop.lastPick.at !== seenPickAt ? coop.lastPick : null);
 	const held = $derived(unseen?.how === 'roulette' ? unseen : null);
-
-	// 돌림판 후보의 제안자 이름. pick은 후보 자모열만 들고 있어서, 고르기 직전 스냅샷의 단계에서 읽어 둔다.
-	// 같은 스냅샷에서 행이 가려져야 하므로 DOM 갱신 전에(pre) 잡는다.
-	let wheelNames = $state.raw<string[][]>([]);
-	let lastStep: CoopStepView | null = untrack(() => coop?.step ?? null);
-	let capturedAt = untrack(() => coop?.lastPick?.at ?? 0);
-	$effect.pre(() => {
-		const g = coop;
-		untrack(() => {
-			const before = lastStep;
-			lastStep = g?.step ?? null;
-			const p = g?.lastPick;
-			if (!p || p.how !== 'roulette' || p.at === seenPickAt || p.at === capturedAt) return;
-			capturedAt = p.at;
-			wheelNames = namesFor(before, p.candidates);
-		});
-	});
-
-	function namesFor(before: CoopStepView | null, jamos: string[]): string[][] {
-		const by: Record<string, string[]> = {};
-		const placed = new Set<string>();
-		const add = (pid: string, jamo: string) => {
-			(by[jamo] ??= []).push(nameOf(pid));
-			placed.add(pid);
-		};
-		if (before?.kind === 'vote') for (const c of before.candidates) for (const pid of c.by) add(pid, c.jamo);
-		else if (before?.kind === 'propose') for (const [pid, jamo] of Object.entries(before.proposals)) add(pid, jamo);
-		const out = jamos.map((j) => by[j] ?? []);
-		// 마지막 제안이 돌림판을 연 경우 그 사람의 제안은 직전 스냅샷에 없다. 이름 없는 후보가 하나면 남은 한 명의 것이다.
-		if (before?.kind === 'propose') {
-			const rest = snap.players.filter((p) => p.inGame && p.connected && !placed.has(p.pid));
-			const blank = out.filter((o) => o.length === 0);
-			if (rest.length === 1 && blank.length === 1) blank[0].push(rest[0].name);
-		}
-		return out;
-	}
 
 	function wheelDone(p: CoopPickView) {
 		if (p.at <= seenPickAt) return;
@@ -377,7 +341,7 @@
 			{#key held.at}
 				<CoopPicker
 					wheel={{
-						cands: held.candidates.map((jamo, i) => ({ jamo, names: wheelNames[i] ?? [] })),
+						cands: held.candidates.map((jamo, i) => ({ jamo, names: held.by[i].map(nameOf).filter(Boolean) })),
 						chosen: held.chosen,
 						delay: held.tally ? 300 : 0,
 						reduced: mpPrefs.reduced,

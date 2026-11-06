@@ -143,6 +143,8 @@ export type CoopStepView =
 export interface CoopPickView {
 	/** 후보 자모열. */
 	candidates: string[];
+	/** 후보별 제안자(candidates와 같은 순서). 같은 단어를 낸 사람은 한 후보에 모인다. */
+	by: Pid[][];
 	chosen: number;
 	how: 'single' | 'vote' | 'roulette';
 	tally?: number[];
