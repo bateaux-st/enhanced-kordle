@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CLIMB_GRACE_MS, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, EMPTY_ROOM_MS, HOST_GRACE_MS, LOBBY_REFRESH_MS, SOCKET_IDLE_MS, STAGE_CLEAR_MS, TIME_LIMIT_MS } from '../src/lib/mp/rules.ts';
 import { stageLimitMs } from '../src/lib/server/mp/climb.ts';
-import { applyGuess, giveUp } from '../src/lib/server/mp/comp.ts';
+import { applyGuess, giveUp, startGame } from '../src/lib/server/mp/comp.ts';
 import * as coop from '../src/lib/server/mp/coop.ts';
 import { disconnect, join, leave, reconcile } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
 import { initRoom } from '../src/lib/server/mp/state.ts';
-import { abandoned, alarmTarget, isStaleSocket, nextDeadline, reapCheckAt, tick } from '../src/lib/server/mp/timers.ts';
+import { abandoned, alarmChange, alarmTarget, isStaleSocket, nextDeadline, reapCheckAt, tick } from '../src/lib/server/mp/timers.ts';
 import { ANSWER, compClimbStarted, coopClimbStarted, coopStarted, joinAll, lobby, rng, stageAnswer, started, T0, wrongRow } from './mp-helpers.mjs';
 
 test('마감이 없으면 null', () => {
@@ -546,4 +546,50 @@ test('스냅샷: 경쟁은 본인 보드의 마감, 협동은 공유 보드의 �
 	assert.equal(personalize(c.s, c.pids[1], T0 + SEC).game.board.deadline, T0 + TIME_LIMIT_MS);
 	const off = coopStarted(['가']);
 	assert.equal(personalize(off.s, off.pids[1], T0 + SEC).game.board.deadline, null);
+});
+
+// ---- 리뷰 지적 수정 ----
+
+test('로비에서 끊긴 사람의 탈락 시계는 게임 시작부터 센다', () => {
+	const s = lobby();
+	const [, a] = joinAll(s, ['가']);
+	disconnect(s, a, T0 - 70 * SEC);
+	startGame(s, { n: 6, answer: ANSWER }, T0);
+	assert.equal(tick(s, T0 + 1).changed, false, '로비에서 70초 전에 끊겼어도 시작 직후 탈락하지 않는다');
+	assert.equal(s.game.players[a].status, 'playing');
+	assert.equal(nextDeadline(s), T0 + DISCONNECT_GRACE_MS);
+	tick(s, T0 + DISCONNECT_GRACE_MS);
+	assert.deepEqual([s.game.players[a].status, s.game.players[a].finishedAt], ['eliminated', T0 + DISCONNECT_GRACE_MS]);
+});
+
+test('여러 마감이 한꺼번에 지난 채 tick이 돌아도 먼저 온 마감이 status를 정한다', () => {
+	// 끊김 탈락(T0+70s)이 보드 마감(T0+180s)보다 먼저
+	let { s, pids } = started(['가'], ON);
+	disconnect(s, pids[1], T0 + 10 * SEC);
+	tick(s, T0 + 250 * SEC);
+	assert.deepEqual([s.game.players[pids[1]].status, s.game.players[pids[1]].finishedAt], ['eliminated', T0 + 10 * SEC + DISCONNECT_GRACE_MS]);
+
+	// 보드 마감(T0+180s)이 끊김 탈락(T0+210s)보다 먼저
+	({ s, pids } = started(['가'], ON));
+	disconnect(s, pids[1], T0 + 150 * SEC);
+	tick(s, T0 + 250 * SEC);
+	assert.deepEqual([s.game.players[pids[1]].status, s.game.players[pids[1]].finishedAt], ['timeout', T0 + TIME_LIMIT_MS]);
+
+	// 등반 유예 마감이 끊김 탈락보다 먼저
+	({ s, pids } = started(['가'], ON));
+	disconnect(s, pids[1], T0);
+	s.game.graceEnd = T0 + 30 * SEC;
+	tick(s, T0 + 80 * SEC);
+	assert.deepEqual([s.game.players[pids[1]].status, s.game.players[pids[1]].finishedAt], ['timeout', T0 + 30 * SEC]);
+});
+
+test('알람: 이른 알람이 이미 걸려 있으면 뒤로 밀지 않고, 늦거나 지났으면 다시 건다', () => {
+	assert.equal(alarmChange(T0 + 20 * SEC, T0 + 50 * SEC, T0 + 10 * SEC), 'keep', '깨어날 때마다 점검 시각이 밀려도 걸린 알람은 둔다');
+	assert.equal(alarmChange(T0 + 50 * SEC, T0 + 50 * SEC, T0 + 10 * SEC), 'keep');
+	assert.equal(alarmChange(T0 + 60 * SEC, T0 + 50 * SEC, T0 + 10 * SEC), T0 + 50 * SEC, '목표가 더 이르면 당긴다');
+	assert.equal(alarmChange(T0 + 5 * SEC, T0 + 50 * SEC, T0 + 10 * SEC), T0 + 50 * SEC, '이미 지난 알람은 다시 건다');
+	assert.equal(alarmChange(null, T0 + 50 * SEC, T0 + 10 * SEC), T0 + 50 * SEC);
+	assert.equal(alarmChange(null, T0, T0 + 10 * SEC), T0 + 10 * SEC + 1, '목표가 과거면 곧바로 울리게');
+	assert.equal(alarmChange(T0 + 20 * SEC, null, T0 + 10 * SEC), 'delete');
+	assert.equal(alarmChange(null, null, T0 + 10 * SEC), 'keep');
 });

@@ -18,7 +18,7 @@ import { refresh } from './session.ts';
 import { personalize } from './snapshot.ts';
 import { initRoom } from './state.ts';
 import type { Pid, RoomState } from './state.ts';
-import { alarmTarget, isStaleSocket, reapCheckAt, tick } from './timers.ts';
+import { alarmChange, alarmTarget, isStaleSocket, reapCheckAt, tick } from './timers.ts';
 
 /** 멀티 정답 풀 임계값. 개인용 POOL_THRESHOLD와 무관한 별도 상수다(설계 §3). */
 const MP_POOL_T = 3;
@@ -90,6 +90,8 @@ export class Room extends DurableObject<RoomEnv> {
 		coop.advance(s, randomIndex, now);
 		s.seq++;
 		await this.ctx.storage.put(STATE_KEY, s);
+		// 알람이 마감 때문에 DO를 깨웠다면 만료는 여기서 반영되어 뒤이은 alarm()의 run은 바뀐 게 없다. 알리지 않으면 접속자가 결과를 못 받는다.
+		this.broadcast(s, now);
 		this.syncLobby(s, now);
 		await this.updateAlarm(s, now);
 	}
@@ -387,10 +389,15 @@ export class Room extends DurableObject<RoomEnv> {
 	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
 	private async updateAlarm(s: RoomState, now: number): Promise<void> {
 		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length));
-		if (target === this.alarmAt) return;
-		this.alarmAt = target;
-		if (target === null) await this.ctx.storage.deleteAlarm();
-		else await this.ctx.storage.setAlarm(Math.max(target, now + 1));
+		const change = alarmChange(this.alarmAt, target, now);
+		if (change === 'keep') return;
+		if (change === 'delete') {
+			this.alarmAt = null;
+			await this.ctx.storage.deleteAlarm();
+		} else {
+			this.alarmAt = change;
+			await this.ctx.storage.setAlarm(change);
+		}
 	}
 
 	private async destroy(s: RoomState): Promise<void> {

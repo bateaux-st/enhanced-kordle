@@ -1,6 +1,6 @@
 // 상태에는 마감 시각만 저장하고 알람은 가장 이른 하나만 건다. 제한 시간·등반 유예·경쟁 끊김 탈락을 여기서 처리한다.
 import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS, SOCKET_IDLE_MS } from '../../mp/rules.ts';
-import { eliminationAt, expireDeadlines, expireDisconnected, expireGrace } from './comp.ts';
+import { eliminationAt, expireCompPlayers } from './comp.ts';
 import { expireDeadline } from './coop.ts';
 import { hostSuccessionAt, succeedHost } from './members.ts';
 import { isListed } from './rooms.ts';
@@ -49,14 +49,23 @@ export function alarmTarget(s: RoomState, lastUpsert: number, reapAt: number | n
 	return cands.length ? Math.min(...cands) : null;
 }
 
+/**
+ * 걸려 있는 알람을 어떻게 할지. 'keep'은 건드리지 않음, 'delete'는 지움, 숫자는 그 시각으로 다시 건다.
+ * 이미 걸린 알람이 미래이고 목표보다 이르면 둔다: 소켓 정리 점검 시각(lastReap + 45초)은 메모리 값이라 깨어날 때마다
+ * 밀리는데, 덮어쓰면 방이 45초보다 자주 깨는 동안 점검 알람이 한 번도 울리지 못한다. 일찍 울린 알람은 다시 계산하면 그만이다.
+ */
+export function alarmChange(current: number | null, target: number | null, now: number): 'keep' | 'delete' | number {
+	if (target === null) return current === null ? 'keep' : 'delete';
+	if (current !== null && current > now && current <= target) return 'keep';
+	return Math.max(target, now + 1);
+}
+
 /** 만료된 마감을 처리한다. 같은 now로 다시 불러도 결과가 같다. destroy면 호출자가 방을 지운다. */
 export function tick(s: RoomState, now: number): { changed: boolean; destroy: boolean } {
 	if (abandoned(s)) return { changed: false, destroy: true };
 	if (s.emptySince !== null && now >= s.emptySince + EMPTY_ROOM_MS) return { changed: false, destroy: true };
 	const succeeded = succeedHost(s, now);
-	const timedOut = expireDeadlines(s, now);
-	const dropped = expireDisconnected(s, now);
-	const graced = expireGrace(s, now);
+	const expired = expireCompPlayers(s, now);
 	const coopTimedOut = expireDeadline(s, now);
-	return { changed: succeeded || timedOut || dropped || graced || coopTimedOut, destroy: false };
+	return { changed: succeeded || expired || coopTimedOut, destroy: false };
 }

@@ -172,50 +172,43 @@ export function giveUp(s: RoomState, pid: Pid, now: number): Result {
 	return { ok: true };
 }
 
-/** 유예가 끝났다. 아직 오르는 사람은 그 시점 높이에서 멈춘다(시간 초과). 같은 now로 다시 불러도 결과가 같다. */
-export function expireGrace(s: RoomState, now: number): boolean {
+/**
+ * 끊긴 사람의 자동 탈락 시각. 접속 중이면 null.
+ * 로비에서 끊긴 채 시작을 맞은 사람은 게임 시작부터 센다: 게임 중에 끊긴 시간만 탈락 근거다.
+ */
+export function eliminationAt(s: RoomState, pid: Pid): number | null {
+	const p = findPlayer(s, pid);
 	const game = compGame(s);
-	if (!game || game.graceEnd === null || now < game.graceEnd) return false;
-	// 알람이 늦게 울려도 순위 입력이 흔들리지 않도록 마감 시각으로 기록한다.
-	for (const [pid, p] of Object.entries(game.players)) if (p.status === 'playing') finish(game, pid, 'timeout', game.graceEnd);
-	settle(s, now);
-	return true;
+	if (!p || !game || p.connected || p.disconnectedAt === null) return null;
+	return Math.max(p.disconnectedAt, game.startedAt) + DISCONNECT_GRACE_MS;
 }
 
 /**
- * 마감이 지난 보드의 주인을 시간 초과로 멈춘다(등반이면 그 시점 높이 그대로). 같은 now로 다시 불러도 결과가 같다.
- * 기록 시각은 마감(유예가 먼저 끝났으면 유예 마감)이라 알람이 늦어도 순위 입력이 흔들리지 않는다.
+ * 한 사람에게 걸린 마감 중 가장 이른 것. 보드 마감과 등반 유예는 시간 초과, 끊김은 탈락이다.
+ * 같은 시각이면 시간 초과가 이긴다.
  */
-export function expireDeadlines(s: RoomState, now: number): boolean {
+function earliestEnd(s: RoomState, game: CompGame, pid: Pid): { status: 'timeout' | 'eliminated'; at: number } | null {
+	const limits = [game.players[pid].board.deadline, game.graceEnd].filter((x): x is number => x !== null);
+	const timeoutAt = limits.length ? Math.min(...limits) : null;
+	const out = eliminationAt(s, pid);
+	if (out !== null && (timeoutAt === null || out < timeoutAt)) return { status: 'eliminated', at: out };
+	return timeoutAt === null ? null : { status: 'timeout', at: timeoutAt };
+}
+
+/**
+ * 지난 마감을 처리한다: 보드 제한 시간(등반이면 그 시점 높이에서 멈춤), 등반 유예, 끊김 탈락.
+ * 알람이 늦거나 DO가 오래 잠들어 여러 마감이 한꺼번에 지났어도 먼저 온 쪽이 status를 정하고,
+ * 기록 시각은 마감 시각이라 순위 입력이 흔들리지 않는다. 같은 now로 다시 불러도 결과가 같다.
+ */
+export function expireCompPlayers(s: RoomState, now: number): boolean {
 	const game = compGame(s);
 	if (!game) return false;
 	let moved = false;
 	for (const [pid, p] of Object.entries(game.players)) {
-		const due = p.board.deadline;
-		if (p.status !== 'playing' || due === null || now < due) continue;
-		finish(game, pid, 'timeout', Math.min(due, game.graceEnd ?? due));
-		moved = true;
-	}
-	if (moved) settle(s, now);
-	return moved;
-}
-
-/** 끊긴 사람의 자동 탈락 시각. 접속 중이면 null. */
-export function eliminationAt(s: RoomState, pid: Pid): number | null {
-	const p = findPlayer(s, pid);
-	if (!p || p.connected || p.disconnectedAt === null) return null;
-	return p.disconnectedAt + DISCONNECT_GRACE_MS;
-}
-
-/** 진행 중인 사람이 끊긴 지 DISCONNECT_GRACE_MS가 지나면 탈락시킨다. 이미 끝난 사람은 대상이 아니고, 돌아와도 되살리지 않는다. */
-export function expireDisconnected(s: RoomState, now: number): boolean {
-	const game = compGame(s);
-	if (!game) return false;
-	let moved = false;
-	for (const [pid, p] of Object.entries(game.players)) {
-		const at = p.status === 'playing' ? eliminationAt(s, pid) : null;
-		if (at === null || now < at) continue;
-		finish(game, pid, 'eliminated', at);
+		if (p.status !== 'playing') continue;
+		const end = earliestEnd(s, game, pid);
+		if (!end || now < end.at) continue;
+		finish(game, pid, end.status, end.at);
 		moved = true;
 	}
 	if (moved) settle(s, now);
