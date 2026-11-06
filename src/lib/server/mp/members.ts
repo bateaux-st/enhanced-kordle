@@ -27,13 +27,15 @@ function evictStale(s: RoomState, now: number): void {
 }
 
 /**
- * hello를 받은 뒤의 자리 배정. 같은 uid는 기존 자리로 돌아온다(진행 중에도).
+ * hello를 받은 뒤의 자리 배정. 같은 uid는 기존 자리로 돌아온다(진행 중에도, 나가기로 떠난 경우는 제외).
  * 신규 입장은 playing이면 거부하고, 정원이 찼으면 오래 끊긴 사람의 자리를 먼저 회수한다.
  */
 export function join(s: RoomState, user: { uid: string; name: string }, now: number, rng: Rng): JoinResult {
 	const existing = s.players.find((p) => p.uid === user.uid);
 	let player: Player;
 	if (existing) {
+		// 나가기로 떠난 사람은 그 판이 끝날 때까지 돌아올 수 없다. 거절은 자리 상태를 건드리기 전에 한다.
+		if (existing.left && s.phase === 'playing') return { ok: false, reason: 'in_progress' };
 		existing.name = uniqueName(s.players, user.name, existing.pid);
 		existing.connected = true;
 		existing.disconnectedAt = null;

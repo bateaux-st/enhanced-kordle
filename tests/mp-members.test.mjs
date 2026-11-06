@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_SETTINGS, HOST_GRACE_MS, MAX_PLAYERS, NUDGE_COOLDOWN_MS } from '../src/lib/mp/rules.ts';
 import { backToLobby, canStart, disconnect, hostSuccessionAt, join, leave, reconcile, uniqueName } from '../src/lib/server/mp/members.ts';
+import { eliminate } from '../src/lib/server/mp/comp.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
-import { ANSWER, joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
+import { ANSWER, coopStarted, joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
 
 const send = (s, pid, msg, now = T0, io = {}) => reduce(s, pid, msg, io, now, rng);
 const START_IO = { start: { n: 6, answer: ANSWER } };
@@ -338,4 +339,52 @@ test('reconcile: 방장 소켓만 사라지면 끊김 유예 뒤 승계 대상�
 	reconcile(s, [a], T0 + 10);
 	assert.equal(s.hostPid, host);
 	assert.equal(hostSuccessionAt(s), T0 + 10 + HOST_GRACE_MS);
+});
+
+test('나가기로 떠난 사람은 협동 playing 중 같은 uid로 재입장할 수 없다', () => {
+	const { s, pids } = coopStarted(['가', '나']);
+	send(s, pids[1], { type: 'leave' }, T0 + 10);
+	assert.equal(s.players[1].left, true);
+	const before = structuredClone(s.players);
+	assert.deepEqual(join(s, { uid: 'uid-가', name: '새이름' }, T0 + 20, rng), { ok: false, reason: 'in_progress' });
+	assert.deepEqual(s.players, before, '거절은 자리 상태를 바꾸지 않는다');
+});
+
+test('나가기로 떠난 사람은 경쟁 playing 중 같은 uid로 재입장할 수 없다', () => {
+	const { s, pids } = started(['가', '나']);
+	send(s, pids[1], { type: 'leave' }, T0 + 10);
+	const before = structuredClone(s.players);
+	assert.deepEqual(join(s, { uid: 'uid-가', name: '새이름' }, T0 + 20, rng), { ok: false, reason: 'in_progress' });
+	assert.deepEqual(s.players, before);
+});
+
+test('나가기가 아닌 끊김 뒤 재입장은 playing 중에도 같은 자리로 복귀한다', () => {
+	const { s, pids } = coopStarted(['가', '나']);
+	disconnect(s, pids[1], T0 + 10);
+	const back = join(s, { uid: 'uid-가', name: '가' }, T0 + 20, rng);
+	assert.deepEqual(back, { ok: true, pid: pids[1], name: '가', rejoined: true });
+	assert.equal(s.players[1].left, undefined);
+});
+
+test('경쟁에서 끊김으로 탈락한 사람은 재입장하면 탈락 상태로 들어온다', () => {
+	const { s, pids } = started(['가', '나']);
+	disconnect(s, pids[1], T0 + 10);
+	assert.equal(eliminate(s, pids[0], pids[1], T0 + 70_000).ok, true);
+	const back = join(s, { uid: 'uid-가', name: '가' }, T0 + 71_000, rng);
+	assert.equal(back.ok, true);
+	assert.equal(back.pid, pids[1]);
+	assert.equal(s.game.players[pids[1]].status, 'eliminated');
+});
+
+test('나갔던 사람은 협동·경쟁 모두 결과 단계에서 들어올 수 있다', () => {
+	for (const make of [() => coopStarted(['가', '나']), () => started(['가', '나'])]) {
+		const { s, pids } = make();
+		send(s, pids[1], { type: 'leave' }, T0 + 10);
+		send(s, pids[0], { type: 'giveup' }, T0 + 20);
+		if (s.phase !== 'result') send(s, pids[2], { type: 'giveup' }, T0 + 30);
+		assert.equal(s.phase, 'result');
+		const r = join(s, { uid: 'uid-가', name: '가' }, T0 + 40, rng);
+		assert.equal(r.ok, true);
+		assert.equal(s.players.find((p) => p.pid === r.pid).left, undefined);
+	}
 });
