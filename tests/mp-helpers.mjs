@@ -53,3 +53,29 @@ export function coopStarted(names = ['가', '나'], settings = {}) {
 	startCoop(s, { n: 6, answer: ANSWER }, T0);
 	return { s, pids };
 }
+
+/** 등반용 스테이지 정답. 길이 n마다 자모열이 서로 달라 한 스테이지의 정답이 다른 스테이지의 부분 문자열이 되지 않는다. */
+export function stageAnswer(n) {
+	return { word: `단어${n}`, jamo: 'ㅂㅏㄴㅏㄴㅏㅁㅏㅁㅏㅁㅏ'.slice(0, n - 1) + 'ㄱㄷㅅㅈㅊㅎㅌㅍ'[n - 5] };
+}
+/** 정답과 겹치는 자모가 없는 오답(전부 회색). */
+export const wrongRow = (n) => 'ㅋ'.repeat(n);
+/** startN..12 전체 스테이지 정답. DO 셸이 시작 때 읽어 넘기는 값과 같은 모양. */
+export const stagesFrom = (startN) => Object.fromEntries(Array.from({ length: 13 - startN }, (_, i) => [startN + i, stageAnswer(startN + i)]));
+export const climbStart = (startN) => ({ n: startN, answer: stageAnswer(startN), stages: stagesFrom(startN) });
+
+/** 방장 + names를 입장시켜 경쟁 등반을 시작한 상태. */
+export function compClimbStarted(names = ['가', '나'], settings = {}, startN = 10) {
+	const s = lobby({ game: 'climb', ...settings });
+	const pids = joinAll(s, names);
+	startGame(s, climbStart(startN), T0);
+	return { s, pids };
+}
+
+/** 방장 + names를 입장시켜 협동 등반을 시작한 상태. */
+export function coopClimbStarted(names = ['가', '나'], settings = {}, startN = 10) {
+	const s = lobby({ kind: 'coop', game: 'climb', ...settings });
+	const pids = joinAll(s, names);
+	startCoop(s, climbStart(startN), T0);
+	return { s, pids };
+}

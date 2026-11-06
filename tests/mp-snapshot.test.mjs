@@ -4,7 +4,7 @@ import { applyGuess, giveUp, useHint } from '../src/lib/server/mp/comp.ts';
 import * as coop from '../src/lib/server/mp/coop.ts';
 import { backToLobby, disconnect } from '../src/lib/server/mp/members.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
-import { ANSWER, coopStarted, joinAll, lobby, started, T0 } from './mp-helpers.mjs';
+import { ANSWER, compClimbStarted, coopStarted, joinAll, lobby, stageAnswer, started, T0 } from './mp-helpers.mjs';
 
 const HOST_ROW = 'ㅁㅏㅁㅁㅏㅁ';
 const A_ROW = 'ㄴㅏㄴㅂㅏㅇ';
@@ -119,7 +119,7 @@ test('스냅샷의 최상위·게임 필드가 늘 때는 이 목록을 의도�
 	const view = snapOf(s, host);
 	assert.deepEqual(Object.keys(view).sort(), ['code', 'game', 'host', 'hostPid', 'now', 'phase', 'players', 'seq', 'settings', 'v', 'you']);
 	assert.deepEqual(Object.keys(view.game).sort(), ['endedAt', 'graceEnd', 'kind', 'me', 'standings', 'startN', 'startedAt']);
-	assert.deepEqual(Object.keys(view.game.me).sort(), ['cleared', 'deadline', 'finishedAt', 'hintUsed', 'hints', 'marks', 'n', 'rows', 'stage', 'status', 'triesUsed']);
+	assert.deepEqual(Object.keys(view.game.me).sort(), ['cleared', 'deadline', 'finishedAt', 'hintUsed', 'hints', 'lastClear', 'marks', 'n', 'rows', 'stage', 'status', 'triesUsed']);
 });
 
 test('방장에게만 시작 가능 여부와 대기 인원이 간다', () => {
@@ -279,7 +279,7 @@ test('협동 스냅샷의 게임·보드·단계 필드가 늘 때는 이 목록
 	const { s, host } = coopVoting();
 	const view = snapOf(s, host);
 	assert.deepEqual(Object.keys(view).sort(), ['code', 'game', 'host', 'hostPid', 'now', 'phase', 'players', 'seq', 'settings', 'v', 'you']);
-	assert.deepEqual(Object.keys(view.game).sort(), ['board', 'endedAt', 'kind', 'lastPick', 'startN', 'startedAt', 'status', 'step']);
+	assert.deepEqual(Object.keys(view.game).sort(), ['board', 'cleared', 'endedAt', 'kind', 'lastClear', 'lastPick', 'startN', 'startedAt', 'status', 'step']);
 	assert.deepEqual(Object.keys(view.game.board).sort(), ['deadline', 'hintBy', 'hintUsed', 'hints', 'marks', 'n', 'rows', 'stage']);
 	const p = coopProposing();
 	assert.deepEqual(Object.keys(snapOf(p.s, p.host).game.step).sort(), ['drafts', 'kind', 'proposals']);
@@ -292,4 +292,25 @@ test('협동 스냅샷은 상태를 복사한다: 받은 뒤 서버 상태가 �
 	propose(s, a, Y, T0 + 9);
 	assert.deepEqual(view.game.step.drafts[a], 'ㅋㅌㅍ');
 	assert.equal(view.game.step.proposals[a], undefined);
+});
+
+test('등반 스냅샷: 스테이지 전환 뒤 내 보드는 새 스테이지, lastClear에 방금 클리어한 보드, 남의 패널은 색과 스테이지만', () => {
+	const { s, pids } = compClimbStarted(['가']);
+	const [host, a] = pids;
+	applyGuess(s, host, stageAnswer(10).jamo, true, T0 + 1);
+	const view = snapOf(s, host);
+	assert.deepEqual([view.game.me.stage, view.game.me.n, view.game.me.rows, view.game.me.cleared], [2, 11, [], 1]);
+	assert.deepEqual([view.game.me.lastClear.n, view.game.me.lastClear.rows, view.game.me.lastClear.at], [10, [stageAnswer(10).jamo], T0 + 1]);
+	const other = snapOf(s, a).players.find((p) => p.pid === host).panel;
+	assert.deepEqual(Object.keys(other).sort(), ['cleared', 'marks', 'n', 'stage', 'status']);
+	assert.deepEqual([other.stage, other.n, other.cleared, other.marks.length], [2, 11, 1, 0]);
+	assert.equal(JSON.stringify(snapOf(s, a)).includes(stageAnswer(10).jamo), false, '남의 클리어 풀이는 가지 않는다');
+});
+
+test('등반 결과 스냅샷: answers는 도달한 스테이지까지만', () => {
+	const { s, pids } = compClimbStarted(['가']);
+	applyGuess(s, pids[0], stageAnswer(10).jamo, true, T0 + 1);
+	giveUp(s, pids[0], T0 + 2);
+	giveUp(s, pids[1], T0 + 3);
+	assert.deepEqual(Object.keys(snapOf(s, pids[1]).game.answers).map(Number), [10, 11]);
 });

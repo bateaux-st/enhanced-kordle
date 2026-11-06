@@ -75,13 +75,28 @@ export interface PlayerView {
 	panel: PanelView | null;
 }
 
+/**
+ * 방금 클리어한 스테이지의 마지막 모습. 서버는 클리어 즉시 다음 스테이지 보드로 바꾸므로,
+ * 클라이언트는 `at`부터 약 2초 이 보드를 보여 준 뒤 새 스테이지를 그린다. 다음 클리어가 오면 덮어쓰고 12자 완주에는 새로 만들지 않는다.
+ */
+export interface StageClearView {
+	stage: number;
+	n: number;
+	rows: string[];
+	marks: Mark[][];
+	at: number;
+}
+
 export interface OwnBoardView extends PanelView {
 	rows: string[];
+	/** 등반에서는 현재 스테이지의 힌트 점선만. */
 	hints: Record<number, string>;
+	/** 등반에서는 등반 전체에서 썼는지(스테이지가 바뀌어도 true로 남는다). */
 	hintUsed: boolean;
 	deadline: number | null;
 	triesUsed: number;
 	finishedAt: number | null;
+	lastClear: StageClearView | null;
 }
 
 export interface CompGameView {
@@ -94,7 +109,7 @@ export interface CompGameView {
 	me: OwnBoardView | null;
 	/** 내가 끝났거나 result일 때만. */
 	standings: Standing[] | null;
-	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. */
+	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. 등반이면 도달한 스테이지(길이)까지만 든다. */
 	answers?: Record<number, { word: string; jamo: string }>;
 }
 
@@ -105,6 +120,7 @@ export interface CoopBoardView {
 	rows: string[];
 	marks: Mark[][];
 	hints: Record<number, string>;
+	/** 등반에서는 등반 전체에서 썼는지. */
 	hintUsed: boolean;
 	/** 공유 힌트를 쓴 사람. 쓰기 전에는 null. */
 	hintBy: Pid | null;
@@ -157,12 +173,15 @@ export interface CoopGameView {
 	startedAt: number;
 	endedAt: number | null;
 	board: CoopBoardView;
+	/** 클리어한 스테이지 수(단판이면 정답 후 1). */
+	cleared: number;
+	lastClear: StageClearView | null;
 	status: 'playing' | 'won' | 'lost';
 	endReason?: 'solved' | 'tries' | 'timeout' | 'giveup';
 	/** 끝나면 null. */
 	step: CoopStepView | null;
 	lastPick: CoopPickView | null;
-	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. */
+	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. 등반이면 도달한 스테이지(길이)까지만 든다. */
 	answers?: Record<number, { word: string; jamo: string }>;
 }
 

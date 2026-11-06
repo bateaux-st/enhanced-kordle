@@ -20,8 +20,14 @@ const ownBoardOf = (p: CompPlayer): OwnBoardView => ({
 	hintUsed: p.board.hintUsed,
 	deadline: p.board.deadline,
 	triesUsed: p.triesUsed,
-	finishedAt: p.finishedAt
+	finishedAt: p.finishedAt,
+	// 이전 저장본에는 필드가 없다.
+	lastClear: p.lastClear ?? null
 });
+
+/** 도달한 스테이지(길이)까지의 정답만. 시작 때 미리 읽어 둔 위쪽 스테이지는 아무도 풀지 않았으면 내보내지 않는다. */
+const reachedAnswers = (answers: CompGame['answers'], top: number): CompGame['answers'] =>
+	Object.fromEntries(Object.entries(answers).filter(([n]) => Number(n) <= top));
 
 function compView(s: RoomState, game: CompGame, pid: Pid): CompGameView {
 	const mine = game.players[pid];
@@ -36,7 +42,7 @@ function compView(s: RoomState, game: CompGame, pid: Pid): CompGameView {
 		me: mine ? ownBoardOf(mine) : null,
 		standings: result ? game.standings : mine && mine.status !== 'playing' ? standings(game, nameOf) : null
 	};
-	if (result) view.answers = game.answers;
+	if (result) view.answers = reachedAnswers(game.answers, Math.max(...Object.values(game.players).map((p) => p.board.n)));
 	return view;
 }
 
@@ -61,13 +67,15 @@ function coopView(s: RoomState, game: CoopGame, pid: Pid): CoopGameView {
 		startN: game.startN,
 		startedAt: game.startedAt,
 		endedAt: game.endedAt,
+		cleared: b.cleared,
+		lastClear: game.lastClear ?? null,
 		board: { stage: b.stage, n: b.n, rows: b.rows, marks: b.marks, hints: b.hints, hintUsed: b.hintUsed, hintBy: game.hintBy, deadline: b.deadline },
 		status: game.status,
 		step: game.status === 'playing' ? stepView(game.step, pid) : null,
 		lastPick: game.lastPick
 	};
 	if (game.endReason) view.endReason = game.endReason;
-	if (s.phase === 'result') view.answers = game.answers;
+	if (s.phase === 'result') view.answers = reachedAnswers(game.answers, b.n);
 	return view;
 }
 

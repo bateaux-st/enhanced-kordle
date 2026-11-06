@@ -57,7 +57,7 @@ test('방 설정의 종류가 협동이면 reduce start가 협동 게임을 연�
 	reduce(comp, a2, { type: 'ready', on: true }, {}, T0, rng);
 	reduce(comp, h2, { type: 'start' }, { start: { n: 6, answer: ANSWER } }, T0, rng);
 	assert.equal(comp.game.kind, 'comp');
-	// 등반은 아직 지원하지 않는다
+	// 등반인데 위쪽 스테이지 정답이 없으면 진행 중에 정답을 못 찾으므로 시작하지 않는다
 	const bad = lobby({ kind: 'coop', game: 'climb' });
 	const [h3, a3] = joinAll(bad, ['가']);
 	reduce(bad, a3, { type: 'ready', on: true }, {}, T0, rng);

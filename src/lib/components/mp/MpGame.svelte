@@ -5,10 +5,11 @@
 	import { CODE_TO_JAMO } from '$lib/jamo';
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { CoopPickView, PlayerView, Snapshot } from '$lib/mp/protocol';
-	import { STATUS_LABEL } from '$lib/mp/rules';
+	import { CLIMB_GRACE_MS } from '$lib/mp/rules';
 	import type { Mark } from '$lib/types';
 	import CoopPicker from './CoopPicker.svelte';
 	import Icon from './Icon.svelte';
+	import { statusLabel } from './labels';
 	import MpModal from './MpModal.svelte';
 	import MpResult from './MpResult.svelte';
 	import OpponentPanel from './OpponentPanel.svelte';
@@ -21,6 +22,7 @@
 	const coop = $derived(snap.game?.kind === 'coop' ? snap.game : null);
 	const me = $derived(game?.me ?? null);
 	const tries = $derived(snap.settings.tries);
+	const climb = $derived(snap.settings.game === 'climb');
 	const myRank = $derived(game?.standings?.find((s) => s.pid === snap.you)?.rank ?? null);
 	const nameOf = (pid: string) => snap.players.find((p) => p.pid === pid)?.name ?? '';
 
@@ -55,18 +57,62 @@
 		if (h.tally) showToast('동률이라 돌림판으로 정합니다');
 	});
 
+	// ---- 등반: 스테이지 클리어 보드 붙잡기 ----
+	// 서버는 클리어 즉시 다음 스테이지 보드를 보낸다. 클리어한 보드(lastClear)를 약 2초 보여 준 뒤 새 보드로 넘어간다(Q7).
+	// 돌림판이 그 클리어를 만든 행이면 휠이 끝난 뒤에도 잠깐 더 보여 준다.
+	const CLEAR_HOLD_MS = 2000;
+	const AFTER_WHEEL_MS = 1200;
+	const rawClear = $derived(coop ? coop.lastClear : (me?.lastClear ?? null));
+	// 처음 열었을 때 이미 지난 클리어(새로고침·재접속)는 붙잡지 않는다.
+	let releasedAt = $state(
+		untrack(() => {
+			const c = coop ? coop.lastClear : (game?.me?.lastClear ?? null);
+			return c && client.serverNow() - c.at >= CLEAR_HOLD_MS ? c.at : 0;
+		})
+	);
+	const heldClear = $derived(rawClear && rawClear.at !== releasedAt ? rawClear : null);
+	const heldAt = $derived(heldClear?.at ?? 0);
+	const wheeling = $derived(held !== null);
+	let wheeledForClear = false;
+	$effect(() => {
+		const at = heldAt;
+		if (!at) {
+			wheeledForClear = false;
+			return;
+		}
+		if (wheeling) {
+			wheeledForClear = true;
+			return;
+		}
+		const left = Math.max(at + CLEAR_HOLD_MS - client.serverNow(), wheeledForClear ? AFTER_WHEEL_MS : 0);
+		const t = setTimeout(() => (releasedAt = at), left);
+		return () => clearTimeout(t);
+	});
+
+	let toastedClearAt = 0;
+	$effect(() => {
+		const at = heldAt;
+		if (!at || at === toastedClearAt || wheeling) return;
+		toastedClearAt = at;
+		const c = untrack(() => heldClear);
+		if (c) showToast(`스테이지 ${c.stage} 클리어`);
+	});
+
 	// 연출 중에는 방금 고른 행을 뺀 보드를 보인다.
 	const coopBoard = $derived.by(() => {
 		const b = coop?.board;
 		if (!b) return null;
-		return held ? { ...b, rows: b.rows.slice(0, -1), marks: b.marks.slice(0, -1) } : b;
+		const shown = heldClear ? { ...b, stage: heldClear.stage, n: heldClear.n, rows: heldClear.rows, marks: heldClear.marks, hints: {} } : b;
+		return held ? { ...shown, rows: shown.rows.slice(0, -1), marks: shown.marks.slice(0, -1) } : shown;
 	});
-	const view = $derived(coop ? coopBoard : me);
+	const meBoard = $derived(me && heldClear ? { ...me, stage: heldClear.stage, n: heldClear.n, rows: heldClear.rows, marks: heldClear.marks, hints: {} } : me);
+	const view = $derived(coop ? coopBoard : meBoard);
 	const n = $derived(view?.n ?? coop?.startN ?? game?.startN ?? 6);
 	const selecting = $derived(snap.phase === 'playing' && (coop?.step?.kind === 'vote' || held !== null));
 	const playing = $derived(coop ? snap.phase === 'playing' && coop.status === 'playing' : snap.phase === 'playing' && me?.status === 'playing');
 	// 고르는 동안(투표·돌림판)에는 입력을 잠근다.
-	const inputOk = $derived(playing && !selecting);
+	// 클리어한 보드를 보여 주는 동안에도 잠근다.
+	const inputOk = $derived(playing && !selecting && !heldClear);
 
 	// 상대: 입장 순. 왼쪽 열 2명, 오른쪽 열 나머지.
 	const opponents = $derived(snap.players.filter((p) => p.pid !== snap.you && p.inGame));
@@ -212,8 +258,9 @@
 		lastStatus = st;
 		if (was !== 'playing') return;
 		if (st === 'solved') showToast(myRank ? `정답입니다 · ${myRank}위` : '정답입니다');
-		else if (st === 'failed') showToast('실패했습니다');
+		else if (st === 'failed') showToast(climb ? '탈락했습니다' : '실패했습니다');
 		else if (st === 'eliminated') showToast('탈락했습니다');
+		else if (st === 'timeout') showToast('시간이 다 됐습니다');
 	});
 
 	// 공유 힌트: 누가 썼는지와 결과를 전원에게 알린다.
@@ -293,7 +340,42 @@
 		return () => clearTimeout(t);
 	});
 
-	const modeLine = $derived(`${coop ? '협동' : '경쟁'} · 단판 · ${n}자${snap.settings.hard ? ' · 하드' : ''}`);
+	// ---- 경쟁 등반: 첫 완주 뒤 유예 ----
+	// 마감까지 남은 초는 snap.now로 보정한 시계(client.serverNow)로 센다.
+	const graceEnd = $derived(game?.graceEnd ?? null);
+	const graceActive = $derived(snap.phase === 'playing' && graceEnd !== null);
+	let graceNow = $state(Date.now());
+	$effect(() => {
+		if (!graceActive) return;
+		graceNow = client.serverNow();
+		const id = setInterval(() => (graceNow = client.serverNow()), 250);
+		return () => clearInterval(id);
+	});
+	const graceLeft = $derived(graceEnd === null ? 0 : Math.max(0, Math.ceil((graceEnd - graceNow) / 1000)));
+	// 스크린 리더에는 매초가 아니라 10초마다 알린다.
+	let graceSr = $state(-1);
+	$effect(() => {
+		if (!graceActive) {
+			graceSr = -1;
+			return;
+		}
+		if (graceSr < 0 || graceLeft % 10 === 0) graceSr = graceLeft;
+	});
+	// 첫 완주자는 완주자가 한 명뿐인 처음 스냅샷에서 기억해 둔다. 완주 순서는 순위표를 받은 사람만 안다.
+	const solvers = $derived(snap.players.filter((p) => p.panel?.status === 'solved'));
+	let firstPid = $state<string | null>(null);
+	$effect(() => {
+		if (!graceActive) {
+			firstPid = null;
+			return;
+		}
+		if (firstPid === null && solvers.length === 1) firstPid = solvers[0].pid;
+	});
+	const graceName = $derived(game?.standings?.find((x) => x.finishOrder === 1)?.name || nameOf(firstPid ?? '') || solvers[0]?.name || '');
+
+	const modeLine = $derived(
+		`${coop ? '협동' : '경쟁'} · ${climb ? '등반' : '단판'} · ${n}자${climb ? ` · 스테이지 ${view?.stage ?? 1}` : ''}${snap.settings.hard ? ' · 하드' : ''}`
+	);
 	const lastRowText = $derived.by(() => {
 		const rows = view?.rows ?? [];
 		if (!rows.length || !view) return '';
@@ -312,28 +394,36 @@
 </div>
 <div class="mode-line"><span>{modeLine}</span></div>
 
+{#if graceActive}
+	<div class="grace a-drop" role="status">
+		<span class="sr">{graceName}님 완주. 남은 시간 {graceSr}초</span>
+		<span aria-hidden="true">{graceName}님 완주. 남은 시간 <span class="num" class:urgent={graceLeft <= 10}>{graceLeft}</span>초</span>
+		<div class="bar motion-only" aria-hidden="true"><i style="width:{Math.min(100, (graceLeft * 1000 * 100) / CLIMB_GRACE_MS)}%"></i></div>
+	</div>
+{/if}
+
 {#if me && !playing && snap.phase === 'playing'}
 	<div class="mystate">
 		<span class="bdg {me.status === 'solved' ? 'ready' : 'idle'}">
-			<Icon name={me.status === 'solved' ? 'checkc' : 'xc'} />{me.status === 'solved' ? (myRank ? `완료 ${myRank}위` : '완료') : STATUS_LABEL[me.status]}
+			<Icon name={me.status === 'solved' ? 'checkc' : 'xc'} />{me.status === 'solved' ? (myRank ? `완료 ${myRank}위` : '완료') : statusLabel(me.status, climb)}
 		</span>
 	</div>
 {/if}
 
 <div class="strip" role="region" aria-label="상대 진행">
 	{#each opponents as p (p.pid)}
-		<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} compact coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
+		<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} compact {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
 	{/each}
 </div>
 
-<div class="arena" style="--rows:{tries}">
+<div class="arena" class:has-grace={graceActive} style="--rows:{tries}">
 	<div class="opp-col">
 		{#each left as p (p.pid)}
-			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
+			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
 		{/each}
 	</div>
 
-	<div class="center" class:locked={!playing} class:dim={selecting}>
+	<div class="center" class:locked={!playing || heldClear !== null} class:dim={selecting}>
 		<Board game={boardView} />
 		{#if voteView}
 			<CoopPicker vote={voteView} />
@@ -356,7 +446,7 @@
 
 	<div class="opp-col">
 		{#each right as p (p.pid)}
-			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
+			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
 		{/each}
 	</div>
 </div>
@@ -398,7 +488,7 @@
 				type="button"
 				onclick={() => client.hint()}
 				disabled={used}
-				title="노란 자모 하나의 실제 위치를 알려줍니다 ({coop ? '한 판에 한 번' : '한 사람에 한 번'})"
+				title="노란 자모 하나의 실제 위치를 알려줍니다 ({climb ? '등반 전체에서 한 번' : coop ? '한 판에 한 번' : '한 사람에 한 번'})"
 			>
 				{used ? '힌트 사용함' : '힌트'}
 			</button>
@@ -415,6 +505,7 @@
 {#if modal === 'result'}
 	<MpResult
 		{snap}
+		peakCleared={client.peakCleared}
 		{isHost}
 		onclose={() => (modal = null)}
 		{onleave}
@@ -478,6 +569,42 @@
 		margin-bottom: 1rem;
 		font-size: 0.8rem;
 		color: var(--muted);
+	}
+	.grace {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.375rem;
+		max-width: 28rem;
+		margin: 0 auto 1rem;
+		padding: 0.5rem 0.875rem;
+		border: 1px solid var(--sel-line);
+		border-radius: 0.375rem;
+		background: var(--sel-bg);
+		font-size: 0.875rem;
+		font-weight: 700;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+	.grace .num {
+		display: inline-block;
+		min-width: 1.5em;
+	}
+	.grace .num.urgent {
+		animation: mp-pulse 1s ease-in-out infinite;
+	}
+	.grace .bar {
+		width: 100%;
+		height: 4px;
+		border-radius: 2px;
+		background: var(--line);
+		overflow: hidden;
+	}
+	.grace .bar i {
+		display: block;
+		height: 100%;
+		background: var(--sel-line);
+		transition: width 0.25s linear;
 	}
 	.mystate {
 		display: flex;
@@ -593,6 +720,10 @@
 			--cw: calc(100vw - 32px);
 			--chrome-h: 490px;
 			display: block;
+		}
+		/* 유예 배너가 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
+		.arena.has-grace {
+			--chrome-h: 560px;
 		}
 		.opp-col {
 			display: none;

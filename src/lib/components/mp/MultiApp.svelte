@@ -286,11 +286,12 @@
 	// 참가자가 "대기실로"를 누르면 그 판의 시작 시각을 적어 둔다. 판이 바뀌면 저절로 풀린다.
 	let parkedGame = $state<number | null>(null);
 	const inGame = $derived(snap?.players.find((p) => p.pid === snap.you)?.inGame ?? false);
-	// 결과 중에 들어온 사람(이번 판 참가자가 아님)은 결과를 볼 수 없어 처음부터 기다리는 화면이다.
+	// 결과 중에 들어온 사람(이번 판 참가자가 아님)은 볼 결과가 없어 대기실을 본다(Q9). 방장을 넘겨받았다면 다음 게임을 고를 화면이 필요해 between에 둔다.
+	const lateJoiner = $derived(snap?.phase === 'result' && !inGame && snap.hostPid !== snap.you);
 	const between = $derived(snap?.phase === 'result' && (!inGame || (snap.game !== null && snap.game.startedAt === parkedGame)));
 
 	const viewKey = $derived(
-		view === 'room' ? (client.status === 'dev' ? 'dev' : !snap ? 'load' : snap.phase === 'lobby' ? 'wait' : between ? 'between' : 'game') : view
+		view === 'room' ? (client.status === 'dev' ? 'dev' : !snap ? 'load' : snap.phase === 'lobby' || lateJoiner ? 'wait' : between ? 'between' : 'game') : view
 	);
 </script>
 

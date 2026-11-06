@@ -12,7 +12,7 @@ function board(rows, cleared = 0) {
 }
 const filler = (k) => Array.from({ length: k }, () => 'ㅋㅋㅋㅋㅋㅋ'); // 전부 회색
 const entry = (status, rows, { finishedAt = null, cleared = 0 } = {}) => ({ board: board(rows, cleared), status, finishedAt, triesUsed: rows.length });
-const game = (mode, players) => ({ kind: 'comp', settings: { ...DEFAULT_SETTINGS, game: mode }, startN: 6, answers: {}, startedAt: 0, endedAt: null, players, finishOrder: [], graceEnd: null, standings: null });
+const game = (mode, players, finishOrder = []) => ({ kind: 'comp', settings: { ...DEFAULT_SETTINGS, game: mode }, startN: 6, answers: {}, startedAt: 0, endedAt: null, players, finishOrder, graceEnd: null, standings: null });
 const ranks = (g) => standings(g, (p) => p).map((x) => `${x.pid}${x.rank}`);
 
 test('지표: 초록은 행을 합친 자리 수(같은 자리 두 번 초록은 1), 노랑은 자모 종류 수', () => {
@@ -94,29 +94,31 @@ test('단판: 높이(cleared)는 순위에 영향이 없다', () => {
 	assert.deepEqual(ranks(g), ['green1', 'tall2']);
 });
 
-test('등반: 완주자는 완주 시각 순, 미완주자는 높이가 초록 자리 수보다 우선', () => {
+test('등반: 완주자는 완주 순서(finishOrder), 미완주자는 높이가 초록 자리 수보다 우선', () => {
 	const g = game('climb', {
 		low: entry('failed', ['ㅂㅏㄴㅏㄴㅋ'], { cleared: 2 }),
 		high: entry('failed', ['ㅋㅋㅋㅋㅋㅋ'], { cleared: 4 }),
 		second: entry('solved', [ANS], { finishedAt: 200, cleared: 6 }),
 		first: entry('solved', [ANS], { finishedAt: 100, cleared: 6 })
-	});
+	}, ['first', 'second']);
 	assert.deepEqual(ranks(g), ['first1', 'second2', 'high3', 'low4']);
 });
 
-test('등반: 높이가 같으면 초록 -> 노랑 -> 시도 수, 완주 시각이 같으면 공동', () => {
+test('등반: 같은 밀리초에 완주해도 finishOrder 순서대로 순위가 갈린다', () => {
+	const g = game('climb', {
+		q: entry('solved', [ANS], { finishedAt: 10, cleared: 6 }),
+		p: entry('solved', [ANS], { finishedAt: 10, cleared: 6 })
+	}, ['p', 'q']);
+	assert.deepEqual(standings(g, (x) => x).map((x) => [x.pid, x.rank, x.tied, x.finishOrder]), [['p', 1, false, 1], ['q', 2, false, 2]]);
+});
+
+test('등반: 높이가 같으면 초록 -> 노랑 -> 시도 수', () => {
 	const g = game('climb', {
 		c: entry('failed', ['ㅋㅋㅋㅋㅋㅋ', 'ㅋㅋㅋㅋㅋㅋ'], { cleared: 2 }),
 		a: entry('failed', ['ㅂㅏㅋㅋㅋㅋ'], { cleared: 2 }),
 		b: entry('failed', ['ㅂㅋㅋㅋㅋㅋ'], { cleared: 2 })
 	});
 	assert.deepEqual(ranks(g), ['a1', 'b2', 'c3']);
-
-	const done = game('climb', {
-		p: entry('solved', [ANS], { finishedAt: 10, cleared: 6 }),
-		q: entry('solved', [ANS], { finishedAt: 10, cleared: 6 })
-	});
-	assert.deepEqual(standings(done, (p) => p).map((x) => [x.rank, x.tied]), [[1, true], [1, true]]);
 });
 
 test('순위표는 이름·상태·시도·정답 순서를 들고 있다', () => {
@@ -140,4 +142,15 @@ test('finishOrder는 정답자끼리 순위표 순서(공동 순위가 있어도
 		['quit', null, 'gaveup', 1],
 		['fail', null, 'failed', 3]
 	]);
+});
+
+test('등반: 시도 수는 현재 스테이지 보드의 행 수(누적이 아니다)', () => {
+	// 둘 다 높이 3. 지표는 초록·노랑이 같고 현재 스테이지 시도 수만 다르다.
+	const g = game('climb', {
+		two: entry('timeout', filler(2), { cleared: 3 }),
+		one: entry('timeout', filler(1), { cleared: 3 })
+	});
+	assert.deepEqual(ranks(g), ['one1', 'two2']);
+	assert.equal(metrics(board(filler(2), 3)).tries, 2);
+	assert.deepEqual(standings(g, (p) => p).map((x) => [x.pid, x.status, x.tries]), [['one', 'timeout', 1], ['two', 'timeout', 2]]);
 });

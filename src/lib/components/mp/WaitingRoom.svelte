@@ -184,7 +184,7 @@
 			<button class="btn big wide" class:primary={!me?.ready} type="button" onclick={() => client.ready(!me?.ready)}>
 				{me?.ready ? '준비 취소' : '준비'}
 			</button>
-			<div class="ab-cap"><span role="status">{me?.ready ? '방장이 시작하길 기다리는 중' : ''}</span></div>
+			<div class="ab-cap"><span role="status">{snap.phase === 'result' ? '방장이 다음 게임을 고르는 중입니다.' : me?.ready ? '방장이 시작하길 기다리는 중' : ''}</span></div>
 		{/if}
 	</div>
 </div>
