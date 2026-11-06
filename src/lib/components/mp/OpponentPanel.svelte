@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PlayerView } from '$lib/mp/protocol';
-	import { STATUS_LABEL } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
+	import { statusLabel } from './labels';
 
 	let {
 		player,
@@ -10,6 +10,7 @@
 		canKick = false,
 		compact = false,
 		coop = null,
+		climb = false,
 		onkick
 	}: {
 		player: PlayerView;
@@ -23,6 +24,8 @@
 		compact?: boolean;
 		/** 협동 표시. 있으면 미니 격자 대신 그 사람의 단어(실시간 초안, 없으면 확정 제안)를 보인다. */
 		coop?: { state: 'playing' | 'proposed' | 'off' | 'idle'; word: string; confirmed: boolean; n: number } | null;
+		/** 등반이면 상대가 있는 스테이지를 보이고, 스테이지 실패를 '탈락'으로 말한다. */
+		climb?: boolean;
 		onkick?: () => void;
 	} = $props();
 
@@ -48,18 +51,19 @@
 							? rank
 								? `완료 ${rank}위`
 								: '완료'
-							: STATUS_LABEL[panel?.status ?? 'eliminated']
+							: statusLabel(panel?.status ?? 'eliminated', climb)
 	);
 	const marks = $derived(panel?.marks ?? []);
 	const n = $derived(coop?.n ?? panel?.n ?? 0);
 	const word = $derived([...(coop?.word ?? '')]);
+	const stageText = $derived(climb && panel && !coop ? `스테이지 ${panel.stage}` : '');
 	const summary = $derived.by(() => {
 		if (coop) return `${player.name}: ${coop.word ? `${coop.confirmed ? '제안' : '입력 중'} ${coop.word}` : '제안 없음'}`;
 		const last = marks[marks.length - 1];
 		if (!last) return `${player.name}: 제출한 행 없음`;
 		const g = last.filter((m) => m === 'c').length;
 		const y = last.filter((m) => m === 'p').length;
-		return `${player.name}: 제출한 행 ${marks.length}개, 마지막 행 초록 ${g}칸 노랑 ${y}칸`;
+		return `${player.name}${stageText ? ` ${stageText}` : ''}: 제출한 행 ${marks.length}개, 마지막 행 초록 ${g}칸 노랑 ${y}칸`;
 	});
 </script>
 
@@ -77,6 +81,7 @@
 			</span>
 		{/if}
 	{/key}
+	{#if stageText}<span class="stage">{stageText}</span>{/if}
 	{#if coop}
 		<!-- 칸은 n개 고정이라 초안이 길어지거나 짧아져도 카드 높이가 변하지 않는다 -->
 		<div class="prop-w" role="img" aria-label={summary} style="--n:{n}">
@@ -138,6 +143,11 @@
 		gap: 0.25rem;
 		font-size: 0.8125rem;
 		font-weight: 500;
+	}
+	.stage {
+		font-size: 0.75rem;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
 	}
 	.st.done {
 		padding: 0.1875rem 0.5rem;
@@ -243,6 +253,10 @@
 	}
 	.compact .mc {
 		border-radius: 1px;
+	}
+	.compact .stage {
+		font-size: 0.6875rem;
+		white-space: nowrap;
 	}
 	.compact .st {
 		align-self: center;

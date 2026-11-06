@@ -858,9 +858,15 @@ alarm():
 
 ### 5.4 4단계 — 등반 2종 + 다음 게임 루프
 
-**진행 (2026-11-06)**: 4.1~4.4(서버) 구현 완료, 브랜치 `feat/mp-climb`. 4.5(UI)는 다음 단계다. 프로토콜은 `protocol.ts`의 `StageClearView`, `OwnBoardView.lastClear`, `CoopGameView.cleared`·`lastClear`. 서버 규칙은 `climb.ts`(스테이지 전환), `comp.ts`(경쟁 등반·`expireGrace`), `coop.ts`, `timers.ts`(유예 마감).
+**진행 (2026-11-06)**: 4.1~4.4(서버)와 4.5(UI) 구현 완료, 브랜치 `feat/mp-climb`(UI는 2026-11-06 preview E2E 통과, 아래 "UI 메모"). 프로토콜은 `protocol.ts`의 `StageClearView`, `OwnBoardView.lastClear`, `CoopGameView.cleared`·`lastClear`. 서버 규칙은 `climb.ts`(스테이지 전환), `comp.ts`(경쟁 등반·`expireGrace`), `coop.ts`, `timers.ts`(유예 마감).
 - 정답 로딩이 §5.4 표의 "지연 로드"와 다르다: DO 셸(`lookupStart`)이 시작 때 시작 길이부터 12자까지 모든 스테이지의 정답을 한꺼번에 읽는다(길이마다 `pool_meta` 1행 + `pool` 1행, 최대 16행). 이유: 순수 로직이 D1을 부르지 않아야 하고, 지연 로드는 스테이지 전환마다 `await`가 끼어들어 동기 구간 재검증과 클리어 즉시 전환을 어렵게 하는 반면 읽는 양은 무료 한도에 무의미하다. 미리 읽은 정답은 상태에만 있고 `result`에서 도달한 스테이지까지만 나간다.
-- 제한 시간은 5단계 범위라 이번에는 구현하지 않았다. Q7에 따라 새 스테이지가 표시되는 시점부터 센다.
+- 제한 시간은 5단계 범위라 이번에는 구현하지 않았다. Q7에 따라 새 스테이지가 표시되는 시점부터 센다(클리어 보드를 보여 주는 약 2초는 세지 않는다).
+- **UI 메모 (4.5)**:
+  - 스테이지 클리어: 서버가 즉시 다음 보드를 보내므로 `MpGame`이 `lastClear`를 약 2초(`at` 기준) 붙잡아 보여 주고 입력을 잠근 뒤 새 보드를 그린다. 협동 돌림판이 그 클리어를 만든 행이면 휠이 끝난 뒤 1.2초 더 보여 준다. 새로고침으로 이미 지난 `lastClear`는 붙잡지 않는다.
+  - 유예 배너는 `graceEnd`와 `snap.now` 보정 시계로 센다. 첫 완주자 이름은 완주자가 한 명뿐인 첫 스냅샷에서 기억해 둔다(스냅샷에 완주 순서가 없다). 순위표를 받은 사람은 `finishOrder === 1`로 확정한다.
+  - 높이(오른 스테이지 수)는 `Standing`에 없어 결과 표가 `players[].panel.cleared`를 읽는다. 결과 중에 나간 사람은 `-`로 보인다.
+  - 개인 `ClimbModal`은 `Game`에 묶여 있어 재사용하지 않고 `ClimbPyramid.svelte`로 모양만 옮겼다.
+  - 결과 중 입장자(Q9)는 대기실을 본다. 입장자가 방장을 넘겨받았을 때만 다음 게임을 고르는 화면(`between`)에 둔다.
 
 - **사용자 가치**: 길게, 여러 판 이어서 논다
 - **MoSCoW**: Must

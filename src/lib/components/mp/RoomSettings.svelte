@@ -9,7 +9,7 @@
 		onchange
 	}: { settings: Settings; editable: boolean; onchange: (next: Settings) => void } = $props();
 
-	// 게임(단판/등반)과 제한 시간은 서버가 아직 집행하지 않아 컨트롤을 두지 않는다.
+	// 제한 시간은 서버가 아직 집행하지 않아 컨트롤을 두지 않는다.
 	const LENS: Settings['length'][] = ['random', ...Array.from({ length: LENGTH_MAX - LENGTH_MIN + 1 }, (_, i) => LENGTH_MIN + i)];
 	const lenIdx = $derived(LENS.indexOf(settings.length));
 
@@ -25,6 +25,7 @@
 
 	const lenText = (l: Settings['length']) => (l === 'random' ? '랜덤' : `${l}자`);
 	const coop = $derived(settings.kind === 'coop');
+	const climb = $derived(settings.game === 'climb');
 </script>
 
 {#if editable}
@@ -54,11 +55,22 @@
 					</div>
 				</fieldset>
 			{/if}
+			<fieldset>
+				<legend>게임</legend>
+				<div class="opts">
+					<button class="opt" class:flash={flash === 'game' && !climb} type="button" aria-pressed={!climb} onclick={() => set('game', { game: 'single' })}>
+						<b>단판</b><span class="d">한 단어.</span>
+					</button>
+					<button class="opt" class:flash={flash === 'game' && climb} type="button" aria-pressed={climb} onclick={() => set('game', { game: 'climb' })}>
+						<b>등반</b><span class="d">시작 길이에서 12자까지 한 자모씩 올라갑니다.</span>
+					</button>
+				</div>
+			</fieldset>
 		</div>
 
 		<div class="stepper" class:flash={flash === 'length'}>
 			<div class="lab">
-				<b id="len-label">자모 수</b>
+				<b id="len-label">{climb ? '시작 길이' : '자모 수'}</b>
 				<span class="note">랜덤, 5~12자.</span>
 			</div>
 			<button class="btn" type="button" aria-label="이전 길이" disabled={lenIdx <= 0} onclick={() => set('length', { length: LENS[lenIdx - 1] })}>
@@ -102,7 +114,7 @@
 			<button class="sw" class:flash={flash === 'hints'} type="button" role="switch" aria-checked={settings.hints} onclick={() => set('hints', { hints: !settings.hints })}>
 				<span class="lab">
 					<b>힌트</b>
-					<span class="note">노란 자모 하나의 실제 위치를 알려줍니다. {coop ? '한 판에 한 번.' : '한 사람에 한 번.'}</span>
+					<span class="note">노란 자모 하나의 실제 위치를 알려줍니다. {climb ? `등반 전체에서 ${coop ? '방 전체가' : '한 사람이'} 한 번.` : coop ? '한 판에 한 번.' : '한 사람에 한 번.'}</span>
 				</span>
 				<span class="oo">{settings.hints ? '켬' : '끔'}</span>
 				<span class="trk" aria-hidden="true"><i></i></span>
@@ -114,8 +126,8 @@
 	<dl class="card sum">
 		<div><dt>종류</dt><dd>{coop ? '협동' : '경쟁'}</dd></div>
 		{#if coop}<div><dt>선택 방식</dt><dd>{settings.pick === 'vote' ? '투표' : '돌림판'}</dd></div>{/if}
-		<div><dt>게임</dt><dd>단판</dd></div>
-		<div><dt>자모 수</dt><dd>{lenText(settings.length)}</dd></div>
+		<div><dt>게임</dt><dd>{climb ? '등반' : '단판'}</dd></div>
+		<div><dt>{climb ? '시작 길이' : '자모 수'}</dt><dd>{lenText(settings.length)}</dd></div>
 		<div><dt>시도 횟수</dt><dd>{settings.tries}회</dd></div>
 		<div><dt>하드모드</dt><dd>{settings.hard ? '켬' : '끔'}</dd></div>
 		<div><dt>힌트</dt><dd>{settings.hints ? '켬' : '끔'}</dd></div>
