@@ -154,3 +154,17 @@ test('등반: 시도 수는 현재 스테이지 보드의 행 수(누적이 아�
 	assert.equal(metrics(board(filler(2), 3)).tries, 2);
 	assert.deepEqual(standings(g, (p) => p).map((x) => [x.pid, x.status, x.tries]), [['one', 'timeout', 1], ['two', 'timeout', 2]]);
 });
+
+test('등반 순위표는 높이(board.cleared)를 싣는다. 나간 사람은 나가기 직전 높이가 남는다', () => {
+	const g = game('climb', {
+		done: entry('solved', [ANS], { finishedAt: 1, cleared: 6 }),
+		left: entry('eliminated', filler(1), { cleared: 1 }),
+		stuck: entry('timeout', filler(2), { cleared: 0 })
+	}, ['done']);
+	assert.deepEqual(standings(g, (p) => p).map((x) => [x.pid, x.status, x.height]), [['done', 'solved', 6], ['left', 'eliminated', 1], ['stuck', 'timeout', 0]]);
+});
+
+test('단판 순위표에는 높이 필드가 없다', () => {
+	const g = game('single', { p1: entry('failed', filler(1), { cleared: 3 }) });
+	assert.ok(!('height' in standings(g, (p) => p)[0]));
+});

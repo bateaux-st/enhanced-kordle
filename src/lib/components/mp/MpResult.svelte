@@ -8,7 +8,6 @@
 
 	let {
 		snap,
-		peakCleared = {},
 		isHost,
 		onclose,
 		onleave,
@@ -17,8 +16,6 @@
 		onwait
 	}: {
 		snap: Snapshot;
-		/** 게임 중 본 사람별 최고 클리어 수. 나간 사람의 높이를 채운다. */
-		peakCleared?: Record<string, number>;
 		isHost: boolean;
 		onclose: () => void;
 		onleave: () => void;
@@ -44,9 +41,6 @@
 	const stoppedN = $derived(Math.max(startN, ...Object.keys((game ?? coop)?.answers ?? {}).map(Number)));
 	const reached = $derived(coop ? coop.cleared : solvedAny ? full : stoppedN - startN);
 	const top = $derived(reached >= full);
-	// 행별 높이: 완주자는 풀 높이, 그 외는 남아 있는 패널, 나간 사람은 게임 중 본 최고치. 어느 것도 없으면 '-'.
-	const heightOf = (pid: string, finished: boolean) =>
-		finished ? full : (snap.players.find((p) => p.pid === pid)?.panel?.cleared ?? peakCleared[pid] ?? null);
 	// 코스는 모두 같은 단어 순서라 가장 높이 오른 사람까지의 단어가 피라미드가 된다.
 	const pyramid = $derived(
 		Array.from({ length: reached }, (_, i) => wordAt(startN + i)).filter((w): w is string => w !== undefined)
@@ -64,7 +58,7 @@
 				me: s.pid === snap.you,
 				rank: `${s.tied ? '공동 ' : ''}${s.rank}위`,
 				result: s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : statusLabel(s.status, climb),
-				height: heightOf(s.pid, s.finishOrder !== null),
+				height: s.height,
 				tries: s.tries
 			};
 		})

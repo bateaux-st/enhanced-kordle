@@ -60,7 +60,8 @@ export function standings(game: CompGame, nameOf: (pid: Pid) => string): Standin
 				tied: false,
 				status: entry[1].status,
 				tries: entry[1].board.rows.length,
-				finishOrder: solved ? i + 1 : null
+				finishOrder: solved ? i + 1 : null,
+				...(climb && { height: entry[1].board.cleared })
 			});
 		});
 	};

@@ -54,6 +54,8 @@ export interface Standing {
 	tries: number;
 	/** 정답자끼리의 순서(1부터). 정답자가 아니면 null. */
 	finishOrder: number | null;
+	/** 등반에서만 있다. 나간 사람은 결과 스냅샷의 players에서 지워지므로 높이도 순위표가 들고 있다. */
+	height?: number;
 }
 
 /** 남의 보드는 이 필드만 보인다. rows(자모)와 hints는 만들지 않는다. */
