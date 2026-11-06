@@ -817,18 +817,26 @@
 	@media (max-width: 899.98px) {
 		.arena {
 			--cw: 100cqw;
-			--chrome-h: 494px;
+			/* 보드(열 수·시도 횟수 빼고) 위아래 고정 높이와 .mp 아래 여백까지 잰 값. 상대 띠가 완주자 줄로 길어진 경우(+23px)를 기준으로 잡았다. */
+			--chrome-h: 510px;
+			--tile-floor: 26px;
 			display: block;
 		}
-		/* 유예 배너와 남은 시간 줄이 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
+		/* 유예 배너(+56px)와 남은 시간 줄(+28px)이 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
 		.arena.has-grace {
-			--chrome-h: 564px;
+			--chrome-h: 566px;
 		}
 		.arena.has-clock {
-			--chrome-h: 530px;
+			--chrome-h: 538px;
 		}
 		.arena.has-clock.has-grace {
-			--chrome-h: 600px;
+			--chrome-h: 594px;
+		}
+		/* 세로 화면은 26px 바닥이 있으면 360x740의 12자 10회가 한 화면에 안 들어간다. 바닥만 낮춘다. */
+		@media (orientation: portrait) {
+			.arena {
+				--tile-floor: 10px;
+			}
 		}
 		.opp-col {
 			display: none;
@@ -856,8 +864,8 @@
 			gap: 0.75rem;
 		}
 		.center :global(.board) {
-			/* 세로 바닥(26px)은 높이가 모자란 가로 화면용이다. 12자가 폭에 들어가는지가 먼저라 폭 상한은 바닥 밖에 둔다. */
-			--tile: min(56px, calc(var(--cw) / var(--n) - 4px), max(26px, calc((100dvh - var(--chrome-h)) / var(--rows) - 4px)));
+			/* 바닥(--tile-floor)은 높이가 모자란 화면용이다. 12자가 폭에 들어가는지가 먼저라 폭 상한은 바닥 밖에 둔다. */
+			--tile: min(56px, calc(var(--cw) / var(--n) - 4px), max(var(--tile-floor), calc((100dvh - var(--chrome-h)) / var(--rows) - 4px)));
 		}
 		.center :global(.keyboard) {
 			--kw: min(36px, calc((var(--cw) - 18px) / 10.27));
