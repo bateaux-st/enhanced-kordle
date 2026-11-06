@@ -81,11 +81,26 @@ export class MpClient {
 		this.peakCleared = {};
 		this.peakGame = null;
 		setRoomParam(code);
+		document.addEventListener('visibilitychange', this.onVisible);
 		this.open();
 	}
 
-	private open(): void {
-		this.status = this.attempts === 0 ? 'connecting' : 'reconnecting';
+	/** 재시도를 다 쓰고 멈춘('lost') 뒤 사용자가 누르는 "다시 연결". 시도 횟수를 처음부터 센다. */
+	reconnect(): void {
+		if (this.status !== 'closed' || this.closeReason !== 'lost') return;
+		clearTimeout(this.retryTimer);
+		this.attempts = 0;
+		this.closeReason = null;
+		this.open(true);
+	}
+
+	/** 백그라운드에서 재시도를 다 쓴 탭이 다시 보이면 이어 붙는다. 연결 중이거나 열려 있으면 reconnect()가 무시한다. */
+	private onVisible = (): void => {
+		if (document.visibilityState === 'visible') this.reconnect();
+	};
+
+	private open(retry = this.attempts > 0): void {
+		this.status = retry ? 'reconnecting' : 'connecting';
 		const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/${this.code}`);
 		this.ws = ws;
 		ws.onopen = () => {
@@ -143,7 +158,7 @@ export class MpClient {
 		this.peakCleared = next;
 	}
 
-	/** 끊김: 즉시 1회, 2초 뒤 1회 다시 붙는다. 백오프와 탭 전환 대응은 5단계. */
+	/** 끊김: 즉시 1회, 2초 뒤 1회 다시 붙는다. 그래도 안 되면 'lost'로 멈추고 reconnect()가 이어받는다. */
 	private onClosed(code: number): void {
 		if (this.leaving) return this.finish('left');
 		if (code in TERMINAL) return this.finish(TERMINAL[code]);
@@ -173,6 +188,7 @@ export class MpClient {
 
 	/** 화면을 떠날 때. 자리는 서버에 남는다(60초 안에 같은 토큰으로 돌아올 수 있다). */
 	dispose(): void {
+		document.removeEventListener('visibilitychange', this.onVisible);
 		this.close();
 		this.status = 'idle';
 	}

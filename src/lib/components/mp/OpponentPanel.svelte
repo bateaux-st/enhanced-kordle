@@ -228,10 +228,10 @@
 		align-self: flex-start;
 	}
 
-	/* 모바일 띠: 카드 4개가 한 줄에 들어가도록 칸을 8px로 줄인다 */
+	/* 모바일 띠: 카드 폭을 고정하고 넘치면 띠가 스크롤된다. 칸은 최대 8px, 12자에서도 카드 폭 안에 들어가게 줄인다 */
 	.compact {
 		align-items: center;
-		max-width: 6.5rem;
+		flex: 0 0 6.5rem;
 		gap: 4px;
 		padding: 6px;
 		border-radius: 0.375rem;
@@ -245,7 +245,7 @@
 		white-space: nowrap;
 	}
 	.compact .mini {
-		--oc: min(8px, calc((((100vw - 32px - 24px) / 4) - 14px) / var(--n) - 1px));
+		--oc: min(8px, calc((6.5rem - 14px) / var(--n) - 1px));
 		gap: 1px;
 	}
 	.compact .r {

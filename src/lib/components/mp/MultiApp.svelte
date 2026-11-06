@@ -373,7 +373,7 @@
 	{/if}
 
 	{#if overlay}
-		<ConnectionOverlay kind={overlay} onlobby={() => toLobby()} />
+		<ConnectionOverlay kind={overlay} onlobby={() => toLobby()} onretry={() => client.reconnect()} />
 	{/if}
 
 	{#if pendingCode}

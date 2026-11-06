@@ -9,7 +9,6 @@
 		onchange
 	}: { settings: Settings; editable: boolean; onchange: (next: Settings) => void } = $props();
 
-	// 제한 시간은 서버가 아직 집행하지 않아 컨트롤을 두지 않는다.
 	const LENS: Settings['length'][] = ['random', ...Array.from({ length: LENGTH_MAX - LENGTH_MIN + 1 }, (_, i) => LENGTH_MIN + i)];
 	const lenIdx = $derived(LENS.indexOf(settings.length));
 
@@ -119,6 +118,14 @@
 				<span class="oo">{settings.hints ? '켬' : '끔'}</span>
 				<span class="trk" aria-hidden="true"><i></i></span>
 			</button>
+			<button class="sw" class:flash={flash === 'timer'} type="button" role="switch" aria-checked={settings.timer} onclick={() => set('timer', { timer: !settings.timer })}>
+				<span class="lab">
+					<b>제한 시간</b>
+					<span class="note">{climb ? '스테이지마다 3분에서 15초씩 줄어 1분까지.' : '한 판에 3분.'} {coop ? '방 전체가 한 시계를 씁니다.' : '시계는 각자 따로 갑니다.'}</span>
+				</span>
+				<span class="oo">{settings.timer ? '켬' : '끔'}</span>
+				<span class="trk" aria-hidden="true"><i></i></span>
+			</button>
 		</div>
 		<p class="note">설정을 바꾸면 모두의 준비가 풀립니다.</p>
 	</div>
@@ -131,6 +138,7 @@
 		<div><dt>시도 횟수</dt><dd>{settings.tries}회</dd></div>
 		<div><dt>하드모드</dt><dd>{settings.hard ? '켬' : '끔'}</dd></div>
 		<div><dt>힌트</dt><dd>{settings.hints ? '켬' : '끔'}</dd></div>
+		<div><dt>제한 시간</dt><dd>{settings.timer ? '켬' : '끔'}</dd></div>
 	</dl>
 {/if}
 

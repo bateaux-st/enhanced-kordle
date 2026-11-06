@@ -5,13 +5,14 @@
 	import { CODE_TO_JAMO } from '$lib/jamo';
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { CoopPickView, PlayerView, Snapshot } from '$lib/mp/protocol';
-	import { CLIMB_GRACE_MS } from '$lib/mp/rules';
+	import { CLIMB_GRACE_MS, IDLE_WARNING_MS, STAGE_CLEAR_MS } from '$lib/mp/rules';
 	import type { Mark } from '$lib/types';
 	import CoopPicker from './CoopPicker.svelte';
 	import Icon from './Icon.svelte';
 	import { statusLabel } from './labels';
 	import MpModal from './MpModal.svelte';
 	import MpResult from './MpResult.svelte';
+	import MpTimer from './MpTimer.svelte';
 	import OpponentPanel from './OpponentPanel.svelte';
 	import { mpPrefs } from './prefs.svelte';
 	import { showToast } from './toast.svelte';
@@ -114,6 +115,13 @@
 	// 클리어한 보드를 보여 주는 동안에도 잠근다.
 	const inputOk = $derived(playing && !selecting && !heldClear);
 
+	// ---- 제한 시간 ----
+	// 경쟁은 내 보드, 협동은 공유 보드의 마감이다. 끈 방은 null이라 줄 자체를 그리지 않는다.
+	const deadline = $derived(coop ? coop.board.deadline : (me?.deadline ?? null));
+	const clockOn = $derived(playing && deadline !== null);
+	// 등반은 클리어 직후부터 새 스테이지 마감이 나가므로 마감에 연출 2초가 들어 있다. 그 2초는 제한 시간을 가득 찬 값에 붙잡아 둔다.
+	const clockCap = $derived(climb && rawClear && deadline !== null ? deadline - (rawClear.at + STAGE_CLEAR_MS) : null);
+
 	// 상대: 입장 순. 왼쪽 열 2명, 오른쪽 열 나머지.
 	const opponents = $derived(snap.players.filter((p) => p.pid !== snap.you && p.inGame));
 	const left = $derived(opponents.slice(0, 2));
@@ -155,7 +163,10 @@
 			k: counted.filter((p) => st.voted.includes(p.pid)).length,
 			m: counted.length,
 			isHost,
-			onvote: (i: number) => client.vote(i),
+			onvote: (i: number) => {
+				touch();
+				client.vote(i);
+			},
 			onclose: () => client.closeStep()
 		};
 	});
@@ -203,6 +214,7 @@
 	function onkey(k: string) {
 		// 협동의 busy는 거절 때 흔들 근거일 뿐이다. 같은 제안을 다시 보내면 스냅샷이 오지 않으니 입력을 막지 않는다.
 		if (!inputOk || (busy && !coop)) return;
+		touch();
 		if (k === 'Enter') {
 			if ([...current].length < n) {
 				showToast('자모가 부족합니다');
@@ -250,17 +262,36 @@
 	});
 
 	// 내 판이 끝나는 순간 한 번 알린다.
+	// 연결이 끊겼다 돌아온 스냅샷에서 탈락이 확인되면 끊김 탈락이다(서버는 이유를 따로 보내지 않는다).
+	// 재접속이 열린 순간의 스냅샷에 상태 변화가 함께 오므로, 변화가 없는 스냅샷에서만 표시를 지운다.
+	let dropped = false;
 	let lastStatus = untrack(() => me?.status);
 	$effect(() => {
 		const st = me?.status;
-		if (st === lastStatus) return;
+		if (client.status === 'reconnecting') dropped = true;
+		if (st === lastStatus) {
+			if (client.status === 'open') dropped = false;
+			return;
+		}
 		const was = lastStatus;
 		lastStatus = st;
+		const byDrop = dropped;
+		dropped = false;
 		if (was !== 'playing') return;
 		if (st === 'solved') showToast(myRank ? `정답입니다 · ${myRank}위` : '정답입니다');
 		else if (st === 'failed') showToast(climb ? '탈락했습니다' : '실패했습니다');
-		else if (st === 'eliminated') showToast('탈락했습니다');
+		else if (st === 'eliminated') showToast(byDrop ? '접속이 끊겨 탈락했습니다' : '탈락했습니다');
 		else if (st === 'timeout') showToast('시간이 다 됐습니다');
+	});
+
+	// 협동은 판 전체가 하나라 실패 순간에 한 번 알린다.
+	let lastCoopStatus = untrack(() => coop?.status);
+	$effect(() => {
+		const st = coop?.status;
+		if (st === lastCoopStatus) return;
+		const was = lastCoopStatus;
+		lastCoopStatus = st;
+		if (was === 'playing' && st === 'lost' && coop?.endReason === 'timeout') showToast('시간이 다 됐습니다');
 	});
 
 	// 공유 힌트: 누가 썼는지와 결과를 전원에게 알린다.
@@ -320,6 +351,31 @@
 	let modal = $state<'leave' | 'result' | null>(null);
 	let kickPid = $state<string | null>(null);
 	const kickName = $derived(snap.players.find((p) => p.pid === kickPid)?.name ?? '');
+
+	// ---- 무입력 경고 ----
+	// 서버는 모른다. 지금 입력할 것이 있는 사람 화면에서만 60초 타이머가 돌고, 경고는 자동 포기나 퇴장으로 이어지지 않는다.
+	// 경쟁은 내가 풀이 중일 때, 협동은 제안 단계에서 아직 안 냈거나 투표 단계에서 찍을 후보가 있는데 안 찍었을 때다.
+	const idleTarget = $derived.by(() => {
+		if (snap.phase !== 'playing' || modal !== null || kickPid !== null) return false;
+		if (!coop) return me?.status === 'playing';
+		const mine = snap.players.find((p) => p.pid === snap.you);
+		const st = coop.step;
+		if (coop.status !== 'playing' || held || !st || !mine?.inGame || !mine.connected) return false;
+		if (st.kind === 'propose') return !(snap.you in st.proposals);
+		return st.myVote === null && st.candidates.some((c) => !c.by.includes(snap.you));
+	});
+	let idleWarn = $state(false);
+	let idleSeq = $state(0);
+	const touch = () => idleSeq++;
+	$effect(() => {
+		void idleSeq;
+		if (!idleTarget) {
+			idleWarn = false;
+			return;
+		}
+		const t = setTimeout(() => (idleWarn = true), IDLE_WARNING_MS);
+		return () => clearTimeout(t);
+	});
 
 	function leave() {
 		// 게임 중 나가면 이번 게임에서 빠지니 확인한다. 이미 끝났으면 바로 나간다.
@@ -394,6 +450,12 @@
 </div>
 <div class="mode-line"><span>{modeLine}</span></div>
 
+{#if clockOn && deadline !== null}
+	<div class="clock a-fadein">
+		<MpTimer {deadline} cap={clockCap} now={() => client.serverNow()} />
+	</div>
+{/if}
+
 {#if graceActive}
 	<div class="grace a-drop" role="status">
 		<span class="sr">{graceName}님 완주. 남은 시간 {graceSr}초</span>
@@ -410,13 +472,15 @@
 	</div>
 {/if}
 
-<div class="strip" role="region" aria-label="상대 진행">
+<!-- 띠가 넘치면 가로로 스크롤되므로 키보드로도 닿아야 한다 -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div class="strip" role="region" aria-label="상대 진행" tabindex="0">
 	{#each opponents as p (p.pid)}
 		<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} compact {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
 	{/each}
 </div>
 
-<div class="arena" class:has-grace={graceActive} style="--rows:{tries}">
+<div class="arena" class:has-grace={graceActive} class:has-clock={clockOn} style="--rows:{tries}">
 	<div class="opp-col">
 		{#each left as p (p.pid)}
 			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
@@ -486,7 +550,10 @@
 			<button
 				class="btn"
 				type="button"
-				onclick={() => client.hint()}
+				onclick={() => {
+					touch();
+					client.hint();
+				}}
 				disabled={used}
 				title="노란 자모 하나의 실제 위치를 알려줍니다 ({climb ? '등반 전체에서 한 번' : coop ? '한 판에 한 번' : '한 사람에 한 번'})"
 			>
@@ -516,6 +583,27 @@
 			onwait();
 		}}
 	/>
+{/if}
+
+{#if idleWarn && idleTarget}
+	<MpModal
+		title="진행 중입니다"
+		small
+		onclose={() => {
+			idleWarn = false;
+			touch();
+		}}
+	>
+		<p>60초 동안 입력이 없었습니다.</p>
+		<button
+			class="btn primary block resume"
+			type="button"
+			onclick={() => {
+				idleWarn = false;
+				touch();
+			}}>계속하기</button
+		>
+	</MpModal>
 {/if}
 
 {#if modal === 'leave'}
@@ -569,6 +657,14 @@
 		margin-bottom: 1rem;
 		font-size: 0.8rem;
 		color: var(--muted);
+	}
+	.clock {
+		display: flex;
+		justify-content: center;
+		margin: -0.5rem 0 0.75rem;
+	}
+	.resume {
+		margin-top: 0.75rem;
 	}
 	.grace {
 		display: flex;
@@ -718,21 +814,40 @@
 	@media (max-width: 899.98px) {
 		.arena {
 			--cw: calc(100vw - 32px);
-			--chrome-h: 490px;
+			--chrome-h: 494px;
 			display: block;
 		}
-		/* 유예 배너가 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
+		/* 유예 배너와 남은 시간 줄이 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
 		.arena.has-grace {
-			--chrome-h: 560px;
+			--chrome-h: 564px;
+		}
+		.arena.has-clock {
+			--chrome-h: 530px;
+		}
+		.arena.has-clock.has-grace {
+			--chrome-h: 600px;
 		}
 		.opp-col {
 			display: none;
 		}
+		/* 카드는 폭이 고정이라 5명 방에서 넘치면 띠만 가로로 스크롤된다. 넘치지 않을 때만 가운데로 모은다 */
 		.strip {
 			display: flex;
-			justify-content: center;
 			gap: 8px;
 			margin-bottom: 0.5rem;
+			padding-bottom: 4px;
+			overflow-x: auto;
+			overscroll-behavior-x: contain;
+			scrollbar-width: thin;
+		}
+		.strip > :global(.opp:first-child) {
+			margin-left: auto;
+		}
+		.strip > :global(.opp:last-child) {
+			margin-right: auto;
+		}
+		.clock {
+			margin: -0.25rem 0 0.5rem;
 		}
 		.center {
 			gap: 0.75rem;
