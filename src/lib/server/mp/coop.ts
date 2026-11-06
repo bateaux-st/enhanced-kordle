@@ -3,7 +3,8 @@
 import { isJamo } from '../../jamo.ts';
 import { judge } from '../judge.ts';
 import type { Pid } from '../../mp/protocol.ts';
-import { climbUp, hintUsedMsg, isClimb, isTop, startAnswers } from './climb.ts';
+import { STAGE_CLEAR_MS } from '../../mp/rules.ts';
+import { climbUp, hintUsedMsg, isClimb, isTop, stageDeadline, startAnswers } from './climb.ts';
 import type { Start } from './climb.ts';
 import { checkGuess, freshBoard, hintFor } from './comp.ts';
 import { findPlayer } from './members.ts';
@@ -27,7 +28,7 @@ export function startGame(s: RoomState, start: Start, now: number): void {
 		answers: startAnswers(start),
 		startedAt: now,
 		endedAt: null,
-		board: freshBoard(start.n),
+		board: freshBoard(start.n, stageDeadline(s.settings, 1, now)),
 		step: emptyPropose(),
 		lastPick: null,
 		hintBy: null,
@@ -88,7 +89,7 @@ function submit(s: RoomState, game: CoopGame, cands: VoteStep['candidates'], cho
 	if (marks.every((m) => m === 'c')) {
 		board.cleared += 1;
 		if (isClimb(game.settings) && !isTop(board)) {
-			const up = climbUp(board, now);
+			const up = climbUp(board, now, stageDeadline(game.settings, board.stage + 1, now + STAGE_CLEAR_MS));
 			game.board = up.next;
 			game.lastClear = up.clear;
 		} else endGame(s, game, 'won', 'solved', now);
@@ -174,6 +175,14 @@ export function propose(s: RoomState, pid: Pid, jamo: string, valid: boolean | u
 	step.drafts[pid] = jamo;
 	changed = advance(s, rng, now) || changed;
 	return { ok: true, changed };
+}
+
+/** 공유 보드의 마감이 지났으면 그 판(등반이면 그 스테이지에서 등반 전체)을 실패로 끝낸다. 같은 now로 다시 불러도 결과가 같다. */
+export function expireDeadline(s: RoomState, now: number): boolean {
+	const game = coopGame(s);
+	if (!game || game.board.deadline === null || now < game.board.deadline) return false;
+	endGame(s, game, 'lost', 'timeout', now);
+	return true;
 }
 
 /** 방장의 마감. 제안 단계는 제안이 하나 이상일 때만, 투표 단계는 지금까지의 표로 집계한다. */

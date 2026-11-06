@@ -400,7 +400,7 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 - GitHub Pages 정적 전환 — 사전 2MB를 브라우저에 실어야 하고 정답이 노출된다. Cloudflare가 무료이면서 서버를 유지할 수 있어 택하지 않음.
 - GitHub Actions 코드 CI/CD — PR 검증, main 배포·smoke (§6.1). 사전 자동 갱신은 아직 없음.
 - 공유(이모지 격자 복사), 다크 모드, 계정/서버 저장 — 요청되지 않음.
-- 멀티플레이(방 기반 협동·경쟁) — 2026-11-05 2단계(경쟁 단판) 구현·배포. 협동 단판(서버·UI)은 `feat/mp-coop`에서 구현, 등반(협동·경쟁 서버·UI)은 `feat/mp-climb`에서 구현(preview E2E 통과, 미배포), 제한 시간은 구현 전. 결정 전부와 아키텍처는 [`MULTIPLAYER.md`](MULTIPLAYER.md), 배포 구조는 §2. 개인 플레이 코드 경로는 바꾸지 않는 것이 전제다.
+- 멀티플레이(방 기반 협동·경쟁) — 2단계(경쟁 단판)는 2026-11-05(PR #6), 3단계 협동 단판(PR #8)과 4단계 등반(PR #9)은 2026-11-06 배포됐다. 5단계(제한 시간·무입력 경고·모바일 띠·재접속·경쟁 끊김 자동 탈락)는 `feat/mp-stage5`에서 구현돼 preview E2E를 통과했고 이 PR로 반영된다. 결정 전부와 아키텍처는 [`MULTIPLAYER.md`](MULTIPLAYER.md), 배포 구조는 §2. 개인 플레이 코드 경로는 바꾸지 않는 것이 전제다.
 
 작업 완료 기준: 코드는 로컬 검증 → 커밋·push·PR → CI 통과 → main 반영 → Actions 배포·운영 smoke 통과. 사전 수동 갱신은 운영 smoke 통과 후 커밋·push. 문서만 수정한 작업은 로컬 실행 검증을 생략할 수 있다.
 

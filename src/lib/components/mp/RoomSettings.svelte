@@ -9,7 +9,6 @@
 		onchange
 	}: { settings: Settings; editable: boolean; onchange: (next: Settings) => void } = $props();
 
-	// 제한 시간은 서버가 아직 집행하지 않아 컨트롤을 두지 않는다.
 	const LENS: Settings['length'][] = ['random', ...Array.from({ length: LENGTH_MAX - LENGTH_MIN + 1 }, (_, i) => LENGTH_MIN + i)];
 	const lenIdx = $derived(LENS.indexOf(settings.length));
 
@@ -119,6 +118,14 @@
 				<span class="oo">{settings.hints ? '켬' : '끔'}</span>
 				<span class="trk" aria-hidden="true"><i></i></span>
 			</button>
+			<button class="sw" class:flash={flash === 'timer'} type="button" role="switch" aria-checked={settings.timer} onclick={() => set('timer', { timer: !settings.timer })}>
+				<span class="lab">
+					<b>제한 시간</b>
+					<span class="note">단판 180초. 등반은 180초에서 스테이지마다 15초씩 줄어 60초까지.</span>
+				</span>
+				<span class="oo">{settings.timer ? '켬' : '끔'}</span>
+				<span class="trk" aria-hidden="true"><i></i></span>
+			</button>
 		</div>
 		<p class="note">설정을 바꾸면 모두의 준비가 풀립니다.</p>
 	</div>
@@ -131,6 +138,7 @@
 		<div><dt>시도 횟수</dt><dd>{settings.tries}회</dd></div>
 		<div><dt>하드모드</dt><dd>{settings.hard ? '켬' : '끔'}</dd></div>
 		<div><dt>힌트</dt><dd>{settings.hints ? '켬' : '끔'}</dd></div>
+		<div><dt>제한 시간</dt><dd>{settings.timer ? '켬' : '끔'}</dd></div>
 	</dl>
 {/if}
 

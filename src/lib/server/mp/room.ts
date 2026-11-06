@@ -18,7 +18,7 @@ import { refresh } from './session.ts';
 import { personalize } from './snapshot.ts';
 import { initRoom } from './state.ts';
 import type { Pid, RoomState } from './state.ts';
-import { alarmTarget, tick } from './timers.ts';
+import { alarmChange, alarmTarget, isStaleSocket, reapCheckAt, tick } from './timers.ts';
 
 /** 멀티 정답 풀 임계값. 개인용 POOL_THRESHOLD와 무관한 별도 상수다(설계 §3). */
 const MP_POOL_T = 3;
@@ -35,6 +35,8 @@ interface RoomEnv {
 interface Att {
 	pid: Pid | null;
 	uid: string | null;
+	/** 접속 시각. 자동 응답이 한 번도 없는 소켓의 무응답 기준이다. */
+	at?: number;
 }
 
 const attOf = (ws: WebSocket): Att => (ws.deserializeAttachment() as Att | null) ?? { pid: null, uid: null };
@@ -56,6 +58,8 @@ export class Room extends DurableObject<RoomEnv> {
 	private alarmAt: number | null = null;
 	private lastSummary: RoomSummary | null = null;
 	private lastUpsert = 0;
+	/** 무응답 소켓을 마지막으로 점검한 시각. */
+	private lastReap = Date.now();
 	/** Lobby 목록에 올라가 있다고 알고 있는지. */
 	private listed = false;
 	/** hello 직후 첫 snap에만 session을 싣는다. */
@@ -80,10 +84,14 @@ export class Room extends DurableObject<RoomEnv> {
 		if (!s) return;
 		const now = Date.now();
 		const live = this.ctx.getWebSockets().flatMap((ws) => attOf(ws).pid ?? []);
-		if (!members.reconcile(s, live, now)) return;
+		// 축출 중에 지나간 마감이 advance보다 먼저 반영되어야 한다.
+		const t = tick(s, now);
+		if (!members.reconcile(s, live, now) && !t.changed) return;
 		coop.advance(s, randomIndex, now);
 		s.seq++;
 		await this.ctx.storage.put(STATE_KEY, s);
+		// 알람이 마감 때문에 DO를 깨웠다면 만료는 여기서 반영되어 뒤이은 alarm()의 run은 바뀐 게 없다. 알리지 않으면 접속자가 결과를 못 받는다.
+		this.broadcast(s, now);
 		this.syncLobby(s, now);
 		await this.updateAlarm(s, now);
 	}
@@ -114,6 +122,7 @@ export class Room extends DurableObject<RoomEnv> {
 		}
 		const [client, server] = Object.values(new WebSocketPair());
 		this.ctx.acceptWebSocket(server);
+		server.serializeAttachment({ pid: null, uid: null, at: Date.now() } satisfies Att);
 		// 없는 방은 첫 메시지(hello)에서 4004로 닫는다. 핸드셰이크 응답 전에 닫으면 클라이언트에 닫기 코드가 가지 않는다.
 		// 어느 쪽이든 아무것도 저장하지 않는다(아무 코드로 저장 공간이 생기지 않게).
 		return new Response(null, { status: 101, webSocket: client });
@@ -146,7 +155,32 @@ export class Room extends DurableObject<RoomEnv> {
 
 	async alarm(): Promise<void> {
 		this.alarmAt = null;
-		await this.run();
+		const stale = this.reapStale(Date.now());
+		await this.run(
+			stale.length
+				? (s, now) => {
+						// 닫은 소켓의 webSocketClose는 상대가 응답하지 않으면 오지 않으므로 여기서 끊김으로 처리한다.
+						for (const pid of stale) if (!this.socketsOf(pid).length) members.disconnect(s, pid, now);
+						coop.advance(s, randomIndex, now);
+						return { changed: true };
+					}
+				: undefined
+		);
+	}
+
+	/** 마지막 자동 응답(없으면 접속 시각)이 45초 넘은 소켓을 닫는다. 자리를 잃는 pid 목록을 돌려준다. */
+	private reapStale(now: number): Pid[] {
+		this.lastReap = now;
+		const pids = new Set<Pid>();
+		for (const ws of this.ctx.getWebSockets()) {
+			const att = attOf(ws);
+			const seenAt = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? att.at;
+			if (seenAt === undefined || !isStaleSocket(seenAt, now)) continue;
+			if (att.pid) pids.add(att.pid);
+			ws.serializeAttachment({ pid: null, uid: null } satisfies Att);
+			closeQuietly(ws, 1001, 'stale');
+		}
+		return [...pids];
 	}
 
 	// ---- 메시지 처리 ----
@@ -172,7 +206,7 @@ export class Room extends DurableObject<RoomEnv> {
 			}
 			// 이미 제안한 사람이 돌아오면 "접속 중 전원 제안"이 채워질 수 있다.
 			coop.advance(s, randomIndex, now);
-			ws.serializeAttachment({ pid: r.pid, uid: session.uid } satisfies Att);
+			ws.serializeAttachment({ pid: r.pid, uid: session.uid, at: attOf(ws).at } satisfies Att);
 			this.pendingSession.set(ws, { token: session.token, exp: session.exp });
 			this.sendTo(ws, { type: 'welcome', pid: r.pid, name: r.name });
 			return { changed: true };
@@ -352,13 +386,18 @@ export class Room extends DurableObject<RoomEnv> {
 			});
 	}
 
-	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예)와 Lobby 재알림 중 이른 것. 값이 바뀔 때만 쓴다. */
+	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
 	private async updateAlarm(s: RoomState, now: number): Promise<void> {
-		const target = alarmTarget(s, this.lastUpsert);
-		if (target === this.alarmAt) return;
-		this.alarmAt = target;
-		if (target === null) await this.ctx.storage.deleteAlarm();
-		else await this.ctx.storage.setAlarm(Math.max(target, now + 1));
+		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length));
+		const change = alarmChange(this.alarmAt, target, now);
+		if (change === 'keep') return;
+		if (change === 'delete') {
+			this.alarmAt = null;
+			await this.ctx.storage.deleteAlarm();
+		} else {
+			this.alarmAt = change;
+			await this.ctx.storage.setAlarm(change);
+		}
 	}
 
 	private async destroy(s: RoomState): Promise<void> {

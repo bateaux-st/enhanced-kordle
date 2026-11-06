@@ -1,11 +1,11 @@
-// 경쟁 게임. 단판은 같은 정답을, 등반은 같은 단어 순서를 각자 개인 보드로 푼다. 제한 시간은 5단계에서 더한다.
+// 경쟁 게임. 단판은 같은 정답을, 등반은 같은 단어 순서를 각자 개인 보드로 푼다. 제한 시간은 각자 보드의 마감으로 센다.
 import { judge } from '../judge.ts';
 import { hardViolation } from '../../hard.ts';
 import { isJamo } from '../../jamo.ts';
-import { CLIMB_GRACE_MS, LENGTH_MAX, LENGTH_MIN } from '../../mp/rules.ts';
+import { CLIMB_GRACE_MS, DISCONNECT_GRACE_MS, LENGTH_MAX, LENGTH_MIN, STAGE_CLEAR_MS } from '../../mp/rules.ts';
 import type { Mark } from '../../types.ts';
 import type { Pid, Settings } from '../../mp/protocol.ts';
-import { climbUp, hintUsedMsg, isClimb, isTop, startAnswers } from './climb.ts';
+import { climbUp, hintUsedMsg, isClimb, isTop, stageDeadline, startAnswers } from './climb.ts';
 import type { Start } from './climb.ts';
 import { findPlayer } from './members.ts';
 import { standings } from './rank.ts';
@@ -17,8 +17,8 @@ export function chooseStartN(settings: Settings, rng: Rng): number {
 	return settings.length === 'random' ? LENGTH_MIN + rng(LENGTH_MAX - LENGTH_MIN + 1) : settings.length;
 }
 
-export function freshBoard(n: number): Board {
-	return { stage: 1, n, rows: [], marks: [], hints: {}, hintUsed: false, deadline: null, cleared: 0 };
+export function freshBoard(n: number, deadline: number | null = null): Board {
+	return { stage: 1, n, rows: [], marks: [], hints: {}, hintUsed: false, deadline, cleared: 0 };
 }
 
 /** 현재 방에 있는 모두가 참가자다. 끊긴 채 남은 사람도 자리를 지키며 포함된다. */
@@ -26,7 +26,7 @@ export function startGame(s: RoomState, start: Start, now: number): void {
 	const players: Record<Pid, CompPlayer> = {};
 	for (const p of s.players) {
 		p.inGame = true;
-		players[p.pid] = { board: freshBoard(start.n), status: 'playing', finishedAt: null, triesUsed: 0, lastClear: null };
+		players[p.pid] = { board: freshBoard(start.n, stageDeadline(s.settings, 1, now)), status: 'playing', finishedAt: null, triesUsed: 0, lastClear: null };
 	}
 	s.game = {
 		kind: 'comp',
@@ -111,7 +111,7 @@ export function applyGuess(s: RoomState, pid: Pid, jamo: string, valid: boolean 
 		board.cleared += 1;
 		if (isClimb(game.settings) && !isTop(board)) {
 			// 서버는 기다리지 않고 바로 다음 스테이지로 넘긴다. 클리어 연출은 lastClear로 클라이언트가 맡는다.
-			const up = climbUp(board, now);
+			const up = climbUp(board, now, stageDeadline(game.settings, board.stage + 1, now + STAGE_CLEAR_MS));
 			me.board = up.next;
 			me.lastClear = up.clear;
 			me.triesUsed = 0;
@@ -172,14 +172,47 @@ export function giveUp(s: RoomState, pid: Pid, now: number): Result {
 	return { ok: true };
 }
 
-/** 유예가 끝났다. 아직 오르는 사람은 그 시점 높이에서 멈춘다(시간 초과). 같은 now로 다시 불러도 결과가 같다. */
-export function expireGrace(s: RoomState, now: number): boolean {
+/**
+ * 끊긴 사람의 자동 탈락 시각. 접속 중이면 null.
+ * 로비에서 끊긴 채 시작을 맞은 사람은 게임 시작부터 센다: 게임 중에 끊긴 시간만 탈락 근거다.
+ */
+export function eliminationAt(s: RoomState, pid: Pid): number | null {
+	const p = findPlayer(s, pid);
 	const game = compGame(s);
-	if (!game || game.graceEnd === null || now < game.graceEnd) return false;
-	// 알람이 늦게 울려도 순위 입력이 흔들리지 않도록 마감 시각으로 기록한다.
-	for (const [pid, p] of Object.entries(game.players)) if (p.status === 'playing') finish(game, pid, 'timeout', game.graceEnd);
-	settle(s, now);
-	return true;
+	if (!p || !game || p.connected || p.disconnectedAt === null) return null;
+	return Math.max(p.disconnectedAt, game.startedAt) + DISCONNECT_GRACE_MS;
+}
+
+/**
+ * 한 사람에게 걸린 마감 중 가장 이른 것. 보드 마감과 등반 유예는 시간 초과, 끊김은 탈락이다.
+ * 같은 시각이면 시간 초과가 이긴다.
+ */
+function earliestEnd(s: RoomState, game: CompGame, pid: Pid): { status: 'timeout' | 'eliminated'; at: number } | null {
+	const limits = [game.players[pid].board.deadline, game.graceEnd].filter((x): x is number => x !== null);
+	const timeoutAt = limits.length ? Math.min(...limits) : null;
+	const out = eliminationAt(s, pid);
+	if (out !== null && (timeoutAt === null || out < timeoutAt)) return { status: 'eliminated', at: out };
+	return timeoutAt === null ? null : { status: 'timeout', at: timeoutAt };
+}
+
+/**
+ * 지난 마감을 처리한다: 보드 제한 시간(등반이면 그 시점 높이에서 멈춤), 등반 유예, 끊김 탈락.
+ * 알람이 늦거나 DO가 오래 잠들어 여러 마감이 한꺼번에 지났어도 먼저 온 쪽이 status를 정하고,
+ * 기록 시각은 마감 시각이라 순위 입력이 흔들리지 않는다. 같은 now로 다시 불러도 결과가 같다.
+ */
+export function expireCompPlayers(s: RoomState, now: number): boolean {
+	const game = compGame(s);
+	if (!game) return false;
+	let moved = false;
+	for (const [pid, p] of Object.entries(game.players)) {
+		if (p.status !== 'playing') continue;
+		const end = earliestEnd(s, game, pid);
+		if (!end || now < end.at) continue;
+		finish(game, pid, end.status, end.at);
+		moved = true;
+	}
+	if (moved) settle(s, now);
+	return moved;
 }
 
 /** 방장이 끊긴 사람을 탈락시킨다. 접속 중인 사람은 대상이 아니다. */

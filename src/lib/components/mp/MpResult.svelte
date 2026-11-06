@@ -78,12 +78,14 @@
 			<p class="big climb-head">{title}</p>
 			<ClimbPyramid words={pyramid} />
 			{#if stopped}<p class="stopped">멈춘 곳의 정답: <b>{stopped}</b></p>{/if}
+			{#if coop.endReason === 'timeout'}<p class="note">시간이 다 됐습니다.</p>{/if}
 		</div>
 	{:else if coop}
 		<div class="coop-res">
 			<p class="big">{coop.status === 'won' ? '정답입니다' : answer ? `정답: ${answer}` : '실패했습니다'}</p>
 			{#if coop.status === 'won' && answer}<p>정답: <b>{answer}</b></p>{/if}
 			<p class="note">{coop.board.rows.length}회 시도</p>
+			{#if coop.endReason === 'timeout'}<p class="note">시간이 다 됐습니다.</p>{/if}
 		</div>
 	{:else}
 		{#if answer && !climb}<p class="big">정답: {answer}</p>{/if}
