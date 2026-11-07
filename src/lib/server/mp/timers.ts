@@ -1,5 +1,5 @@
 // 상태에는 마감 시각만 저장하고 알람은 가장 이른 하나만 건다. 제한 시간·등반 유예·경쟁 끊김 탈락을 여기서 처리한다.
-import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS, SOCKET_IDLE_MS } from '../../mp/rules.ts';
+import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS, REAP_CHECK_IDLE_MS, REAP_CHECK_PLAYING_MS, SOCKET_IDLE_MS } from '../../mp/rules.ts';
 import { eliminationAt, expireCompPlayers } from './comp.ts';
 import { expireDeadline } from './coop.ts';
 import { hostSuccessionAt, succeedHost } from './members.ts';
@@ -33,10 +33,11 @@ export function nextDeadline(s: RoomState): number | null {
 export const isStaleSocket = (seenAt: number, now: number): boolean => now - seenAt > SOCKET_IDLE_MS;
 
 /**
- * 소켓 정리 점검 시각. 소켓이 있을 때만 후보다.
+ * 소켓 정리 점검 시각. 소켓이 있을 때만 후보다. 주기는 phase별이다: 게임 중 45초, 대기실·결과 180초.
  * 소켓별 마지막 응답 시각이 아니라 점검 주기로 잡는다: ping은 DO를 깨우지 않으므로 응답 시각에 맞추면 25초마다 알람이 울린다.
  */
-export const reapCheckAt = (lastCheck: number, socketCount: number): number | null => (socketCount > 0 ? lastCheck + SOCKET_IDLE_MS : null);
+export const reapCheckAt = (lastCheck: number, socketCount: number, phase: RoomState['phase']): number | null =>
+	socketCount > 0 ? lastCheck + (phase === 'playing' ? REAP_CHECK_PLAYING_MS : REAP_CHECK_IDLE_MS) : null;
 
 /**
  * 알람을 걸 시각. 마감, Lobby 재알림, 소켓 정리 점검 중 가장 이른 것, 모두 없으면 null.
@@ -51,8 +52,8 @@ export function alarmTarget(s: RoomState, lastUpsert: number, reapAt: number | n
 
 /**
  * 걸려 있는 알람을 어떻게 할지. 'keep'은 건드리지 않음, 'delete'는 지움, 숫자는 그 시각으로 다시 건다.
- * 이미 걸린 알람이 미래이고 목표보다 이르면 둔다: 소켓 정리 점검 시각(lastReap + 45초)은 메모리 값이라 깨어날 때마다
- * 밀리는데, 덮어쓰면 방이 45초보다 자주 깨는 동안 점검 알람이 한 번도 울리지 못한다. 일찍 울린 알람은 다시 계산하면 그만이다.
+ * 이미 걸린 알람이 미래이고 목표보다 이르면 둔다: 소켓 정리 점검 시각(lastReap + 점검 주기)은 메모리 값이라 깨어날 때마다
+ * 밀리는데, 덮어쓰면 방이 점검 주기보다 자주 깨는 동안 점검 알람이 한 번도 울리지 못한다. 일찍 울린 알람은 다시 계산하면 그만이다.
  */
 export function alarmChange(current: number | null, target: number | null, now: number): 'keep' | 'delete' | number {
 	if (target === null) return current === null ? 'keep' : 'delete';

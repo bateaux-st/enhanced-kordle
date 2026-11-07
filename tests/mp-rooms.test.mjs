@@ -87,7 +87,7 @@ test('모두 나가기로 떠난 방도 목록에 나오지 않는다', () => {
 });
 
 test('심장박동이 끊긴 방(재시작 뒤 소켓 없이 남은 방)은 STALE 직후 목록에서 빠지고 정리된다', () => {
-	assert.equal(LOBBY_STALE_MS, 150_000);
+	assert.equal(LOBBY_STALE_MS, 750_000);
 	assert.ok(LOBBY_STALE_MS >= 2 * LOBBY_REFRESH_MS, '심장박동 두 번은 놓쳐도 유지');
 	const rooms = { ghost: room('ghost', { updatedAt: T0, players: 1 }), beating: room('beating', { updatedAt: T0 + LOBBY_REFRESH_MS * 2, players: 1 }) };
 	const r = listRooms(rooms, T0 + LOBBY_STALE_MS + 1);

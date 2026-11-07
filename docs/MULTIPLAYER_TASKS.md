@@ -530,12 +530,12 @@ Lobby(싱글턴). 이름은 설계대로 `list`/`upsert`/`remove`. 호출 형식
 
 ```ts
 interface RoomSummary { code; host: string; kind; game; players: number; max: 5; inProgress: boolean; updatedAt: number }
-list(): RoomSummary[]         // updatedAt 150초 초과 항목은 정리 후 제외. 입장 가능한 방 먼저, 최신순, 최대 50
+list(): RoomSummary[]         // updatedAt 750초 초과 항목은 정리 후 제외. 입장 가능한 방 먼저, 최신순, 최대 50
 upsert(s: RoomSummary): void  // 저장 키 하나('rooms', JSON)
 remove(code: string): void
 ```
 
-Room은 요약(인원·방장 이름·phase·종류/게임)이 바뀔 때만 `upsert`, 소멸 시 `remove`. 변화 없이 오래 머무는 방은 접속자가 있는 동안 알람 때 60초마다 재`upsert`(심장박동)해 정리 대상에서 빠진다. 접속자 0인 방은 목록에 올리지 않고, 재시작으로 소켓 없이 남은 방은 심장박동이 끊겨 150초 뒤 빠진다. DO가 깨어날 때는 저장된 접속 상태 대신 열린 소켓과 대조(reconcile)한다.
+Room은 요약(인원·방장 이름·phase·종류/게임)이 바뀔 때만 `upsert`, 소멸 시 `remove`. 변화 없이 오래 머무는 방은 접속자가 있는 동안 알람 때 300초마다 재`upsert`(심장박동)해 정리 대상에서 빠진다. 접속자 0인 방은 목록에 올리지 않고, 재시작으로 소켓 없이 남은 방은 심장박동이 끊겨 750초 뒤 빠진다. 마지막 `upsert` 시각은 저장소(`upsertAt`)에 두어, DO가 깨어나도 요약이 그대로면 `upsert`하지 않고 재알림 주기는 이어진다. DO가 깨어날 때는 저장된 접속 상태 대신 열린 소켓과 대조(reconcile)한다.
 
 | HTTP | 요청/응답 | 비고 |
 |---|---|---|
@@ -942,7 +942,7 @@ alarm():
 | 5.1 | 제한 시간 | `timers.ts`, `climb.ts`, `coop.ts`, `comp.ts`, `MpTimer.svelte` | 단판 180초, 등반 180−15(k−1)≥60, 만료 = 실패, 꺼진 방은 null | `mp-timers` 확장 | M | 4단계 |
 | 5.2 | 무입력 경고(클라이언트) | `client.svelte.ts`, `MpGame`(`Modal` 재사용) | 60초 경고, 닫고 입력하면 계속 | preview 수동 | S | 2.6 ∥ 5.1 |
 | 5.3 | 모바일 패널 | `MpGame`, `OpponentPanel` | 좁은 화면에서 보드 위 가로 띠, 넘치면 띠만 가로 스크롤, 페이지 가로 스크롤 없음 | 브라우저 폭 360px 수동 | S~M | 2.7 ∥ 5.1 |
-| 5.4 | 재접속 강화 (2026-11-06 축소: 백오프 없음, 현행 2회 + `다시 연결` 버튼 + `visibilitychange` 재시도 + 서버 45초 정리. 서버 정리는 구현됨, 클라이언트 두 가지는 UI 단계) | `client.svelte.ts`, `room.ts`, `timers.ts` | `다시 연결` 버튼, `visibilitychange` 재연결, 25초 ping(있음), 45초 무응답 소켓 정리(`alarm()`이 45초 주기로 점검) | preview에서 네트워크 끊기·탭 전환 수동 | M | 2.6 ∥ 5.1 |
+| 5.4 | 재접속 강화 (2026-11-06 축소: 백오프 없음, 현행 2회 + `다시 연결` 버튼 + `visibilitychange` 재시도 + 서버 45초 정리. 서버 정리는 구현됨, 클라이언트 두 가지는 UI 단계) | `client.svelte.ts`, `room.ts`, `timers.ts` | `다시 연결` 버튼, `visibilitychange` 재연결, 25초 ping(있음), 45초 무응답 소켓 정리(`alarm()`이 게임 중 45초, 대기실·결과 180초 주기로 점검. 시작 직전에도 한 번 점검) | preview에서 네트워크 끊기·탭 전환 수동 | M | 2.6 ∥ 5.1 |
 | 5.5 | 자동 탈락 | `timers.ts`, `comp.ts` | 경쟁 playing 중 끊김 60초 → eliminated | `mp-timers` | S | 5.1 |
 
 **수용 기준 연결**: 5.1 → E8 · 5.2 → E9 · 5.3 → E11 · 5.4 → E10 · 5.5 → US-E10-2.
@@ -1361,7 +1361,7 @@ PM 리스크(R1~R9)와 PL 리스크(R1~R20)를 합쳐 R1~R27로 다시 번호를
 | R14 | SvelteKit 쪽이 DO 모듈을 값 import → Vite SSR이 `cloudflare:workers`를 못 풀거나 DO 코드 중복 | `import type`만 허용(§3.3-4), §13 NR-15 | 설계로 회피 | PL-R6 |
 | R15 | DO 안 `await`(D1 조회) 사이에 다른 메시지가 끼어 상태 경합 | D1 조회는 상태를 읽기만, 결과를 받은 뒤 **await 없이** 한 번에 변경 → 저장. 변경 직전에 phase·행 번호·스테이지를 다시 확인(조회 전 값과 다르면 버림) | 설계로 회피 | PL-R7 |
 | R16 | Hibernation으로 메모리 소실 | 변경마다 전체 상태 저장, 생성자 `blockConcurrencyWhile`로 복원, 소켓→pid는 `serializeAttachment` | 설계로 회피 (첨부 유지는 (b)에서 참고 확인) | PL-R8 |
-| R17 | 모바일 백그라운드 등 반쯤 끊긴 소켓이 "접속 중"으로 남아 준비·승계·자동 탈락이 멈춤 | auto-response ping 25초 + 알람에서 45초 무응답 소켓 정리 | 설계로 회피 (auto-response 동작은 (b)에서 확인) | PL-R9 |
+| R17 | 모바일 백그라운드 등 반쯤 끊긴 소켓이 "접속 중"으로 남아 준비·승계·자동 탈락이 멈춤 | auto-response ping 25초 + 알람에서 45초 무응답 소켓 정리(점검 주기는 게임 중 45초, 대기실·결과 180초, 시작 직전 점검) | 설계로 회피 (auto-response 동작은 (b)에서 확인) | PL-R9 |
 | R18 | 알람 중복·재시도(at-least-once), 시계 오차 | `tick` 멱등, `setAlarm(max(t, now + 50))`, 클라이언트는 서버 `now`로 오프셋 보정 | 설계로 회피 | PL-R10 |
 | R19 | 무료 한도(요청 10만/일): 로비 3초 폴링·Room→Lobby 호출·알람 기상 | 폴링은 로비 화면·탭 표시 중에만, `upsert`는 요약 변경 시만, 무입력은 클라이언트 처리 | 설계로 회피 | PL-R11 |
 | R20 | DO 마이그레이션은 `wrangler versions upload`로 미리 올릴 수 없어 운영 배포가 첫 실가동 | 스파이크 선택 항목(별도 Worker 업로드, 승인 필요), 2a/2b 분할(P5) | 스파이크에서 확인(선택) | PL-R12 |
@@ -1486,3 +1486,4 @@ Q1과 Q15는 이어진다. Q1의 PL 안은 끊긴 사람을 시작 조건·정�
 | 2026-11-06 | 5단계 서버 구현에 맞춰 Q7(제한 시간 시작 = 클리어 + 2초)·Q10·Q17 결정 기록, P4 승인, 5.4 재접속 축소(백오프 없음 + `다시 연결` 버튼 + `visibilitychange` 재시도 + 서버 45초 무응답 소켓 정리). 소켓 정리는 소켓별 응답 시각이 아니라 45초 점검 주기로 알람을 건다(ping이 알람을 25초마다 깨우지 않게) |
 | 2026-11-06 | 5단계 UI: 방 설정의 제한 시간 스위치, 남은 시간 줄(`MpTimer`), 무입력 60초 경고(클라이언트 타이머), 끊김 오버레이의 `다시 연결`과 `visibilitychange` 재시도, 모바일 상대 띠 가로 스크롤. |
 | 2026-11-06 | Q4 결정 보강: 게임 중 나가기로 떠난 사람은 협동·경쟁 모두 그 판이 끝날 때까지 재입장 거절(4002). 끊김은 기존대로 같은 자리 복귀. S7 표와 `hello` 행에 반영 |
+| 2026-11-07 | 서버 통신 정리: Lobby 재알림 60초 → 300초, STALE 150초 → 750초, 무응답 소켓 정리 점검 주기 대기실·결과 180초(게임 중 45초 유지)와 시작 직전 점검, 깨어난 것만으로는 `upsert`하지 않음(`upsertAt` 저장) |

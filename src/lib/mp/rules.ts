@@ -20,6 +20,9 @@ export const CLIMB_MIN_LIMIT_MS = 60_000;
 export const STAGE_CLEAR_MS = 2_000;
 /** 자동 응답(ping)이 이 시간 넘게 없는 소켓은 서버가 닫는다. 클라이언트 ping 주기는 25초. */
 export const SOCKET_IDLE_MS = 45_000;
+/** 소켓 정리 점검 주기. 게임 중에는 끊김이 탈락·결과를 막으므로 짧게, 대기실·결과는 시작 직전 점검이 있어 길게 둔다. */
+export const REAP_CHECK_PLAYING_MS = 45_000;
+export const REAP_CHECK_IDLE_MS = 180_000;
 /** 클라이언트 ping 주기. 서버는 'pong'을 DO를 깨우지 않고 자동 응답한다. */
 export const HEARTBEAT_MS = 25_000;
 /** 로비 목록 구독 소켓 경로. /ws/<방 코드>와 겹치지 않는다. */
@@ -90,8 +93,9 @@ export function sameSettings(a: Settings, b: Settings): boolean {
 
 /**
  * Lobby는 이 시간 안에 알림이 온 방만 목록에 낸다. Room은 접속자가 있는 동안 LOBBY_REFRESH_MS마다 알린다(심장박동).
- * 재시작으로 소켓 없이 남은 방은 알리지 않으므로 STALE 뒤에 목록에서 빠진다. STALE는 REFRESH 두 번 + 여유.
+ * 재시작으로 소켓 없이 남은 방은 알리지 않으므로 STALE 뒤에 목록에서 빠진다. STALE는 REFRESH의 2.5배.
+ * 변경은 upsert/remove가 즉시 구독자에게 푸시되므로 이 주기는 목록 정확성이 아니라 유령 방 정리 속도만 정한다.
  */
-export const LOBBY_STALE_MS = 150_000;
-export const LOBBY_REFRESH_MS = 60_000;
+export const LOBBY_STALE_MS = 750_000;
+export const LOBBY_REFRESH_MS = 300_000;
 export const LOBBY_LIST_MAX = 50;

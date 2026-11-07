@@ -23,6 +23,7 @@ import { alarmChange, alarmTarget, isStaleSocket, reapCheckAt, tick } from './ti
 /** 멀티 정답 풀 임계값. 개인용 POOL_THRESHOLD와 무관한 별도 상수다(설계 §3). */
 const MP_POOL_T = 3;
 const STATE_KEY = 'state';
+const UPSERT_KEY = 'upsertAt';
 const OPEN = 1;
 
 interface RoomEnv {
@@ -70,8 +71,13 @@ export class Room extends DurableObject<RoomEnv> {
 		// 자동 응답은 DO를 깨우지 않는다.
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
 		ctx.blockConcurrencyWhile(async () => {
-			this.state = (await ctx.storage.get<RoomState>(STATE_KEY)) ?? null;
+			const stored = await ctx.storage.get<RoomState | number>([STATE_KEY, UPSERT_KEY]);
+			this.state = (stored.get(STATE_KEY) as RoomState | undefined) ?? null;
 			this.alarmAt = await ctx.storage.getAlarm();
+			// 깨어난 것만으로는 upsert하지 않도록 저장된 상태의 요약을 이미 알린 것으로 둔다.
+			// 알림 시각은 저장값을 쓴다: 깨어난 시각으로 두면 180초 점검이 300초 재알림을 계속 밀어 STALE로 목록에서 빠진다. 값이 없으면 0이라 한 번 알린다.
+			this.lastSummary = this.state && isListed(this.state) ? summarize(this.state, Date.now()) : null;
+			this.lastUpsert = (stored.get(UPSERT_KEY) as number | undefined) ?? 0;
 			// 깨어났을 때는 직전에 올렸는지 모르므로 올라가 있다고 보고, 첫 동기화에서 필요하면 한 번 지운다.
 			this.listed = this.state !== null;
 			await this.reconcileSockets();
@@ -155,7 +161,12 @@ export class Room extends DurableObject<RoomEnv> {
 
 	async alarm(): Promise<void> {
 		this.alarmAt = null;
-		const stale = this.reapStale(Date.now());
+		await this.reap();
+	}
+
+	/** 무응답 소켓을 정리하고 그 자리를 끊김으로 처리한다. 정리할 것이 없어도 만료된 마감을 처리하려고 run을 지난다. */
+	private async reap(except?: WebSocket): Promise<void> {
+		const stale = this.reapStale(Date.now(), except);
 		await this.run(
 			stale.length
 				? (s, now) => {
@@ -168,11 +179,12 @@ export class Room extends DurableObject<RoomEnv> {
 		);
 	}
 
-	/** 마지막 자동 응답(없으면 접속 시각)이 45초 넘은 소켓을 닫는다. 자리를 잃는 pid 목록을 돌려준다. */
-	private reapStale(now: number): Pid[] {
+	/** 마지막 자동 응답(없으면 접속 시각)이 45초 넘은 소켓을 닫는다. 자리를 잃는 pid 목록을 돌려준다. except는 방금 메시지를 보낸 소켓. */
+	private reapStale(now: number, except?: WebSocket): Pid[] {
 		this.lastReap = now;
 		const pids = new Set<Pid>();
 		for (const ws of this.ctx.getWebSockets()) {
+			if (ws === except) continue;
 			const att = attOf(ws);
 			const seenAt = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? att.at;
 			if (seenAt === undefined || !isStaleSocket(seenAt, now)) continue;
@@ -219,7 +231,11 @@ export class Room extends DurableObject<RoomEnv> {
 		// D1은 await 사이에 다른 메시지가 끼어들 수 있으므로 조회를 먼저 하고, 적용(reduce)은 동기 구간에서 다시 검증한다.
 		const io: Io = {};
 		if (msg.type === 'guess' || msg.type === 'propose') io.valid = await this.lookupValid(pid, msg.type, msg.jamo);
-		else if (msg.type === 'start') io.start = await this.lookupStart(pid);
+		else if (msg.type === 'start') {
+			// 점검 주기가 길어 유령 소켓이 남아 있을 수 있어 시작 인원을 세기 전에 정리한다. 거절될 요청이 DO 작업을 만들지 않게 방장의 대기실 시작만 정리한다.
+			if (this.state.phase === 'lobby' && this.state.hostPid === pid) await this.reap(ws);
+			io.start = await this.lookupStart(pid);
+		}
 		await this.run((s, now) => {
 			const r = reduce(s, pid, msg, io, now, randomIndex);
 			this.deliver(r.events);
@@ -381,6 +397,9 @@ export class Room extends DurableObject<RoomEnv> {
 		this.lastUpsert = now;
 		this.lobby()
 			.upsert(sum)
+			.then(() => {
+				if (this.state) return this.ctx.storage.put(UPSERT_KEY, now); // 그사이 소멸했으면 deleteAll로 비운 저장소에 키를 되살리지 않는다
+			})
 			.catch(() => {
 				this.lastSummary = null; // 다음 변경 때 다시 시도
 			});
@@ -388,7 +407,7 @@ export class Room extends DurableObject<RoomEnv> {
 
 	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
 	private async updateAlarm(s: RoomState, now: number): Promise<void> {
-		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length));
+		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length, s.phase));
 		const change = alarmChange(this.alarmAt, target, now);
 		if (change === 'keep') return;
 		if (change === 'delete') {

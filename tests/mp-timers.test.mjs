@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CLIMB_GRACE_MS, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, EMPTY_ROOM_MS, HOST_GRACE_MS, LOBBY_REFRESH_MS, SOCKET_IDLE_MS, STAGE_CLEAR_MS, TIME_LIMIT_MS } from '../src/lib/mp/rules.ts';
+import { CLIMB_GRACE_MS, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, EMPTY_ROOM_MS, HOST_GRACE_MS, LOBBY_REFRESH_MS, LOBBY_STALE_MS, REAP_CHECK_IDLE_MS, REAP_CHECK_PLAYING_MS, SOCKET_IDLE_MS, STAGE_CLEAR_MS, TIME_LIMIT_MS } from '../src/lib/mp/rules.ts';
 import { stageLimitMs } from '../src/lib/server/mp/climb.ts';
 import { applyGuess, giveUp, startGame } from '../src/lib/server/mp/comp.ts';
 import * as coop from '../src/lib/server/mp/coop.ts';
@@ -213,8 +213,9 @@ test('빈 방 유예는 30초', () => {
 	assert.equal(tick(s, T0 + 30_000).destroy, true);
 });
 
-test('심장박동: 접속자가 있는 방만 LOBBY_REFRESH_MS(60초)마다 알람 후보, 접속자가 0이면 마감만', () => {
-	assert.equal(LOBBY_REFRESH_MS, 60_000);
+test('심장박동: 접속자가 있는 방만 LOBBY_REFRESH_MS(300초)마다 알람 후보, 접속자가 0이면 마감만', () => {
+	assert.equal(LOBBY_REFRESH_MS, 300_000);
+	assert.equal(LOBBY_STALE_MS, 2.5 * LOBBY_REFRESH_MS, 'STALE은 재알림의 2.5배');
 	const s = lobby();
 	joinAll(s, ['가']);
 	assert.equal(alarmTarget(s, T0), T0 + LOBBY_REFRESH_MS);
@@ -512,12 +513,20 @@ test('무응답 소켓 판정: 45초까지는 정상, 넘으면 정리 대상', 
 	assert.equal(isStaleSocket(T0, T0 + SOCKET_IDLE_MS + 1), true);
 });
 
+test('소켓 정리 점검 주기는 phase별: 게임 중 45초, 대기실·결과 180초', () => {
+	assert.equal(REAP_CHECK_PLAYING_MS, 45_000);
+	assert.equal(REAP_CHECK_IDLE_MS, 180_000);
+	assert.equal(reapCheckAt(T0, 2, 'playing'), T0 + REAP_CHECK_PLAYING_MS);
+	assert.equal(reapCheckAt(T0, 2, 'lobby'), T0 + REAP_CHECK_IDLE_MS);
+	assert.equal(reapCheckAt(T0, 2, 'result'), T0 + REAP_CHECK_IDLE_MS);
+	assert.ok(REAP_CHECK_IDLE_MS < LOBBY_REFRESH_MS, '점검이 재알림보다 잦아도 재알림 시각은 저장된 lastUpsert 기준이라 밀리지 않는다');
+});
+
 test('소켓 정리 점검은 소켓이 있을 때만 알람 후보이고, 다른 후보와 최솟값을 취한다', () => {
-	assert.equal(reapCheckAt(T0, 0), null);
-	assert.equal(reapCheckAt(T0, 2), T0 + SOCKET_IDLE_MS);
+	for (const phase of ['lobby', 'playing', 'result']) assert.equal(reapCheckAt(T0, 0, phase), null);
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0, T0 + SOCKET_IDLE_MS), T0 + SOCKET_IDLE_MS, '재알림(60초)보다 이르다');
+	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + REAP_CHECK_IDLE_MS, '대기실 점검(180초)이 재알림(300초)보다 이르다');
 	assert.equal(alarmTarget(s, T0, T0 + 2 * LOBBY_REFRESH_MS), T0 + LOBBY_REFRESH_MS);
 	for (const p of s.players) p.connected = false;
 	s.emptySince = null;
@@ -526,11 +535,23 @@ test('소켓 정리 점검은 소켓이 있을 때만 알람 후보이고, 다�
 	assert.equal(alarmTarget(s, 0, T0), T0, '접속자가 없어도 소켓이 남아 있으면 점검은 걸린다');
 });
 
+test('방장 승계·재접속 유예 같은 마감은 점검 주기가 길어져도 더 이른 후보로 남는다', () => {
+	const s = lobby();
+	joinAll(s, ['가']);
+	disconnect(s, s.hostPid, T0 + 1000);
+	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + 1000 + HOST_GRACE_MS, '승계 5초 마감이 대기실 점검(180초)보다 이르다');
+	const g = started(['가']);
+	disconnect(g.s, g.pids[1], T0 + 10 * SEC);
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing')), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 45초가 끊김 탈락(70초)보다 이르다');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 40 * SEC, 2, 'playing')), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
+});
+
 test('제한 시간이 있는 방의 알람은 마감 하나로 걸리고, 점검이 더 이르면 점검이 우선한다', () => {
 	const { s } = started(['가'], ON);
-	assert.equal(alarmTarget(s, T0, null), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, null), T0 + TIME_LIMIT_MS, '제한 시간 180초가 재알림 300초보다 이르다');
+	assert.equal(alarmTarget(started(['가']).s, T0, null), T0 + LOBBY_REFRESH_MS, '제한 시간 없이는 재알림');
 	assert.equal(alarmTarget(s, T0 + 200 * SEC, null), T0 + TIME_LIMIT_MS);
-	assert.equal(alarmTarget(s, T0 + 200 * SEC, T0 + SOCKET_IDLE_MS), T0 + SOCKET_IDLE_MS);
+	assert.equal(alarmTarget(s, T0 + 200 * SEC, T0 + REAP_CHECK_PLAYING_MS), T0 + REAP_CHECK_PLAYING_MS);
 });
 
 // ---- 5단계: 스냅샷 ----
