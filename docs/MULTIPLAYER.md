@@ -232,7 +232,7 @@ sessionStorage·BroadcastChannel·쿠키는 쓰지 않는다. 새로고침·재�
 
 ### 기존 모듈 재사용
 
-`dict.ts`의 `isValidJamo`·`answerCount`·`answerAt`(t=3), `judge.ts`, `hard.ts`. 이 모듈들은 타입 import뿐이라 DO에서 그대로 쓸 수 있다. D1 읽기는 제출당 2행.
+`dict.ts`의 `isValidJamo`·`answerCount`·`answerAt`(t=3), `judge.ts`, `hard.ts`. 이 모듈들은 타입 import뿐이라 DO에서 그대로 쓸 수 있다. D1 읽기는 제출당 `valid` 1행이고, 정답은 시작 때 길이마다 2행(`pool_meta`+`pool`)을 읽는다(등반은 최대 16행).
 
 **DO 코드에서는 `$lib`·`$app` 별칭을 쓰지 않고 상대 경로만** 쓴다. wrangler 번들에서 별칭이 안 풀릴 수 있다.
 
