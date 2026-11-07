@@ -45,10 +45,12 @@ export interface CheckResponse {
 	valid: boolean;
 }
 
-/** 힌트: 정답에서 이 자모가 처음 나오는 칸(0-based). 노란 판정을 받은 자모에 대해 쓴다. */
+/** 힌트: 정답에서 이 자모가 나오는 칸(0-based) 중 known(보드에서 이미 초록인 칸)을 뺀 첫 칸. 노란 판정을 받은 자모에 대해 쓴다. */
 export interface HintRequest {
 	token: string;
 	jamo: string;
+	/** 없으면 빈 목록으로 보고 정답의 첫 칸을 준다. */
+	known?: number[];
 }
 export interface HintResponse {
 	pos: number;
