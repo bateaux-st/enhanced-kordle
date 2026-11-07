@@ -20,7 +20,12 @@ export const CLIMB_MIN_LIMIT_MS = 60_000;
 export const STAGE_CLEAR_MS = 2_000;
 /** 자동 응답(ping)이 이 시간 넘게 없는 소켓은 서버가 닫는다. 클라이언트 ping 주기는 25초. */
 export const SOCKET_IDLE_MS = 45_000;
-export const LOBBY_POLL_MS = 3_000;
+/** 클라이언트 ping 주기. 서버는 'pong'을 DO를 깨우지 않고 자동 응답한다. */
+export const HEARTBEAT_MS = 25_000;
+/** 로비 목록 구독 소켓 경로. /ws/<방 코드>와 겹치지 않는다. */
+export const LOBBY_WS_PATH = '/ws-lobby';
+/** 로비 소켓이 끊긴 동안만 GET /api/rooms를 이 주기로 부른다. */
+export const LOBBY_FALLBACK_POLL_MS = 15_000;
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** 0 O 1 I 제외 32자. */

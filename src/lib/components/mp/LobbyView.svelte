@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { listRooms, roomInfo } from '$lib/mp/api';
+	import { watchLobby } from '$lib/mp/lobby-feed';
 	import type { RoomSummary } from '$lib/mp/protocol';
-	import { CODE_LENGTH, LOBBY_POLL_MS, MAX_PLAYERS, NAME_MAX, NAME_MIN, normalizeName } from '$lib/mp/rules';
+	import { CODE_LENGTH, MAX_PLAYERS, NAME_MAX, NAME_MIN, normalizeName } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -56,14 +57,19 @@
 
 	onMount(() => {
 		void load(true);
-		const poll = setInterval(() => document.visibilityState === 'visible' && void load(false), LOBBY_POLL_MS);
-		const onvis = () => document.visibilityState === 'visible' && void load(false);
-		document.addEventListener('visibilitychange', onvis);
+		// 개발 서버는 WS가 안 되므로 목록이 없는 지금 화면 그대로 둔다.
+		const stop = dev
+			? () => {}
+			: watchLobby({
+					onRooms: (rooms) => {
+						// 늦게 도착한 GET 응답이 방금 받은 푸시를 덮지 않게 한다.
+						seq++;
+						list = { state: 'ok', rooms };
+					},
+					onFallback: () => void load(false)
+				});
 		if (editing) void focusNick();
-		return () => {
-			clearInterval(poll);
-			document.removeEventListener('visibilitychange', onvis);
-		};
+		return stop;
 	});
 
 	async function focusNick() {

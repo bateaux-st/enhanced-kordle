@@ -540,7 +540,7 @@ Room은 요약(인원·방장 이름·phase·종류/게임)이 바뀔 때만 `up
 | HTTP | 요청/응답 | 비고 |
 |---|---|---|
 | `POST /api/room` | `{ token?, name, settings? }` → `{ code, session }`(토큰이 없거나 무효면 발급해 `session`에 포함) | 생성자를 방장 자리로 예약(접속 전이라 `connected=false`, `emptySince=now`). 생성 직후 공개 목록에서 다른 사람이 먼저 들어와 방장이 되는 경쟁을 막는다 |
-| `GET /api/rooms` | → `RoomSummary[]` | 클라이언트 3초 폴링, 로비 화면이고 `document.visibilityState === 'visible'`일 때만 |
+| `GET /api/rooms` | → `RoomSummary[]` | 첫 로드·새로고침·로비 WS가 끊긴 동안의 폴백(15초, 보이는 탭만). 평상시 갱신은 `/ws-lobby` 푸시 |
 | `GET /ws/<code>` (Upgrade) | 101 | `hooks.server.ts` → Room `fetch` |
 
 Room 내부 RPC: `init(code, creator, settings): boolean`(이미 초기화면 false → 생성 엔드포인트가 새 코드로 재시도). 미초기화 Room에 WS가 오면 수락 후 4004로 닫고 **아무것도 저장하지 않는다**(아무 코드나 쳐도 저장 공간이 생기지 않게).

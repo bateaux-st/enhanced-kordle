@@ -191,6 +191,13 @@ if code:
     })
     check("GET /ws/<code> 핸드셰이크 → 101", conn.getresponse().status == 101)
     conn.close()
+conn = (http.client.HTTPSConnection if BASE.startswith("https") else http.client.HTTPConnection)(urllib.parse.urlsplit(BASE).netloc, timeout=20)
+conn.request("GET", "/ws-lobby", headers={
+    "User-Agent": HDR["User-Agent"], "Connection": "Upgrade", "Upgrade": "websocket",
+    "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "c21va2Utc21va2Utc21va2U=",
+})
+check("GET /ws-lobby 핸드셰이크 → 101", conn.getresponse().status == 101)
+conn.close()
 
 print()
 if failures:

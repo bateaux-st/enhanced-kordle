@@ -3,7 +3,7 @@ import test from 'node:test';
 import { LOBBY_LIST_MAX, LOBBY_REFRESH_MS, LOBBY_STALE_MS } from '../src/lib/mp/rules.ts';
 import { DEFAULT_SETTINGS } from '../src/lib/mp/rules.ts';
 import { disconnect, join, leave } from '../src/lib/server/mp/members.ts';
-import { isListed, listRooms, sameSummary, summarize } from '../src/lib/server/mp/rooms.ts';
+import { isListed, listRooms, nextStaleAt, sameList, sameSummary, summarize } from '../src/lib/server/mp/rooms.ts';
 import { initRoom } from '../src/lib/server/mp/state.ts';
 import { joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
 
@@ -92,4 +92,23 @@ test('심장박동이 끊긴 방(재시작 뒤 소켓 없이 남은 방)은 STAL
 	const rooms = { ghost: room('ghost', { updatedAt: T0, players: 1 }), beating: room('beating', { updatedAt: T0 + LOBBY_REFRESH_MS * 2, players: 1 }) };
 	const r = listRooms(rooms, T0 + LOBBY_STALE_MS + 1);
 	assert.deepEqual([r.list.map((x) => x.code), r.pruned, Object.keys(rooms)], [['beating'], true, ['beating']]);
+});
+
+test('구독 푸시 판정: updatedAt·순서만 다르면 같은 목록, 항목·길이가 다르면 다른 목록', () => {
+	const a = [room('A'), room('B')];
+	assert.ok(sameList(a, [room('A', { updatedAt: T0 + 60_000 }), room('B', { updatedAt: T0 + 1 })]), '심장박동은 푸시하지 않는다');
+	assert.ok(sameList([], []));
+	assert.ok(sameList(a, [room('B'), room('A')]), '심장박동 재정렬은 푸시하지 않는다');
+	assert.ok(!sameList(a, [room('A'), room('C')]), '같은 길이라도 방이 바뀌면 보낸다');
+	assert.ok(!sameList(a, [room('A')]));
+	assert.ok(!sameList(a, [room('A'), room('B', { players: 3 })]));
+});
+
+test('만료 알람 시각: 가장 오래된 방의 updatedAt + STALE + 1, 방이 없으면 null, 그 시각에 listRooms가 실제로 뺀다', () => {
+	assert.equal(nextStaleAt({}), null);
+	const rooms = { a: room('a', { updatedAt: T0 + 10 }), b: room('b', { updatedAt: T0 }) };
+	const at = nextStaleAt(rooms);
+	assert.equal(at, T0 + LOBBY_STALE_MS + 1);
+	assert.equal(listRooms({ ...rooms }, at - 1).list.length, 2);
+	assert.deepEqual(listRooms({ ...rooms }, at).list.map((r) => r.code), ['a']);
 });
