@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { isJamo } from '$lib/jamo';
 import type { GuessRequest, GuessResponse } from '$lib/types';
 import { ctx } from '$lib/server/env';
-import { judge } from '$lib/server/judge';
+import { guessResponse } from '$lib/server/judge';
 import { decodeToken } from '$lib/server/token';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -20,6 +20,5 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	if (!(await db.isValidJamo(guess))) {
 		return json({ ok: false, reason: 'invalid' } satisfies GuessResponse);
 	}
-	const marks = judge((await db.answerAt(answer.t, answer.n, answer.idx)).jamo, guess);
-	return json({ ok: true, marks } satisfies GuessResponse);
+	return json(guessResponse(await db.answerAt(answer.t, answer.n, answer.idx), guess));
 };

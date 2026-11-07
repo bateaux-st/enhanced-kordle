@@ -1,6 +1,7 @@
 import { readSession, writeSession } from './identity.ts';
 import { CLOSE } from './protocol.ts';
 import type { ClientMsg, ErrorCode, Pid, ServerMsg, Settings, Snapshot } from './protocol.ts';
+import { HEARTBEAT_MS } from './rules.ts';
 
 export type MpStatus = 'idle' | 'dev' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 /** closed일 때 이유. 'left'는 내가 나간 것, 'lost'는 재시도를 다 쓴 것. */
@@ -15,7 +16,6 @@ const TERMINAL: Record<number, CloseReason> = {
 	1008: 'bad_name'
 };
 
-const HEARTBEAT_MS = 25_000;
 const RETRY_DELAY_MS = 2_000;
 
 function setRoomParam(code: string | null): void {

@@ -351,7 +351,7 @@ export class Game {
 			this.current = '';
 			this.invalid = false;
 
-			if (res.marks.every((m) => m === 'c')) await this.finish(true);
+			if (res.marks.every((m) => m === 'c')) await this.finish(true, res.word);
 			else if (this.rows.length >= this.maxTries) await this.finish(false);
 			else if (isDaily(this.config.mode)) this.saveDaily();
 		} catch {
@@ -366,9 +366,9 @@ export class Game {
 		setTimeout(() => (this.shake = false), 400);
 	}
 
-	private async finish(won: boolean) {
+	private async finish(won: boolean, revealed?: string) {
 		this.status = won ? 'won' : 'lost';
-		const { word } = await post<RevealResponse>('/api/reveal', { token: this.token });
+		const word = revealed ?? (await post<RevealResponse>('/api/reveal', { token: this.token })).word;
 		this.answer = word;
 
 		this.recordStats(won, this.rows.length);

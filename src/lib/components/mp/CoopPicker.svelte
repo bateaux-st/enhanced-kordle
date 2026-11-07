@@ -64,7 +64,7 @@
 		return () => timers.forEach(clearTimeout);
 	});
 
-	const resultText = $derived(wheel && done ? (wheel.reduced ? `돌림판 결과: ${wheel.cands[pos].jamo}` : `${wheel.cands[pos].jamo}(으)로 정했습니다`) : '');
+	const resultText = $derived(wheel && done ? (wheel.reduced ? `돌림판 결과: ${wheel.cands[pos].jamo}` : `정한 단어: ${wheel.cands[pos].jamo}`) : '');
 </script>
 
 {#snippet tiles(jamo: string)}

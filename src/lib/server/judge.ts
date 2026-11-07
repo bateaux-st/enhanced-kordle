@@ -1,4 +1,4 @@
-import type { Mark } from '$lib/types';
+import type { GuessResponse, Mark } from '$lib/types';
 
 /**
  * 워들 판정. 같은 자모가 여러 번 나올 때 present는 정답에 남은 개수만큼만 준다.
@@ -22,4 +22,10 @@ export function judge(answer: string, guess: string): Mark[] {
 		}
 	}
 	return marks;
+}
+
+/** 승리 판에만 정답 단어를 싣는다. 이미 읽은 pool 행이라 D1 조회가 늘지 않고, 패배·포기는 reveal이 맡는다. */
+export function guessResponse(answer: { word: string; jamo: string }, guess: string): GuessResponse {
+	const marks = judge(answer.jamo, guess);
+	return marks.every((m) => m === 'c') ? { ok: true, marks, word: answer.word } : { ok: true, marks };
 }

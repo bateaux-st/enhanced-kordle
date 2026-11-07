@@ -72,7 +72,7 @@
 | 닉네임 충돌 | 서버가 접미사를 붙이고 확정 이름을 입장 응답에 넣는다 | 기본값(제안) |
 | 방장 승계 | 방장이 **실제로 나가거나 끊기면** 입장 순으로 접속 중인 다음 사람. 끊김은 5초 유예 | 5초: 기본값(제안) |
 | 빈 방 소멸 | 전원이 '나가기'로 떠나면 즉시. 끊김이 섞여 접속자가 0이 되면 30초 유예 뒤 (2026-11-05 2분에서 변경) | 기본값(제안) |
-| 목록 노출 | 접속자가 있는 방만. Room이 접속자가 있는 동안 60초마다 Lobby에 다시 알리고(심장박동), Lobby는 150초 안에 알림이 온 방만 낸다. DO가 재시작되면 저장된 접속 상태를 믿지 않고 열린 소켓과 대조(reconcile)해 정리한다 | 기본값(제안) |
+| 목록 노출 | 접속자가 있는 방만. Room이 접속자가 있는 동안 300초마다 Lobby에 다시 알리고(심장박동), Lobby는 750초 안에 알림이 온 방만 낸다. 요약이 바뀌면 즉시 upsert하고 DO가 깨어난 것만으로는 알리지 않는다. 무응답 소켓 정리는 게임 중 45초, 대기실·결과 180초 주기이고 방장이 시작할 때 한 번 더 한다. 그래서 대기실·결과에서 반쯤 끊긴 소켓은 방장 승계와 목록 인원수에 최대 약 225초(점검 180초 + 판정 45초) 늦게 반영된다(이전 약 90초). 시작 인원은 시작 직전 정리로 보호된다. DO가 재시작되면 저장된 접속 상태를 믿지 않고 열린 소켓과 대조(reconcile)해 정리한다 | 기본값(제안) |
 
 ### localStorage 새 키
 
@@ -201,7 +201,7 @@ sessionStorage·BroadcastChannel·쿠키는 쓰지 않는다. 새로고침·재�
 | 구성 | 역할 |
 |---|---|
 | `Room` Durable Object (방 하나 = DO 하나) | 정답·참가자·보드·판정 보유. WebSocket Hibernation API, 소켓 첨부에 playerId |
-| `Lobby` DO (싱글턴) | 공개 방 목록. 엔드포인트 `/list` `/upsert` `/remove` |
+| `Lobby` DO (싱글턴) | 공개 방 목록. RPC `list`·`upsert`·`remove`, 목록 구독 WebSocket(`fetch`) |
 
 - D1 폴링 대안은 제외했다: "PK 한 행만" 규칙(AGENTS)과 충돌하고 협동 입력 동기화가 안 된다.
 - **정답은 DO에만 있다.** 멀티에서는 HMAC 토큰을 쓰지 않는다. `KORDLE_SECRET`과 무관.
@@ -232,7 +232,7 @@ sessionStorage·BroadcastChannel·쿠키는 쓰지 않는다. 새로고침·재�
 
 ### 기존 모듈 재사용
 
-`dict.ts`의 `isValidJamo`·`answerCount`·`answerAt`(t=3), `judge.ts`, `hard.ts`. 이 모듈들은 타입 import뿐이라 DO에서 그대로 쓸 수 있다. D1 읽기는 제출당 2행.
+`dict.ts`의 `isValidJamo`·`answerCount`·`answerAt`(t=3), `judge.ts`, `hard.ts`. 이 모듈들은 타입 import뿐이라 DO에서 그대로 쓸 수 있다. D1 읽기는 제출당 `valid` 1행이고, 정답은 시작 때 길이마다 2행(`pool_meta`+`pool`)을 읽는다(등반은 최대 16행).
 
 **DO 코드에서는 `$lib`·`$app` 별칭을 쓰지 않고 상대 경로만** 쓴다. wrangler 번들에서 별칭이 안 풀릴 수 있다.
 
@@ -242,7 +242,16 @@ sessionStorage·BroadcastChannel·쿠키는 쓰지 않는다. 새로고침·재�
 |---|---|
 | adapter-cloudflare 7.2.9가 `wrangler.jsonc`의 `main`을 **자기 출력으로 덮어쓰고 지운다**(`main` 키가 아니라 그 경로의 **파일**을 지우고 템플릿으로 다시 쓴다) (`node_modules/@sveltejs/adapter-cloudflare/index.js` 58–59행(`main` 대입), 78행(rimraf), 117행(copy)) | 커스텀 엔트리 대신 **빌드 후처리 스크립트**가 `.svelte-kit/cloudflare/_worker.js` 끝에 `export { Room, Lobby } from "../../src/lib/server/mp/room"` 한 줄을 붙인다. `package.json`의 `build`를 `vite build && node scripts/…`로. CI는 `pnpm run build`를 거치지만 `package.json`의 `deploy`는 `vite build && wrangler deploy`라 `build` 스크립트를 **거치지 않는다**. `build`와 `deploy` 두 곳을 함께 고친다(`"deploy": "pnpm run build && wrangler deploy"`) |
 | WebSocket 업그레이드 | 새 `src/hooks.server.ts`의 `handle`에서 `/ws/<code>` + Upgrade 헤더를 `platform.env.ROOM` 스텁으로 바로 넘긴다. `resolve`를 거치지 않으면 SvelteKit이 응답을 건드리지 않고, 어댑터 워커의 캐시 경로도 101 응답은 타지 않는 것을 코드로 확인했다 |
-| 방 생성·목록 | `POST /api/room`, `GET /api/rooms`는 일반 SvelteKit 엔드포인트가 DO 스텁을 호출. 목록 화면은 3초 폴링 (기본값(제안)) |
+| 방 생성·목록 | `POST /api/room`, `GET /api/rooms`는 일반 SvelteKit 엔드포인트가 DO 스텁을 호출. 목록 화면은 `/ws-lobby` WebSocket으로 Lobby DO를 구독한다(2026-11 폴링 대체, 아래 "로비 목록 푸시") |
+
+### 로비 목록 푸시
+
+- 클라이언트는 로비 화면에 들어오면 `GET /api/rooms`로 한 번 채운 뒤 `/ws-lobby`(hooks가 Lobby DO `fetch`로 넘긴다)에 붙는다. 접속 직후 현재 목록 전체를 받고, 이후 `list()` 결과가 바뀔 때만 구독자 전부가 전체 목록을 받는다. 노출 규칙(심장박동·STALE·접속자 0 비노출)은 `list()`와 같은 `listRooms`를 쓴다.
+- 같은 결과 판정은 `sameList`(코드별 비교, 순서와 `updatedAt` 제외)라 심장박동의 재정렬은 푸시를 만들지 않는다. 순서는 다음 실제 변경 때 갱신된다. 마지막으로 보낸 목록은 하이버네이션 뒤에도 비교되도록 저장소(`shown`)에 둔다.
+- 시간만 지나 방이 빠지는 경우(STALE)는 구독자가 있을 때만 가장 이른 만료 시각(`nextStaleAt`)에 알람을 건다. 마지막 구독자가 나가면 알람을 지운다. 구독자가 없으면 푸시·알람 비용은 0이다.
+- `ping`은 Room과 같은 `setWebSocketAutoResponse`로 DO를 깨우지 않고 `pong`을 돌려준다. 클라이언트는 25초(`HEARTBEAT_MS`)마다 보내고, 숨은 탭에서도 연결을 유지한다.
+- 소켓이 끊기면 폴백으로 보이는 탭에서 `GET /api/rooms`를 15초(`LOBBY_FALLBACK_POLL_MS`)마다 부르고, 재연결은 3초에서 60초까지 지수 백오프로 보이는 탭에서만 시도한다. 탭이 다시 보이면 즉시 조회하고 재연결한다. 개발 서버(`pnpm dev`)는 WS가 안 되므로 목록 없이 안내만 보인다.
+- 로비 소켓에는 서버 쪽 무응답 정리(Room의 `reapStale` 같은 것)를 두지 않았다. 숨은 탭의 ping이 1분 주기로 늦어질 수 있어 45초 기준을 쓰면 재접속이 반복되기 때문이다. 클라이언트가 pong이 75초 넘게 없으면 소켓을 버리고 폴백으로 넘어간다.
 
 ### wrangler.jsonc
 
@@ -290,3 +299,4 @@ sessionStorage·BroadcastChannel·쿠키는 쓰지 않는다. 새로고침·재�
 |---|---|
 | 2026-11-01 | 설계 확정 |
 | 2026-11-05 | 2단계 구현·배포에 맞춰 수치 갱신: 빈 방 소멸 2분 → 30초(전원 나가기는 즉시), 목록 노출 규칙(심장박동 60초·150초·접속자 0 비노출·reconcile) 추가, 제한 시간 기본 끔, 2단계에 한 판 더·결과표 박제·결과 중 입장 포함 |
+| 2026-11-07 | 서버 통신 정리: 목록 심장박동 60초 → 300초, 목록 STALE 150초 → 750초(방 변경은 즉시 푸시라 영향 없음), 무응답 소켓 정리 점검 주기 대기실·결과 45초 → 180초(게임 중 45초 유지, 시작 직전 정리 추가), Room이 깨어난 것만으로는 Lobby upsert하지 않음 |

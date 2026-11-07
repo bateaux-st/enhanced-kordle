@@ -34,7 +34,8 @@ export interface GuessRequest {
 	/** 자모 24종으로 이루어진 문자열, 길이 n. */
 	jamo: string;
 }
-export type GuessResponse = { ok: true; marks: Mark[] } | { ok: false; reason: 'invalid' };
+/** word는 모든 마크가 c인 제출(승리)에만 실린다. 있으면 클라이언트는 reveal을 부르지 않는다. */
+export type GuessResponse = { ok: true; marks: Mark[]; word?: string } | { ok: false; reason: 'invalid' };
 
 /** 제출 전 사전 유효성만 확인. 정답과 무관해 토큰이 없다. */
 export interface CheckRequest {

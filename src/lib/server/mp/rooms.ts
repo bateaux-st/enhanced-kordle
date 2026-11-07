@@ -41,3 +41,22 @@ export function listRooms(rooms: Record<string, RoomSummary>, now: number): { li
 		.slice(0, LOBBY_LIST_MAX);
 	return { list, pruned };
 }
+
+/**
+ * 구독자에게 이미 보낸 목록과 같은지. 방 집합과 항목 내용만 본다.
+ * 정렬이 updatedAt 순이라 순서까지 비교하면 방이 둘 이상일 때 심장박동마다 푸시가 나간다.
+ */
+export function sameList(a: RoomSummary[], b: RoomSummary[]): boolean {
+	if (a.length !== b.length) return false;
+	const byCode = new Map(b.map((r) => [r.code, r]));
+	return a.every((r) => {
+		const o = byCode.get(r.code);
+		return o !== undefined && sameSummary(r, o);
+	});
+}
+
+/** 시간이 지나기만 해도 목록에서 빠지는 가장 이른 시각(listRooms의 `>` 기준이라 1ms 뒤). 방이 없으면 null. */
+export function nextStaleAt(rooms: Record<string, RoomSummary>): number | null {
+	const times = Object.values(rooms).map((r) => r.updatedAt + LOBBY_STALE_MS + 1);
+	return times.length ? Math.min(...times) : null;
+}

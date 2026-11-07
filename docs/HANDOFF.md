@@ -21,18 +21,18 @@
         ─ GET /_app/*      → JS/CSS (immutable, 해시 파일명)
         ─ POST /api/game   → Worker: 정답 좌표 (n, t, idx) 결정 → HMAC 서명 토큰
         ─ POST /api/check  → Worker: 자모열이 사전에 있나 (D1 valid)
-        ─ POST /api/guess  → Worker: 토큰 검증 → 정답 조회(D1 pool) → 워들 판정
+        ─ POST /api/guess  → Worker: 토큰 검증 → 정답 조회(D1 pool) → 워들 판정 (전부 c면 정답 단어 동봉)
         ─ POST /api/hint   → Worker: 특정 자모의 정답 내 첫 위치
-        ─ POST /api/reveal → Worker: 정답 단어
+        ─ POST /api/reveal → Worker: 정답 단어 (패배·포기 때만. 승리는 guess 응답의 word를 쓴다)
 ```
 
 **서버는 상태가 없다.** 진행·통계·설정은 전부 브라우저 `localStorage`. 정답은 서버가 기억하지 않고 **(n, t, idx)를 HMAC으로 서명한 토큰**을 클라이언트가 들고 다니며 매 요청에 보낸다. 따라서 Worker가 어느 엣지에서 몇 개 떠도 상관없고, 재배포해도 진행 중 게임이 유지된다. 단 `KORDLE_SECRET`이 바뀌면 모든 토큰이 무효다.
 
-**멀티플레이는 이 무상태 원칙의 예외다.** 방 상태는 같은 Worker 안의 Durable Object(`Room`: 방 하나, `Lobby`: 공개 방 목록 하나)가 들고, 브라우저는 `/ws/<code>` WebSocket으로 붙는다. 개인 플레이 경로(위 `/api/*`와 localStorage)는 바꾸지 않았다.
+**멀티플레이는 이 무상태 원칙의 예외다.** 방 상태는 같은 Worker 안의 Durable Object(`Room`: 방 하나, `Lobby`: 공개 방 목록 하나)가 들고, 브라우저는 `/ws/<code>` WebSocket으로 붙고, 로비 목록은 `/ws-lobby`로 구독한다(끊기면 15초 폴링). 개인 플레이 경로(위 `/api/*`와 localStorage)는 바꾸지 않았다.
 
 - **배포**: 별도 Worker가 없다. adapter-cloudflare는 빌드마다 `_worker.js`를 템플릿으로 다시 쓰므로 `pnpm build`(`vite build && node scripts/postbuild-do.mjs`)가 끝에 `export { Room, Lobby } ...` 한 줄을 붙인다(멱등). `pnpm run deploy`와 CI 모두 이 `build`를 거친다.
 - **마이그레이션**: `wrangler.jsonc`의 `migrations` v1 `new_sqlite_classes: ["Room", "Lobby"]`는 첫 배포에서 적용되고 되돌릴 수 없다. 이후에는 항목을 추가만 하고, 태그를 지우거나 고치지 않는다.
-- **검증**: 멀티는 `pnpm build && pnpm preview`(wrangler dev, :8787)로만 본다. `pnpm dev`(Vite)는 WS가 안 되고 WS 클라이언트가 끊기면 `ECONNRESET`으로 죽는다. preview는 로컬 D1이 픽스처라 smoke의 사전 항목은 실패해도 정상이고, 멀티 항목(`/api/room`, `/api/rooms`)만 통과하면 된다.
+- **검증**: 멀티는 `pnpm build && pnpm preview`(wrangler dev, :8787)로만 본다. `pnpm dev`(Vite)는 WS가 안 되고 WS 클라이언트가 끊기면 `ECONNRESET`으로 죽는다. preview는 로컬 D1이 픽스처라 smoke의 사전 항목은 실패해도 정상이고, 멀티 항목(`/api/room`, `/api/rooms`, `/ws-lobby`)만 통과하면 된다.
 - 상세(프로토콜·타이머·결정): [`MULTIPLAYER.md`](MULTIPLAYER.md), [`MULTIPLAYER_TASKS.md`](MULTIPLAYER_TASKS.md).
 
 **정답 좌표의 뜻**: `t`는 정답 풀 임계값(§5), `n`은 자모 수, `idx`는 그 (t, n) 풀 안에서의 순번. D1 `pool` 테이블이 `(t, n, idx) → word, jamo`를 미리 펼쳐 두고 있어 조회가 PK 한 행이다.
@@ -60,7 +60,7 @@
 | `src/lib/components/` | `Board` `Keyboard` `Header` `Modal` `ModeModal`(모드 선택) `SettingsModal` `HelpModal` `StatsModal`(통계) `ClimbModal`(등반 결과 피라미드) `Countdown` — 모두 `.svelte` | 원작 꼬들 Tailwind 팔레트 값을 `src/app.css` CSS 변수로 옮김 |
 | `src/lib/server/mp/**` | 멀티 DO(`Room`, `Lobby`)와 순수 로직 | `$lib` 값 import 금지, 상대 import에 `.ts` 확장자(DO 번들이 `$lib`를 못 푼다) |
 | `src/lib/mp/` | 멀티 프로토콜·규칙·클라이언트(`client.svelte.ts`) | 서버와 공유하는 상수는 `rules.ts` |
-| `src/hooks.server.ts` | `/ws/<code>`를 Room DO로 넘김 | 101 응답이 그대로 나가야 한다 |
+| `src/hooks.server.ts` | `/ws/<code>`를 Room DO로, `/ws-lobby`를 Lobby DO로 넘김 | 101 응답이 그대로 나가야 한다 |
 | `scripts/postbuild-do.mjs` | 빌드 뒤 `_worker.js`에 DO export 추가 | adapter가 `_worker.js`를 매번 다시 쓴다 |
 | `scripts/smoke.py` | 배포 후 회귀 검증 | 사전을 다시 만들면 `POOL_SIZE` 갱신 |
 
