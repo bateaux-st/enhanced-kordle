@@ -38,7 +38,7 @@
 	function wheelDone(p: CoopPickView) {
 		if (p.at <= seenPickAt) return;
 		seenPickAt = p.at;
-		showToast(`${p.candidates[p.chosen]}(으)로 정했습니다`);
+		showToast(`정한 단어: ${p.candidates[p.chosen]}`);
 	}
 
 	// 투표 결과·즉시 제출은 연출이 없으니 알리기만 한다.
@@ -46,7 +46,7 @@
 		const p = unseen;
 		if (!p || p.how === 'roulette') return;
 		seenPickAt = p.at;
-		showToast(p.how === 'single' ? '제안이 하나라 바로 냅니다' : `${p.candidates[p.chosen]}(으)로 정했습니다`);
+		showToast(p.how === 'single' ? '제안이 하나라 바로 냅니다' : `정한 단어: ${p.candidates[p.chosen]}`);
 	});
 
 	// 투표 동률로 돌림판이 된 경우에만 이유를 먼저 알린다. 돌림판 방식이면 알릴 것이 없다.

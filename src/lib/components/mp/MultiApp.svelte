@@ -222,7 +222,7 @@
 			prev = s;
 			if (!s) return;
 			if (!p) {
-				if (client.name && requestedName && client.name !== requestedName) showToast(`같은 이름이 있어 ${client.name}(으)로 들어왔습니다`);
+				if (client.name && requestedName && client.name !== requestedName) showToast(`같은 이름이 있어 ${client.name} 이름으로 들어왔습니다`);
 				return;
 			}
 			if (s.phase !== 'lobby') {
