@@ -96,12 +96,12 @@ test('시도를 모두 쓰면 failed', () => {
 	assert.deepEqual([s.game.players[a].status, s.game.players[a].triesUsed, s.game.players[a].finishedAt], ['failed', 4, T0 + 9]);
 });
 
-test('힌트: 노랑을 받은 자모 중 처음 나온 것의 정답 첫 위치, 1인 1회, 남에게는 영향 없음', () => {
+test('힌트: 노랑을 받은 자모 중 처음 나온 것의 아직 초록 아닌 정답 첫 위치, 1인 1회, 남에게는 영향 없음', () => {
 	const { s, pids } = started(['가', '나']);
 	const [, a, b] = pids;
-	guess(s, a, NANBANG); // ㄴ·ㅏ는 초록이 이미 있고 처음 노랑으로 남는 것은 ㅂ
-	assert.deepEqual(useHint(s, a), { ok: true, pos: 0, jamo: 'ㅂ' });
-	assert.deepEqual(s.game.players[a].board.hints, { 0: 'ㅂ' });
+	guess(s, a, NANBANG); // 첫 노랑은 0번째 ㄴ. 정답의 ㄴ(2·4번째) 중 2번째는 이미 초록이라 4번째를 알려준다
+	assert.deepEqual(useHint(s, a), { ok: true, pos: 4, jamo: 'ㄴ' });
+	assert.deepEqual(s.game.players[a].board.hints, { 4: 'ㄴ' });
 	assert.equal(s.game.players[a].board.hintUsed, true);
 	assert.equal(useHint(s, a).code, 'forbidden');
 	assert.equal(s.game.players[b].board.hintUsed, false);

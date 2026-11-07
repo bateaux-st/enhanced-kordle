@@ -13,6 +13,7 @@ import type {
 } from './types';
 import { MAX_N, MIN_N } from './jamo';
 import { hardViolation } from './hard';
+import { pickHint } from './hint';
 import { load, removeWhere, save } from './storage';
 import { todayKST } from './day';
 
@@ -278,21 +279,23 @@ export class Game {
 		}
 	}
 
-	/** 노란 판정을 받은 자모 하나의 실제 첫 위치를 알려준다. 한 판에 한 번. 슈퍼겁쟁이용. */
+	/** 노란 판정을 받은 자모 하나의, 보드에서 아직 초록으로 찾지 못한 첫 위치를 알려준다. 한 판에 한 번. 슈퍼겁쟁이용. */
 	async hint() {
 		if (this.status !== 'playing' || this.busy) return;
 		if (this.hintUsed) {
 			this.showToast('힌트는 한 판에 한 번입니다');
 			return;
 		}
-		const jamo = Object.entries(this.keyStates).find(([, m]) => m === 'p')?.[0];
-		if (!jamo) {
+		// keyStates는 자모별 최고 판정이라 같은 자모가 초록과 노랑으로 함께 있으면 노랑을 가린다. 보드 칸으로 고른다.
+		const pick = pickHint(this.rows, this.marks);
+		if (!pick) {
 			this.showToast('힌트를 줄 노란 자모가 없습니다');
 			return;
 		}
+		const { jamo, known } = pick;
 		this.busy = true;
 		try {
-			const { pos } = await post<HintResponse>('/api/hint', { token: this.token, jamo } satisfies HintRequest);
+			const { pos } = await post<HintResponse>('/api/hint', { token: this.token, jamo, known } satisfies HintRequest);
 			this.hints = { ...this.hints, [pos]: jamo };
 			this.showToast(`${jamo}은(는) ${pos + 1}번째 칸`, 2500);
 			if (isDaily(this.config.mode)) this.saveDaily();

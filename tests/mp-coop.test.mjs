@@ -441,8 +441,8 @@ test('힌트: 판당 1회, 참가자 누구나, 누가 썼는지 남는다', () 
 	const [host, a, b] = pids;
 	assert.equal(coop.useHint(s, a).code, 'forbidden', '노랑이 아직 없다');
 	everyoneProposes(s, NANBANG);
-	assert.deepEqual(coop.useHint(s, b), { ok: true, pos: 0, jamo: 'ㅂ' });
-	assert.deepEqual([s.game.board.hints, s.game.board.hintUsed, s.game.hintBy], [{ 0: 'ㅂ' }, true, b]);
+	assert.deepEqual(coop.useHint(s, b), { ok: true, pos: 4, jamo: 'ㄴ' });
+	assert.deepEqual([s.game.board.hints, s.game.board.hintUsed, s.game.hintBy], [{ 4: 'ㄴ' }, true, b]);
 	const again = coop.useHint(s, host);
 	assert.deepEqual([again.ok, again.code, again.msg], [false, 'forbidden', '힌트는 한 판에 한 번입니다']);
 	assert.equal(s.game.hintBy, b);
@@ -470,8 +470,9 @@ test('투표 단계에서도 힌트를 쓸 수 있고 단계는 그대로다', (
 
 test('힌트 계산은 경쟁과 같은 규칙: 나중에 초록을 받은 자모는 노랑 후보가 아니다', () => {
 	const { s, pids } = coopStarted(['가']);
-	everyoneProposes(s, NANBANG); // ㄴ: p -> 같은 행 3번째에서 c, ㅂ: p
-	assert.equal(coop.useHint(s, pids[0]).jamo, 'ㅂ');
+	everyoneProposes(s, 'ㄴㅂㅋㅋㅋㅋ'); // ㄴ·ㅂ 노랑
+	everyoneProposes(s, 'ㅋㅋㄴㅋㄴㅋ', T0 + 2); // ㄴ이 정답 속 두 자리 모두 초록
+	assert.deepEqual(coop.useHint(s, pids[0]), { ok: true, pos: 0, jamo: 'ㅂ' });
 });
 
 test('포기: 방장만 할 수 있고, 공유 판 전체가 실패로 끝난다', () => {

@@ -1,6 +1,7 @@
 // 경쟁 게임. 단판은 같은 정답을, 등반은 같은 단어 순서를 각자 개인 보드로 푼다. 제한 시간은 각자 보드의 마감으로 센다.
 import { judge } from '../judge.ts';
 import { hardViolation } from '../../hard.ts';
+import { hintPos, pickHint } from '../../hint.ts';
 import { isJamo } from '../../jamo.ts';
 import { CLIMB_GRACE_MS, DISCONNECT_GRACE_MS, LENGTH_MAX, LENGTH_MIN, STAGE_CLEAR_MS } from '../../mp/rules.ts';
 import type { Mark } from '../../types.ts';
@@ -131,22 +132,14 @@ export function applyGuess(s: RoomState, pid: Pid, jamo: string, valid: boolean 
 }
 
 /**
- * 개인 플레이와 같은 규칙: 노랑을 받은 자모 중 첫 번째(행·칸 순으로 처음 나온 자모)의 정답 안 첫 위치.
- * 같은 자모가 나중에 초록을 받았으면 노랑 후보가 아니다. 경쟁 개인 보드와 협동 공유 보드가 함께 쓴다.
+ * 개인 플레이와 같은 규칙(hint.ts): 보드의 노란 자모 중 행·칸 순으로 처음 나온 것의, 보드에서 아직 초록으로 찾지 못한 정답 안 첫 위치.
+ * 경쟁 개인 보드와 협동 공유 보드가 함께 쓴다.
  */
 export function hintFor(board: Board, answerJamo: string): Result<{ pos: number; jamo: string }> {
-	const rank: Record<Mark, number> = { a: 1, p: 2, c: 3 };
-	const best = new Map<string, Mark>();
-	board.rows.forEach((row, r) => {
-		[...row].forEach((jamo, i) => {
-			const m = board.marks[r][i];
-			const cur = best.get(jamo);
-			if (!cur || rank[m] > rank[cur]) best.set(jamo, m);
-		});
-	});
-	const jamo = [...best].find(([, m]) => m === 'p')?.[0];
-	if (!jamo) return fail('forbidden', '힌트를 줄 노란 자모가 없습니다');
-	return { ok: true, pos: answerJamo.indexOf(jamo), jamo };
+	const pick = pickHint(board.rows, board.marks);
+	const pos = pick ? hintPos(answerJamo, pick.jamo, pick.known) : -1;
+	if (!pick || pos < 0) return fail('forbidden', '힌트를 줄 노란 자모가 없습니다');
+	return { ok: true, pos, jamo: pick.jamo };
 }
 
 export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: string }> {

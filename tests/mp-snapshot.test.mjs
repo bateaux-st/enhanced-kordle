@@ -70,7 +70,7 @@ test('남의 패널은 {stage, n, marks, status, cleared}뿐이고 rows·hints�
 test('내 보드는 전체(행·색·힌트)가 보이고, 남의 힌트 사용 여부는 모른다', () => {
 	const { s, a, b } = midGame();
 	const mine = snapOf(s, a).game.me;
-	assert.deepEqual([mine.rows, mine.hints, mine.hintUsed], [[A_ROW], { 0: 'ㅂ' }, true]);
+	assert.deepEqual([mine.rows, mine.hints, mine.hintUsed], [[A_ROW], { 4: 'ㄴ' }, true]);
 	assert.equal(snapOf(s, b).game.me.hintUsed, false);
 	assert.ok(!JSON.stringify(snapOf(s, b)).includes('"0":"ㅂ"'));
 });
@@ -238,7 +238,7 @@ test('협동 누출 검사(투표 단계): 후보·득표수·투표자는 보�
 		assert.deepEqual(bad, [], 'pid -> 후보 맵이 없다');
 	}
 	assert.equal(views[b].game.board.hintBy, b);
-	assert.deepEqual(views[host].game.board.hints, { 0: 'ㅂ' });
+	assert.deepEqual(views[host].game.board.hints, { 4: 'ㄴ' });
 });
 
 test('협동: 표를 바꾸면 득표수만 움직이고 투표자 목록과 남의 내 표(myVote)는 그대로다', () => {
