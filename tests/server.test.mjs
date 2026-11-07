@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { judge } from '../src/lib/server/judge.ts';
+import { judge, guessResponse } from '../src/lib/server/judge.ts';
 import { encodeToken, decodeToken, seededIndex, dailyIndex, DAILY_DEDUP_START } from '../src/lib/server/token.ts';
 
 const addDays = (day, d) => new Date(Date.parse(day) + d * 86400000).toISOString().slice(0, 10);
@@ -52,4 +52,13 @@ test('데일리 idx는 결정론적이다', async () => {
 	const day = addDays(DAILY_DEDUP_START, 123);
 	assert.equal(await dailyIndex(day, 7, false, 1461), await dailyIndex(day, 7, false, 1461));
 	assert.equal(await dailyIndex(day, 7, true, 1461), await dailyIndex(day, 7, true, 1461));
+});
+
+test('guess 응답은 모든 마크가 c일 때만 정답 단어를 싣는다', () => {
+	const answer = { word: '바나나', jamo: 'ㅂㅏㄴㅏㄴㅏ' };
+	assert.deepEqual(guessResponse(answer, 'ㅂㅏㄴㅏㄴㅏ'), { ok: true, marks: Array(6).fill('c'), word: '바나나' });
+	const miss = guessResponse(answer, 'ㄴㅏㄴㅂㅏㅇ');
+	assert.equal(miss.ok, true);
+	assert.ok(!('word' in miss));
+	assert.ok(!('word' in guessResponse(answer, 'ㅋㅋㅋㅋㅋㅋ')));
 });

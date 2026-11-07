@@ -59,6 +59,23 @@ def daily_idx(day, n, climb, count):
 # 풀 크기 검사에 쓸 대표 모드: 임계값 t를 쓰는 모드 중 랜덤(비데일리)인 것 하나. 새 t가 생기면 여기도 추가.
 MODE_FOR_T = {t: next(m for m, tt in EXPECTED_T.items() if tt == t and not m.startswith("daily")) for t in set(EXPECTED_T.values())}
 
+
+# 한글 음절 → 자모 24종 풀어쓰기(ㄲ=ㄱㄱ, ㅘ=ㅗㅏ, ㄳ=ㄱㅅ). reveal로 받은 단어를 그대로 guess에 넣어 승리 응답을 확인하는 데 쓴다.
+_HEAD = "ㄱ ㄱㄱ ㄴ ㄷ ㄷㄷ ㄹ ㅁ ㅂ ㅂㅂ ㅅ ㅅㅅ ㅇ ㅈ ㅈㅈ ㅊ ㅋ ㅌ ㅍ ㅎ".split()
+_VOWEL = "ㅏ ㅏㅣ ㅑ ㅑㅣ ㅓ ㅓㅣ ㅕ ㅕㅣ ㅗ ㅗㅏ ㅗㅏㅣ ㅗㅣ ㅛ ㅜ ㅜㅓ ㅜㅓㅣ ㅜㅣ ㅠ ㅡ ㅡㅣ ㅣ".split()
+_TAIL = "- ㄱ ㄱㄱ ㄱㅅ ㄴ ㄴㅈ ㄴㅎ ㄷ ㄹ ㄹㄱ ㄹㅁ ㄹㅂ ㄹㅅ ㄹㅌ ㄹㅍ ㄹㅎ ㅁ ㅂ ㅂㅅ ㅅ ㅅㅅ ㅇ ㅈ ㅊ ㅋ ㅌ ㅍ ㅎ".split()
+
+
+def to_jamo(word):
+    out = []
+    for ch in word:
+        i = ord(ch) - 0xAC00
+        if not 0 <= i < 11172:
+            out.append(ch)
+            continue
+        out.append(_HEAD[i // 588] + _VOWEL[i % 588 // 28] + _TAIL[i % 28].replace("-", ""))
+    return "".join(out)
+
 failures = []
 
 
@@ -154,13 +171,16 @@ for (t, n), size in POOL_SIZE.items():
     idx = int(r["token"].split(".")[2])
     check(f"pool t={t} n={n} idx<{size}", idx < size, f"idx={idx}")
 
-# 6. 판정·정답·힌트 — 정답을 reveal로 얻어 그대로 넣으면 전부 c
+# 6. 판정·정답·힌트 — 정답을 reveal로 얻어 그대로 넣으면 전부 c이고 승리 응답에 word가 실린다
 st, g = post("game", {"mode": "endless", "n": 6})
 tok = g["token"]
 st, rv = post("reveal", {"token": tok})
 check("reveal → word", st == 200 and rv and rv["word"])
+st, win = post("guess", {"token": tok, "jamo": to_jamo(rv["word"])})
+check("guess 정답 → 전부 c + word 동봉(reveal 생략용)", st == 200 and win["ok"] and set(win["marks"]) == {"c"} and win.get("word") == rv["word"], str(win))
 st, gs = post("guess", {"token": tok, "jamo": "ㅂㅏㄴㅏㄴㅏ"})
 check("guess 유효 단어 → marks 6개", st == 200 and gs["ok"] and len(gs["marks"]) == 6 and set(gs["marks"]) <= {"c", "p", "a"})
+check("guess 오답 → word 없음", st == 200 and (set(gs["marks"]) == {"c"} or "word" not in gs))
 st, gs = post("guess", {"token": tok, "jamo": "ㅋㅋㅋㅋㅋㅋ"})
 check("guess 사전 밖 → ok:false invalid", st == 200 and gs == {"ok": False, "reason": "invalid"})
 st, gs = post("guess", {"token": tok, "jamo": "ㅂㅏㄴㅏㄴ"})

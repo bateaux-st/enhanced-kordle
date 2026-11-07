@@ -21,9 +21,9 @@
         ─ GET /_app/*      → JS/CSS (immutable, 해시 파일명)
         ─ POST /api/game   → Worker: 정답 좌표 (n, t, idx) 결정 → HMAC 서명 토큰
         ─ POST /api/check  → Worker: 자모열이 사전에 있나 (D1 valid)
-        ─ POST /api/guess  → Worker: 토큰 검증 → 정답 조회(D1 pool) → 워들 판정
+        ─ POST /api/guess  → Worker: 토큰 검증 → 정답 조회(D1 pool) → 워들 판정 (전부 c면 정답 단어 동봉)
         ─ POST /api/hint   → Worker: 특정 자모의 정답 내 첫 위치
-        ─ POST /api/reveal → Worker: 정답 단어
+        ─ POST /api/reveal → Worker: 정답 단어 (패배·포기 때만. 승리는 guess 응답의 word를 쓴다)
 ```
 
 **서버는 상태가 없다.** 진행·통계·설정은 전부 브라우저 `localStorage`. 정답은 서버가 기억하지 않고 **(n, t, idx)를 HMAC으로 서명한 토큰**을 클라이언트가 들고 다니며 매 요청에 보낸다. 따라서 Worker가 어느 엣지에서 몇 개 떠도 상관없고, 재배포해도 진행 중 게임이 유지된다. 단 `KORDLE_SECRET`이 바뀌면 모든 토큰이 무효다.
