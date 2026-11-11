@@ -90,6 +90,7 @@ export function personalize(s: RoomState, pid: Pid, now: number): Snapshot {
 			ready: p.ready,
 			isHost: p.pid === s.hostPid,
 			inGame: p.inGame,
+			...(p.left ? { left: true as const } : {}),
 			panel: cp ? panelOf(cp) : null
 		};
 	});

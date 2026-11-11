@@ -74,6 +74,8 @@ export interface PlayerView {
 	ready: boolean;
 	isHost: boolean;
 	inGame: boolean;
+	/** 게임 중 스스로 나간 사람. 자동 탈락·방장의 탈락 처리는 해당 없다. 게임이 끝나면 목록에서 사라진다. */
+	left?: true;
 	panel: PanelView | null;
 }
 

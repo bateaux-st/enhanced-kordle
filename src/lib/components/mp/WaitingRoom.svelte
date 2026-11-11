@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { Settings, Snapshot } from '$lib/mp/protocol';
-	import { MAX_PLAYERS, NUDGE_COOLDOWN_MS } from '$lib/mp/rules';
+	import { CODE_LENGTH, MAX_PLAYERS, NUDGE_COOLDOWN_MS } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
 	import RoomSettings from './RoomSettings.svelte';
 	import { mpPrefs } from './prefs.svelte';
@@ -20,6 +20,9 @@
 	const isHost = $derived(snap.hostPid === snap.you);
 	const hostName = $derived(snap.players.find((p) => p.pid === snap.hostPid)?.name ?? '');
 	const emptySlots = $derived(Math.max(0, MAX_PLAYERS - snap.players.length));
+	const full = $derived(snap.players.length >= MAX_PLAYERS);
+	// 읽기 쉽게 3-3으로 끊어 보이기만 한다. 복사하는 링크와 서버의 코드는 그대로다.
+	const codeText = $derived(`${snap.code.slice(0, CODE_LENGTH / 2)} ${snap.code.slice(CODE_LENGTH / 2)}`);
 
 	// ---- 나간 사람은 높이가 접히는 동안 자리에 남긴다 ----
 	let ghosts = $state<{ pid: string; name: string; at: number }[]>([]);
@@ -115,14 +118,18 @@
 
 <div class="room-head">
 	<button class="btn" type="button" onclick={onleave}><Icon name="back" />나가기</button>
-	<h1>방 <span class="code">{snap.code}</span></h1>
+	<div class="id">
+		<h1><span class="sr">방 코드 </span><span class="code">{codeText}</span></h1>
+		<span class="cnt" role="status"><span class="sr">참가자 </span>{snap.players.length}/{MAX_PLAYERS}</span>
+		{#if full}<span class="bdg fullb a-pop">가득</span>{/if}
+	</div>
 	<button class="btn" type="button" onclick={copyLink}><Icon name="link" />링크 복사</button>
 </div>
 
 <div class="cols">
 	<section class="col-a" aria-label="참가자">
 		<div class="card">
-			<div class="members-head"><h2 role="status">참가자 {snap.players.length}/{MAX_PLAYERS}</h2></div>
+			<div class="members-head"><h2>참가자</h2></div>
 			<ul>
 				{#each rows as it (it.kind === 'p' ? it.p.pid : `g-${it.g.pid}`)}
 					{#if it.kind === 'g'}
@@ -146,12 +153,13 @@
 										{#if cooldownLeft > 0}<span class="cdbadge" aria-label="{cooldownLeft}초 뒤에 다시 재촉할 수 있습니다">{cooldownLeft}</span>{/if}
 									</button>
 								{/if}
+								<span class="bdg stat hostb">방장</span>
 							{:else if !p.connected}
-								<span class="bdg off a-pop"><Icon name="off" size="0.875rem" />접속 끊김</span>
+								<span class="bdg stat off a-pop"><Icon name="off" size="0.875rem" />접속 끊김</span>
 							{:else if p.ready}
-								<span class="bdg ready a-pop"><Icon name="check" width={3} size="0.875rem" />준비 완료</span>
+								<span class="bdg stat ready a-pop"><Icon name="check" width={3} size="0.875rem" />준비 완료</span>
 							{:else}
-								<span class="bdg idle a-pop"><span class="ring" aria-hidden="true"></span>준비 전</span>
+								<span class="bdg stat idle a-pop"><span class="ring" aria-hidden="true"></span>준비 전</span>
 							{/if}
 						</li>
 					{/if}
@@ -177,7 +185,7 @@
 		{#if isHost}
 			<button class="btn primary big wide" class:glow={nudgeCount > 0} type="button" disabled={!snap.host?.canStart} onclick={onstart}>{startLabel}</button>
 			<div class="ab-cap">
-				{#if nudgeCount > 0}<span class="bdg nbadge" role="status">재촉 {nudgeCount}회</span>{/if}
+				{#if nudgeCount > 0}<span class="bdg nbadge" role="status"><Icon name="bell" size="0.875rem" />재촉 {nudgeCount}회</span>{/if}
 				{#if !snap.host?.canStart}<span role="status">{startReason}</span>{/if}
 			</div>
 		{:else}
@@ -205,16 +213,35 @@
 		margin-bottom: 1.5rem;
 		padding-right: 4.5rem;
 	}
-	h1 {
+	.id {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		align-self: center;
-		font-size: 1.25rem;
-		line-height: 1.75rem;
+	}
+	h1 {
 		font-weight: 700;
 	}
 	.code {
+		display: block;
+		padding: 0.125rem 0.625rem;
+		border-radius: 0.5rem;
+		background: var(--code-bg);
 		font-size: 2rem;
+		line-height: 2.5rem;
 		letter-spacing: 0.08em;
-		margin-left: 0.25rem;
+		word-spacing: 0.15em;
+		white-space: nowrap;
+	}
+	.cnt {
+		font-size: 1rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+	.bdg.fullb {
+		padding: 0.125rem 0.5rem;
+		border: 1px solid var(--muted);
+		font-size: 0.75rem;
 	}
 	.cols {
 		display: flex;
@@ -274,10 +301,39 @@
 		overflow: hidden;
 		min-height: 0;
 	}
+	/* 상태 칸: 방장·준비 완료·준비 전·접속 끊김이 같은 폭 한 열에 놓인다 */
+	.bdg.stat {
+		justify-content: center;
+		gap: 0.3125rem;
+		min-width: 5.5rem;
+		height: 1.75rem;
+		padding: 0 0.5rem;
+		font-size: 0.75rem;
+	}
+	.bdg.hostb {
+		color: var(--on-key);
+		background: var(--key);
+	}
+	.bdg.stat.ready {
+		color: var(--on-tile);
+		background: var(--btn-primary);
+		/* 다크에서 --btn-primary는 카드 면과 2.77:1이라 윤곽을 한 겹 둔다(4.47 / 3.89) */
+		box-shadow: inset 0 0 0 1px var(--sel-line);
+	}
+	.bdg.stat.idle {
+		border: 1.5px solid var(--muted);
+		color: var(--text);
+	}
+	.bdg.stat.off {
+		border: 1.5px dashed var(--muted);
+	}
+	.member .bdg.me {
+		flex: none;
+	}
 	.ring {
 		width: 0.625rem;
 		height: 0.625rem;
-		border: 2px solid currentColor;
+		border: 1.5px solid var(--muted);
 		border-radius: 50%;
 	}
 	.cdbadge {
@@ -319,11 +375,13 @@
 		min-height: 1.5rem;
 		font-size: 0.875rem;
 	}
-	.nbadge {
+	.bdg.nbadge {
+		gap: 0.25rem;
 		padding: 0.25rem 0.625rem;
-		font-size: 0.75rem;
+		font-size: 0.8125rem;
 		color: var(--on-danger);
 		background: var(--danger);
+		box-shadow: inset 0 0 0 1px var(--on-danger);
 	}
 	.glow {
 		animation: nudge-glow 1s ease-out infinite;
@@ -366,8 +424,14 @@
 	}
 
 	@media (max-width: 899.98px) {
+		/* 좁은 화면: 코드와 인원이 첫 줄, 나가기·링크 복사가 그 아래 한 줄 */
+		.id {
+			order: -1;
+			width: 100%;
+		}
 		.code {
 			font-size: 1.5rem;
+			line-height: 2rem;
 		}
 		.action-bar {
 			position: sticky;

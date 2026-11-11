@@ -7,6 +7,7 @@
 		title,
 		onclose,
 		small = false,
+		wide = false,
 		over = false,
 		initialFocus,
 		children
@@ -14,6 +15,8 @@
 		title: string;
 		onclose: () => void;
 		small?: boolean;
+		/** 표가 들어가는 모달용. 12자 이름이 한 줄에 들어가는 폭. */
+		wide?: boolean;
 		over?: boolean;
 		/** 첫 포커스를 받을 요소의 선택자. 확인 대화상자는 파괴적 버튼이 아니라 취소에 둔다. */
 		initialFocus?: string;
@@ -69,7 +72,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
 <div class="scrim" class:over onclick={(e) => e.target === e.currentTarget && onclose()}>
-	<div bind:this={dialog} class="dlg" class:small role="dialog" aria-modal="true" aria-labelledby={id} tabindex="-1">
+	<div bind:this={dialog} class="dlg" class:small class:wide role="dialog" aria-modal="true" aria-labelledby={id} tabindex="-1">
 		<div class="dlg-hd">
 			<h2 {id}>{title}</h2>
 			<button class="x" type="button" aria-label="닫기" onclick={onclose}><Icon name="x" size="1.25rem" /></button>
@@ -107,6 +110,9 @@
 	}
 	.dlg.small {
 		max-width: 22rem;
+	}
+	.dlg.wide {
+		max-width: 34rem;
 	}
 	.dlg-hd {
 		display: flex;
