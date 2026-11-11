@@ -38,7 +38,7 @@
 
 	const nameOk = $derived(normalizeName(nick) !== null);
 	const nameShort = $derived(nick.trim().length > 0 && !nameOk && [...nick.trim()].length < NAME_MIN);
-	const shownMsg = $derived(code.length > 0 && code.length < CODE_LENGTH ? '방 코드는 6자입니다' : notice || message);
+	const shownMsg = $derived(notice || message);
 
 	async function load(showSpinner: boolean) {
 		if (dev) {
@@ -96,7 +96,15 @@
 	function tagOf(r: RoomSummary): 'run' | 'full' | 'wait' {
 		return r.inProgress ? 'run' : r.players >= r.max ? 'full' : 'wait';
 	}
-	const TAG_LABEL = { run: '진행 중', full: '가득 참', wait: '대기 중' };
+	const TAG_LABEL = { run: '진행 중', full: '가득', wait: '대기 중' };
+	const TAG_REASON = { run: '진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다', full: '방이 가득 찼습니다', wait: '' };
+
+	// 입장할 수 없는 방까지 포함해 목록에 있는 상태를 센다.
+	const counts = $derived({
+		wait: list.rooms.filter((r) => tagOf(r) === 'wait').length,
+		run: list.rooms.filter((r) => tagOf(r) === 'run').length,
+		full: list.rooms.filter((r) => tagOf(r) === 'full').length
+	});
 
 	async function create() {
 		if (!nameOk || busy) return;
@@ -129,14 +137,24 @@
 		onjoin(r.code);
 	}
 
-	const kindLabel = (k: string) => (k === 'coop' ? '협동' : '경쟁');
-	const gameLabel = (g: string) => (g === 'climb' ? '등반' : '단판');
+	// 요약에 없는 값(이 필드가 생기기 전에 저장된 방)은 배지를 그리지 않는다.
+	function tagsOf(r: RoomSummary): { text: string; strong: boolean }[] {
+		const out = [
+			{ text: r.kind === 'coop' ? '협동' : '경쟁', strong: true },
+			{ text: r.game === 'climb' ? '등반' : '단판', strong: true }
+		];
+		if (r.length !== undefined) out.push({ text: r.length === 'random' ? '랜덤 길이' : `${r.length}자`, strong: false });
+		if (r.tries !== undefined) out.push({ text: `시도 ${r.tries}회`, strong: false });
+		if (r.hard) out.push({ text: '하드', strong: false });
+		if (r.timer) out.push({ text: '제한 시간', strong: false });
+		return out;
+	}
 </script>
 
-<div class="page-head">
-	<button class="btn" type="button" onclick={onback}><Icon name="back" />뒤로</button>
+<div class="lobby">
+<div class="page-head" class:editing>
+	<button class="btn" type="button" onclick={onback}><Icon name="back" /><span class="bk">뒤로</span></button>
 	<h1>같이 하기</h1>
-	<span class="sp"></span>
 	{#if editing}
 		<form
 			class="nickedit"
@@ -170,7 +188,7 @@
 		</form>
 	{:else}
 		<button class="btn chip" type="button" aria-label="닉네임 수정: {nick}" onclick={startEdit}>
-			{nick}<Icon name="edit" />
+			<span class="nm">{nick}</span><Icon name="edit" />
 		</button>
 	{/if}
 </div>
@@ -184,35 +202,44 @@
 <div class="toolbar">
 	<div class="tb-act">
 		<button class="btn primary big" type="button" disabled={!nameOk || busy} onclick={create}>방 만들기</button>
-		<form
-			class="tb-code"
-			onsubmit={(e) => {
-				e.preventDefault();
-				void joinByCode();
-			}}
-		>
-			<label class="sr" for="code">방 코드</label>
-			<input
-				id="code"
-				class="input code"
-				type="text"
-				placeholder="6자리 코드"
-				maxlength={CODE_LENGTH}
-				autocomplete="off"
-				autocapitalize="characters"
-				spellcheck="false"
-				value={code}
-				oninput={(e) => {
-					code = e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-					e.currentTarget.value = code;
-					notice = '';
+		<div class="tb-codebox">
+			<form
+				class="tb-code"
+				onsubmit={(e) => {
+					e.preventDefault();
+					void joinByCode();
 				}}
-			/>
-			<button class="btn" type="submit" disabled={!nameOk || code.length !== CODE_LENGTH || busy}>입장</button>
-		</form>
+			>
+				<label class="sr" for="code">방 코드</label>
+				<input
+					id="code"
+					class="input code"
+					type="text"
+					placeholder="6자리 코드"
+					maxlength={CODE_LENGTH}
+					autocomplete="off"
+					autocapitalize="characters"
+					spellcheck="false"
+					aria-describedby="code-rule"
+					value={code}
+					oninput={(e) => {
+						code = e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+						e.currentTarget.value = code;
+						notice = '';
+					}}
+				/>
+				<button class="btn" type="submit" disabled={!nameOk || code.length !== CODE_LENGTH || busy}>입장</button>
+			</form>
+			<p id="code-rule" class="note">방 코드는 {CODE_LENGTH}자입니다</p>
+		</div>
 	</div>
 	<div class="tb-info">
-		<span class="tb-count" role="status">공개 방 {list.state === 'ok' ? list.rooms.length : 0}</span>
+		<span class="tb-count" role="status">
+			<b>공개 방 {list.state === 'ok' ? list.rooms.length : 0}</b>
+			{#if list.state === 'ok' && list.rooms.length > 0}
+				<span class="tb-split">대기 {counts.wait} · 진행 중 {counts.run}{counts.full > 0 ? ` · 가득 ${counts.full}` : ''}</span>
+			{/if}
+		</span>
 		<button class="btn icon" type="button" aria-label="방 목록 새로고침" title="새로고침" onclick={() => load(true)}>
 			<Icon name="refresh" size="1.25rem" />
 		</button>
@@ -220,7 +247,7 @@
 </div>
 <p class="msg" role="status">{shownMsg}</p>
 
-<section class="rooms" aria-label="방 목록">
+<section aria-label="방 목록">
 	{#if list.state === 'loading'}
 		<div class="list-state row" role="status"><span class="spin" aria-hidden="true"></span>방 목록을 불러오는 중입니다.</div>
 	{:else if list.state === 'error'}
@@ -231,44 +258,57 @@
 	{:else if list.rooms.length === 0}
 		<div class="list-state">
 			<p class="t">열린 방이 없습니다.</p>
-			<button class="btn primary big" type="button" disabled={!nameOk || busy} onclick={create}>방 만들기</button>
+			<p class="note">방 만들기로 첫 방을 열어 보세요.</p>
 		</div>
 	{:else}
-		<div role="table" aria-label="방 목록">
-			<div class="rhead" role="row">
-				<span role="columnheader">방</span>
-				<span role="columnheader">방장</span>
-				<span role="columnheader">게임</span>
-				<span role="columnheader">인원</span>
-				<span role="columnheader"><span class="sr">상태</span></span>
-				<span role="columnheader"><span class="sr">입장</span></span>
-			</div>
+		<ul class="rooms">
 			{#each list.rooms as r (r.code)}
 				{@const tag = tagOf(r)}
-				<div class="rrow a-drop" role="row">
-					<span class="c-code" role="cell">{r.code}</span>
-					<span class="c-host" role="cell">{r.host || '방장 없음'}</span>
-					<span class="c-game" role="cell">{kindLabel(r.kind)} · {gameLabel(r.game)}</span>
-					<span class="c-n" role="cell">{r.players}/{MAX_PLAYERS}명</span>
-					<span class="c-tag" role="cell"><span class="bdg {tag}">{TAG_LABEL[tag]}</span></span>
-					<span class="c-act" role="cell">
-						<button class="btn" type="button" disabled={!nameOk || tag !== 'wait'} onclick={() => joinFromList(r)}>
-							입장<span class="sr"> {r.code}</span>
-						</button>
-					</span>
-				</div>
+				{@const can = nameOk && tag === 'wait'}
+				<li class="rrow a-drop" class:can class:locked={tag !== 'wait'}>
+					<div class="main">
+						<div class="ln1">
+							<span class="c-code">{r.code}</span>
+							<span class="c-host">
+								<svg class="crown" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18l1-11-5.5 4.5L12 4 7.5 11.5 2 7z" /></svg>
+								<span class="sr">방장 </span>{r.host || '방장 없음'}
+							</span>
+						</div>
+						<ul class="tags" aria-label="방 설정">
+							{#each tagsOf(r) as t (t.text)}
+								<li class="tg" class:strong={t.strong}>{t.text}</li>
+							{/each}
+						</ul>
+					</div>
+					<div class="c-n">
+						<span class="num">{r.players}/{r.max}<span class="sr">명</span></span>
+						<span class="dots" aria-hidden="true">
+							{#each { length: r.max } as _, i (i)}<span class="dot" class:on={i < r.players}></span>{/each}
+						</span>
+					</div>
+					<span class="stag {tag}">{TAG_LABEL[tag]}</span>
+					<button class="btn join" type="button" disabled={!can} onclick={() => joinFromList(r)}>
+						입장<span class="sr"> {r.code} 방{TAG_REASON[tag] ? `. ${TAG_REASON[tag]}` : ''}</span>
+					</button>
+				</li>
 			{/each}
-		</div>
+		</ul>
 	{/if}
 </section>
+</div>
 
 <style>
+	/* 1280px에서 열 사이가 벌어져 행을 눈으로 따라가기 어려웠다. 머리줄·툴바·목록이 같은 폭을 쓴다 */
+	.lobby {
+		max-width: 60rem;
+		margin: 0 auto;
+	}
 	.page-head {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.75rem;
-		margin-bottom: 2rem;
+		margin-bottom: 1.25rem;
 		padding-right: 4.5rem;
 	}
 	h1 {
@@ -300,26 +340,41 @@
 		display: flex;
 		flex-direction: row-reverse;
 		flex-wrap: wrap;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: space-between;
 		gap: 0.75rem 1rem;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 	.tb-info {
 		display: flex;
 		align-items: center;
+		min-height: 44px;
 		gap: 0.5rem;
 	}
 	.tb-count {
-		font-size: 0.9rem;
-		font-weight: 700;
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 0 0.75rem;
+	}
+	.tb-count b {
+		font-size: 1rem;
+	}
+	.tb-split {
+		font-size: 0.875rem;
+		font-variant-numeric: tabular-nums;
 	}
 	.tb-act {
 		display: flex;
 		flex-direction: row-reverse;
 		flex-wrap: wrap;
-		align-items: center;
+		align-items: flex-start;
 		gap: 0.75rem;
+	}
+	.tb-codebox {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
 	}
 	.tb-code {
 		display: flex;
@@ -334,55 +389,21 @@
 		font-size: 0.8rem;
 	}
 	.rooms {
-		min-width: 0;
-		border: 1px solid var(--line);
-		border-radius: 0.5rem;
-		background: var(--surface);
-		overflow: hidden;
-	}
-	.rhead,
-	.rrow {
-		display: grid;
-		grid-template-columns: 6rem minmax(0, 1fr) minmax(0, 1.3fr) 4.5rem 5.5rem 4.5rem;
-		column-gap: 0.75rem;
-		align-items: center;
-		padding: 0.5rem 1rem;
-	}
-	.rhead {
-		padding-block: 0.625rem;
-		font-size: 0.75rem;
-		font-weight: 700;
-		color: var(--muted);
-		border-bottom: 1px solid var(--line);
-	}
-	.rrow + .rrow {
-		border-top: 1px solid var(--line);
-	}
-	.c-code {
-		font-size: 1rem;
-		font-weight: 700;
-		letter-spacing: 0.06em;
-	}
-	.c-host,
-	.c-game {
-		font-size: 0.9rem;
-		overflow-wrap: anywhere;
-	}
-	.c-n {
-		font-size: 0.9rem;
-		font-variant-numeric: tabular-nums;
-	}
-	.c-act {
 		display: flex;
-		justify-content: flex-end;
+		flex-direction: column;
+		gap: 0.5rem;
+		min-width: 0;
 	}
 	.list-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.75rem;
+		gap: 0.5rem;
 		padding: 3rem 1rem;
+		border: 1px solid var(--line);
+		border-radius: 0.5rem;
+		background: var(--surface);
 		text-align: center;
 	}
 	.list-state .t {
@@ -394,8 +415,201 @@
 		font-size: 0.9rem;
 	}
 
-	/* 900px 미만: 툴바가 두 줄로 감기고 방 만들기가 맨 위, 코드 입력이 그 아래. 목록 행은 카드형으로 쌓는다 */
+	/* 행 전체가 입장 버튼의 ::after로 덮여 있어 어디를 눌러도 버튼 하나만 눌린다. Tab 정지점도 행당 하나다 */
+	.rrow {
+		position: relative;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 5rem 7rem 5.5rem;
+		column-gap: 1rem;
+		align-items: center;
+		padding: 0.875rem 1.25rem;
+		border: 1px solid var(--line);
+		border-radius: 0.5rem;
+		background: var(--surface);
+	}
+	.rrow.can {
+		cursor: pointer;
+	}
+	.rrow.can:hover {
+		background: var(--btn);
+	}
+	/* 행 배경이 --sel-bg·--key와 거의 같아져 칩 윤곽이 사라지므로 행이 눌릴 상태에서는 칩을 면 색으로 올린다 */
+	.rrow.can:is(:hover, :has(.join:focus-visible)) .tg,
+	.rrow.can:is(:hover, :has(.join:focus-visible)) .stag.wait {
+		background: var(--surface);
+		color: var(--text);
+	}
+	.rrow.can:is(:hover, :has(.join:focus-visible)) .stag.wait {
+		color: var(--btn-text);
+	}
+	.rrow:has(.join:focus-visible) {
+		background: var(--btn);
+		outline: 2px solid var(--sel-line);
+		outline-offset: 2px;
+	}
+	.main {
+		min-width: 0;
+	}
+	.ln1 {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		min-width: 0;
+	}
+	.c-code {
+		font-size: 1rem;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+	}
+	.c-host {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		min-width: 0;
+		font-size: 0.9rem;
+		overflow-wrap: anywhere;
+	}
+	.crown {
+		flex: none;
+		width: 0.875rem;
+		height: 0.875rem;
+		color: var(--btn-text);
+	}
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		margin-top: 0.5rem;
+	}
+	.tg {
+		display: inline-flex;
+		align-items: center;
+		height: 1.5rem;
+		padding: 0 0.5rem;
+		border-radius: 0.25rem;
+		background: var(--key);
+		color: var(--on-key);
+		font-size: 0.75rem;
+		font-weight: 500;
+	}
+	.tg.strong {
+		font-weight: 700;
+	}
+	.c-n {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+	.num {
+		font-size: 1rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+	.dots {
+		display: inline-flex;
+		gap: 0.25rem;
+	}
+	.dot {
+		box-sizing: border-box;
+		width: 0.625rem;
+		height: 0.625rem;
+		border: 1.5px solid var(--muted);
+		border-radius: 50%;
+	}
+	.dot.on {
+		border-color: var(--btn-primary);
+		background: var(--btn-primary);
+	}
+	/* 상태 단어가 행에서 가장 큰 글자다. 입장 불가 행에서도 이 배지는 그대로 둔다 */
+	.stag {
+		box-sizing: border-box;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		justify-self: start;
+		padding: 0.25rem 0.75rem;
+		border-radius: 0.25rem;
+		font-size: 1.125rem;
+		line-height: 1.5rem;
+		font-weight: 700;
+		white-space: nowrap;
+	}
+	.stag.wait {
+		color: var(--btn-text);
+		background: var(--sel-bg);
+	}
+	.stag.run {
+		color: var(--on-key);
+		background: var(--key);
+	}
+	.stag.full {
+		padding: calc(0.25rem - 1px) calc(0.75rem - 1px);
+		border: 1px solid var(--muted);
+		color: var(--text);
+	}
+	/* 설정 배지는 흐리게 하지 않는다. 다크에서 --key 위 12px 글자가 불투명도 .7이면 3.81:1로 4.5 아래다 */
+	.locked .c-code,
+	.locked .c-host,
+	.locked .c-n {
+		opacity: 0.7;
+	}
+	.rrow .join {
+		justify-self: end;
+		min-width: 5.5rem;
+		box-sizing: border-box;
+		border: 2px solid var(--sel-line);
+		background: transparent;
+		font-size: 0.875rem;
+		font-weight: 700;
+	}
+	.rrow .join:disabled {
+		border-color: var(--muted);
+		color: var(--muted);
+	}
+	.rrow .join::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+	}
+	@supports selector(:has(*)) {
+		.rrow .join:focus-visible {
+			outline: none;
+		}
+	}
+
+	/* 900px 미만: 방 만들기가 맨 위, 코드 입력이 그 아래. 행은 한 열 카드로 쌓는다 */
 	@media (max-width: 899.98px) {
+		.page-head {
+			flex-wrap: nowrap;
+			gap: 0.5rem;
+		}
+		.page-head.editing {
+			flex-wrap: wrap;
+		}
+		.page-head h1 {
+			flex: 1 1 auto;
+			min-width: 0;
+			white-space: nowrap;
+		}
+		.page-head .bk {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+		}
+		.page-head :global(.btn.chip) {
+			flex: 0 1 auto;
+			min-width: 0;
+			max-width: 7.5rem;
+		}
+		.page-head .nm {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
 		.toolbar {
 			flex-direction: column;
 			align-items: stretch;
@@ -406,19 +620,27 @@
 		}
 		.tb-act > .btn {
 			width: 100%;
+			min-height: 48px;
 		}
 		.tb-code .input {
 			flex: 1 1 auto;
 			width: auto;
 		}
-		.rhead {
-			display: none;
+		.tb-info {
+			justify-content: space-between;
+		}
+		.rooms {
+			gap: 0.75rem;
 		}
 		.rrow {
-			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-			grid-template-areas: 'code code act' 'host game act' 'n tag act';
-			row-gap: 0.25rem;
-			padding-block: 0.75rem;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas: 'code tag' 'host n' 'tags tags' 'act act';
+			row-gap: 0.5rem;
+			padding: 0.75rem 0.875rem;
+		}
+		.main,
+		.ln1 {
+			display: contents;
 		}
 		.c-code {
 			grid-area: code;
@@ -426,18 +648,27 @@
 		.c-host {
 			grid-area: host;
 		}
-		.c-game {
-			grid-area: game;
+		.tags {
+			grid-area: tags;
+			margin-top: 0;
 		}
 		.c-n {
 			grid-area: n;
+			flex-direction: row-reverse;
+			align-items: center;
+			gap: 0.5rem;
 		}
-		.c-tag {
+		.num {
+			font-size: 1.125rem;
+		}
+		.stag {
 			grid-area: tag;
+			justify-self: end;
+			font-size: 1rem;
 		}
-		.c-act {
+		.rrow .join {
 			grid-area: act;
-			align-self: center;
+			justify-self: stretch;
 		}
 	}
 </style>

@@ -16,13 +16,29 @@ export function summarize(s: RoomState, now: number): RoomSummary {
 		players: connectedCount(s),
 		max: MAX_PLAYERS,
 		inProgress: s.phase === 'playing',
+		length: s.settings.length,
+		tries: s.settings.tries,
+		hard: s.settings.hard,
+		timer: s.settings.timer,
 		updatedAt: now
 	};
 }
 
 /** updatedAt은 매번 달라지므로 빼고 비교한다. Room이 바뀐 때만 Lobby를 부르려는 용도. */
 export function sameSummary(a: RoomSummary, b: RoomSummary): boolean {
-	return a.code === b.code && a.host === b.host && a.kind === b.kind && a.game === b.game && a.players === b.players && a.max === b.max && a.inProgress === b.inProgress;
+	return (
+		a.code === b.code &&
+		a.host === b.host &&
+		a.kind === b.kind &&
+		a.game === b.game &&
+		a.players === b.players &&
+		a.max === b.max &&
+		a.inProgress === b.inProgress &&
+		a.length === b.length &&
+		a.tries === b.tries &&
+		a.hard === b.hard &&
+		a.timer === b.timer
+	);
 }
 
 const joinable = (r: RoomSummary) => !r.inProgress && r.players < r.max;

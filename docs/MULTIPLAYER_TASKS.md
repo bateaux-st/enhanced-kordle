@@ -536,7 +536,7 @@ result ──again(방장)──▶ lobby          ("같은 설정으로 한 판
 Lobby(싱글턴). 이름은 설계대로 `list`/`upsert`/`remove`. 호출 형식은 경로 라우팅 대신 **DO RPC 메서드** 권장 [변경 제안 P3 — compat date 2026-06-01이라 RPC 사용 가능, `DurableObjectNamespace<Lobby>` 타입으로 호출이 검사되고 경로 파싱 코드가 없어진다. 의미는 동일].
 
 ```ts
-interface RoomSummary { code; host: string; kind; game; players: number; max: 5; inProgress: boolean; updatedAt: number }
+interface RoomSummary { code; host: string; kind; game; players: number; max: 5; inProgress: boolean; length?; tries?; hard?; timer?; updatedAt: number }  // length·tries·hard·timer는 목록 설정 배지용(2026-11 추가, 선택 필드). sameSummary가 이 값도 비교해 설정이 바뀌면 푸시한다
 list(): RoomSummary[]         // updatedAt 750초 초과 항목은 정리 후 제외. 입장 가능한 방 먼저, 최신순, 최대 50
 upsert(s: RoomSummary): void  // 저장 키 하나('rooms', JSON)
 remove(code: string): void
