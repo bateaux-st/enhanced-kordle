@@ -240,7 +240,7 @@
 			}
 			if (!sameSettings(p.settings, s.settings)) {
 				resetNudge();
-				if (s.hostPid !== s.you && p.players.find((q) => q.pid === s.you)?.ready) showToast('설정이 바뀌어 준비가 풀렸습니다');
+				if (s.hostPid !== s.you && p.players.find((q) => q.pid === s.you)?.ready) showToast('방장이 설정을 바꿔 준비가 풀렸습니다');
 			}
 		});
 	});
@@ -250,6 +250,9 @@
 	let nudgeCount = $state(0);
 	let nudgeOpen = $state(false);
 	let nudgeReplay = $state(0);
+
+	// 시작 조건(StartCheck)과 같은 기준: 접속 중인 방장 외 인원
+	const guestsNow = $derived((snap?.players ?? []).filter((p) => p.pid !== snap?.hostPid && p.connected));
 
 	function resetNudge() {
 		nudgeNames = [];
@@ -361,6 +364,9 @@
 	{#if nudgeOpen && viewKey === 'wait'}
 		<NudgeLayer
 			names={nudgeNames}
+			count={nudgeCount}
+			total={guestsNow.length}
+			ready={guestsNow.filter((p) => p.ready).length}
 			replay={nudgeReplay}
 			canStart={!!snap?.host?.canStart}
 			screen={screenEl}

@@ -7,6 +7,9 @@
 
 	let {
 		names,
+		count,
+		total,
+		ready,
 		replay,
 		canStart,
 		screen,
@@ -15,6 +18,11 @@
 	}: {
 		/** 재촉한 사람들. 둘 이상이면 "○○님 외 n명"으로 줄인다. */
 		names: string[];
+		/** 받은 재촉 횟수(같은 사람이 여러 번 보낸 것도 센다). */
+		count: number;
+		/** 지금 접속 중인 방장 외 인원과 그중 준비한 인원. 전원이 준비하면 시작할 수 있다. */
+		total: number;
+		ready: number;
 		/** 값이 바뀌면 새 재촉이 온 것이다(연출을 다시 재생). */
 		replay: number;
 		canStart: boolean;
@@ -143,6 +151,7 @@
 	{#if reduced}
 		<div class="ntop" role="alert">
 			<span class="nmsg">{message}</span>
+			<span class="nsub">{total}명 중 {ready}명 준비</span>
 			<button class="btn nstart" type="button" onclick={onstart}>{startLabel}</button>
 			<button class="btn" type="button" onclick={onclose}>닫기</button>
 		</div>
@@ -150,11 +159,13 @@
 		<div bind:this={flashEl} class="nfx" aria-hidden="true"></div>
 		<div bind:this={layer} class="nlayer" role="alertdialog" aria-modal="true" aria-labelledby={id}>
 			<div bind:this={box} class="nbox">
+					<span class="bdg ncount"><Icon name="bell" size="0.875rem" />재촉 {count}회</span>
 				<span class="nbellwrap" aria-hidden="true">
 					<i class="ring"></i><i class="ring r2"></i>
 					<span class="nbellbg"><span class="nbell"><Icon name="bell" size="4rem" /></span></span>
 				</span>
 				<p class="nmsg" {id}>{message}</p>
+					<p class="nready">{total}명 중 <b>{ready}</b>명 준비</p>
 				<div class="nbtns">
 					<button class="btn primary nstart" type="button" onclick={onstart}>{startLabel}</button>
 					<button class="btn" type="button" onclick={onclose}>닫기</button>
@@ -190,6 +201,7 @@
 		pointer-events: auto;
 	}
 	.nbox {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -204,10 +216,35 @@
 		animation: nudge-pop 200ms ease-out both;
 	}
 	.nmsg {
-		font-size: 2rem;
+		font-size: 1.5rem;
 		font-weight: 700;
 		line-height: 1.25;
 		overflow-wrap: anywhere;
+		text-wrap: balance;
+	}
+	/* 시작까지 몇 명 남았는지가 이 화면에서 방장이 정할 일이라 숫자를 키운다 */
+	.nready {
+		padding: 0.375rem 1rem;
+		border-radius: 0.5rem;
+		font-size: 1.25rem;
+		font-weight: 700;
+		line-height: 2.5rem;
+		font-variant-numeric: tabular-nums;
+		color: var(--btn-text);
+		background: var(--sel-bg);
+	}
+	.nready b {
+		font-size: 2rem;
+	}
+	.bdg.ncount {
+		position: absolute;
+		top: 0.75rem;
+		right: 0.75rem;
+		padding: 0.25rem 0.625rem;
+		font-size: 0.8125rem;
+		color: var(--on-danger);
+		background: var(--danger);
+		box-shadow: inset 0 0 0 1px var(--on-danger);
 	}
 	.nbtns {
 		display: flex;
@@ -275,6 +312,11 @@
 	}
 	.ntop .nmsg {
 		font-size: 1.125rem;
+	}
+	.ntop .nsub {
+		font-size: 0.875rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
 	}
 	.ntop .btn {
 		font-size: 0.875rem;
