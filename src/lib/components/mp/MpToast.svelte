@@ -3,7 +3,7 @@
 </script>
 
 <!-- 알림 영역은 처음부터 DOM에 있어야 스크린리더가 바뀐 문구를 읽는다 -->
-<div class="toast-wrap" role="status" aria-live="polite">
+<div class="toast-wrap" role="status" aria-live="polite" style:top={toastState.top === null ? null : `${toastState.top}px`}>
 	{#key toastState.id}
 		{#if toastState.text}
 			<div class="toast" class:out={toastState.out}>{toastState.text}</div>

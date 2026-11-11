@@ -1,6 +1,6 @@
 // 서버 전용 상태. 정답과 uid가 들어 있으므로 스냅샷 가공(snapshot.ts)을 거치지 않고 클라이언트로 보내지 않는다.
 import type { Mark } from '../../types.ts';
-import type { CompStatus, ErrorCode, Pid, Phase, Settings, Standing, StageClearView } from '../../mp/protocol.ts';
+import type { CompStatus, CoopHintVoteEnd, ErrorCode, Pid, Phase, Settings, Standing, StageClearView } from '../../mp/protocol.ts';
 
 export type { Pid, Phase, CompStatus };
 
@@ -52,8 +52,25 @@ interface GameBase {
 }
 
 export type CoopStep =
-	| { kind: 'propose'; proposals: Record<Pid, string>; drafts: Record<Pid, string> }
+	/** passes는 패스한 사람(값은 항상 true). 패스를 쓰기 전의 저장본에는 없다. */
+	| { kind: 'propose'; proposals: Record<Pid, string>; drafts: Record<Pid, string>; passes?: Record<Pid, true> }
 	| { kind: 'vote'; candidates: { jamo: string; by: Pid[] }[]; votes: Record<Pid, number> };
+
+/** 협동 힌트 투표. yes에는 요청한 사람이 처음부터 들어 있다. 득표 집계는 접속 중인 참가자만 센다. */
+export interface HintVote {
+	by: Pid;
+	yes: Pid[];
+	no: Pid[];
+	deadline: number;
+}
+
+/** 협동 힌트 투표. yes에는 요청한 사람이 처음부터 들어 있다. 득표 집계는 접속 중인 참가자만 센다. */
+export interface HintVote {
+	by: Pid;
+	yes: Pid[];
+	no: Pid[];
+	deadline: number;
+}
 
 export interface CoopGame extends GameBase {
 	kind: 'coop';
@@ -62,6 +79,12 @@ export interface CoopGame extends GameBase {
 	lastPick: { candidates: string[]; by: Pid[][]; chosen: number; how: 'single' | 'vote' | 'roulette'; tally?: number[]; at: number } | null;
 	/** 공유 힌트를 쓴 사람. 쓰기 전에는 null. */
 	hintBy: Pid | null;
+	/** 열려 있는 힌트 투표. 이전 저장본에는 없을 수 있다. */
+	hintVote?: HintVote | null;
+	/** 가장 최근에 끝난 힌트 투표. 부결 직후 재요청 대기(HINT_VOTE_COOLDOWN_MS)의 기준이기도 하다. */
+	lastHintVote?: CoopHintVoteEnd | null;
+	/** 전원 패스로 제안을 다시 받기 시작한 시각. */
+	passResetAt?: number | null;
 	/** 등반에서 방금 클리어한 스테이지. 이전 저장본에는 없을 수 있다. */
 	lastClear?: StageClearView | null;
 	status: 'playing' | 'won' | 'lost';

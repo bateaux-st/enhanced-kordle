@@ -5,7 +5,7 @@ import * as coop from '../src/lib/server/mp/coop.ts';
 import { backToLobby, disconnect } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
-import { ANSWER, compClimbStarted, coopStarted, joinAll, lobby, rng, stageAnswer, started, T0 } from './mp-helpers.mjs';
+import { ANSWER, compClimbStarted, coopStarted, grantHint, joinAll, lobby, rng, stageAnswer, started, T0 } from './mp-helpers.mjs';
 
 const HOST_ROW = 'ㅁㅏㅁㅁㅏㅁ';
 const A_ROW = 'ㄴㅏㄴㅂㅏㅇ';
@@ -180,7 +180,7 @@ function coopVoting() {
 	const { s, pids } = coopStarted(['가', '나']);
 	const [host, a, b] = pids;
 	for (const pid of pids) propose(s, pid, NANBANG);
-	coop.useHint(s, b);
+	grantHint(s, b);
 	propose(s, host, X, T0 + 2);
 	propose(s, a, Y, T0 + 2);
 	propose(s, b, Z, T0 + 2);
@@ -214,7 +214,7 @@ test('협동 누출 검사(제안 단계): 정답·uid·토큰은 없고, 모두
 		const view = snapOf(s, viewer.pid);
 		assertNoSecrets(s, view);
 		assert.equal(view.game.kind, 'coop');
-		assert.deepEqual(view.game.step, { kind: 'propose', proposals: { [host]: X }, drafts: { [host]: X, [a]: 'ㅋㅌㅍ' } }, '남의 초안도 보인다');
+		assert.deepEqual(view.game.step, { kind: 'propose', proposals: { [host]: X }, drafts: { [host]: X, [a]: 'ㅋㅌㅍ' }, passes: [] }, '남의 초안도 보인다');
 		assert.deepEqual(view.game.board.rows, [NANBANG]);
 		assert.deepEqual(view.game.board.marks, [['p', 'c', 'c', 'p', 'p', 'a']]);
 		assert.equal(view.game.answers, undefined);
@@ -280,10 +280,10 @@ test('협동 스냅샷의 게임·보드·단계 필드가 늘 때는 이 목록
 	const { s, host } = coopVoting();
 	const view = snapOf(s, host);
 	assert.deepEqual(Object.keys(view).sort(), ['code', 'game', 'host', 'hostPid', 'now', 'phase', 'players', 'seq', 'settings', 'v', 'you']);
-	assert.deepEqual(Object.keys(view.game).sort(), ['board', 'cleared', 'endedAt', 'kind', 'lastClear', 'lastPick', 'startN', 'startedAt', 'status', 'step']);
+	assert.deepEqual(Object.keys(view.game).sort(), ['board', 'cleared', 'endedAt', 'hintVote', 'hintVoteEnd', 'kind', 'lastClear', 'lastPick', 'passResetAt', 'startN', 'startedAt', 'status', 'step']);
 	assert.deepEqual(Object.keys(view.game.board).sort(), ['deadline', 'hintBy', 'hintUsed', 'hints', 'marks', 'n', 'rows', 'stage']);
 	const p = coopProposing();
-	assert.deepEqual(Object.keys(snapOf(p.s, p.host).game.step).sort(), ['drafts', 'kind', 'proposals']);
+	assert.deepEqual(Object.keys(snapOf(p.s, p.host).game.step).sort(), ['drafts', 'kind', 'passes', 'proposals']);
 });
 
 test('협동 스냅샷은 상태를 복사한다: 받은 뒤 서버 상태가 바뀌어도 이미 만든 스냅샷은 그대로', () => {

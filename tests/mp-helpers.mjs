@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS } from '../src/lib/mp/rules.ts';
 import { initRoom } from '../src/lib/server/mp/state.ts';
 import { join } from '../src/lib/server/mp/members.ts';
 import { startGame } from '../src/lib/server/mp/comp.ts';
+import * as coop from '../src/lib/server/mp/coop.ts';
 import { startGame as startCoop } from '../src/lib/server/mp/coop.ts';
 
 export const T0 = 1_000_000;
@@ -44,6 +45,14 @@ export function started(names = ['가', '나'], settings = {}) {
 	const pids = joinAll(s, names);
 	startGame(s, { n: 6, answer: ANSWER }, T0);
 	return { s, pids };
+}
+
+/** 협동 힌트 투표를 열고 접속 중인 나머지 참가자가 모두 찬성해 통과시킨다. 요청 결과를 돌려준다. */
+export function grantHint(s, requester, now = T0 + 1) {
+	const r = coop.useHint(s, requester, now);
+	if (!r.ok) return r;
+	for (const p of s.players) if (p.inGame && !p.left && p.connected && p.pid !== requester && s.game.hintVote) coop.hintVote(s, p.pid, true, now);
+	return r;
 }
 
 /** 방장 + names를 입장시켜 협동 단판을 시작한 상태. 정답은 바나나(6). */

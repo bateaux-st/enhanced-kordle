@@ -221,6 +221,15 @@ export class MpClient {
 	vote(candidate: number) {
 		return this.sendRaw({ type: 'vote', candidate });
 	}
+	/** 협동 제안 단계: 이번 행을 패스(on=false면 취소). */
+	pass(on: boolean) {
+		return this.sendRaw({ type: 'pass', on });
+	}
+	/** 협동: 열려 있는 힌트 투표에 찬성·반대. */
+	hintVote(yes: boolean) {
+		return this.sendRaw({ type: 'hintvote', yes });
+	}
+	/** 경쟁은 바로 쓰고, 협동은 힌트 투표를 연다. */
 	hint() {
 		return this.sendRaw({ type: 'hint' });
 	}

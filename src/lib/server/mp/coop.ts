@@ -2,20 +2,23 @@
 // 집계 대상은 접속 중이고 나가지 않은 참가자다. 끊긴 사람은 기다리지도, 탈락시키지도 않는다.
 import { isJamo } from '../../jamo.ts';
 import { judge } from '../judge.ts';
-import type { Pid } from '../../mp/protocol.ts';
-import { STAGE_CLEAR_MS } from '../../mp/rules.ts';
+import type { CoopHintVoteEnd, Pid } from '../../mp/protocol.ts';
+import { HINT_VOTE_COOLDOWN_MS, HINT_VOTE_MS, STAGE_CLEAR_MS } from '../../mp/rules.ts';
 import { climbUp, hintUsedMsg, isClimb, isTop, stageDeadline, startAnswers } from './climb.ts';
 import type { Start } from './climb.ts';
 import { checkGuess, freshBoard, hintFor } from './comp.ts';
 import { findPlayer } from './members.ts';
 import { fail } from './state.ts';
-import type { CoopGame, CoopStep, Player, Result, Rng, RoomState } from './state.ts';
+import type { CoopGame, CoopStep, HintVote, Player, Result, Rng, RoomState } from './state.ts';
 
 type ProposeStep = Extract<CoopStep, { kind: 'propose' }>;
 type VoteStep = Extract<CoopStep, { kind: 'vote' }>;
 type Pick = NonNullable<CoopGame['lastPick']>;
 
 const emptyPropose = (): ProposeStep => ({ kind: 'propose', proposals: {}, drafts: {} });
+
+/** 이번 행을 패스한 사람인지. 패스를 쓰기 전의 저장본에는 passes가 없다. */
+export const isPassed = (step: ProposeStep, pid: Pid): boolean => step.passes?.[pid] === true;
 
 const noGame = () => fail('phase', '진행 중인 협동 게임이 없습니다');
 
@@ -68,6 +71,7 @@ function mergeProposals(proposals: Record<Pid, string>): VoteStep['candidates'] 
 function endGame(s: RoomState, game: CoopGame, status: 'won' | 'lost', reason: NonNullable<CoopGame['endReason']>, now: number): void {
 	game.status = status;
 	game.endReason = reason;
+	dropHintVote(game, 'moot', now);
 	game.step = emptyPropose();
 	game.endedAt = now;
 	s.phase = 'result';
@@ -89,6 +93,8 @@ function submit(s: RoomState, game: CoopGame, cands: VoteStep['candidates'], cho
 	if (marks.every((m) => m === 'c')) {
 		board.cleared += 1;
 		if (isClimb(game.settings) && !isTop(board)) {
+			// 힌트 투표는 이 스테이지 보드를 보고 던진 표다. 등반이 다음 스테이지로 넘어가면 접는다.
+			dropHintVote(game, 'moot', now);
 			const up = climbUp(board, now, stageDeadline(game.settings, board.stage + 1, now + STAGE_CLEAR_MS));
 			game.board = up.next;
 			game.lastClear = up.clear;
@@ -120,6 +126,12 @@ function closeVote(s: RoomState, game: CoopGame, step: VoteStep, rng: Rng, now: 
  * 같은 상태에서 다시 불러도 결과가 같다. 바뀐 것이 있으면 true.
  */
 export function advance(s: RoomState, rng: Rng, now: number): boolean {
+	const moved = advanceStep(s, rng, now);
+	// 접속 인원이 바뀌면 투표권자도 바뀐다. 단계가 넘어가며 힌트 투표가 접힌 뒤에 본다.
+	return settleHintVote(s, now) || moved;
+}
+
+function advanceStep(s: RoomState, rng: Rng, now: number): boolean {
 	let moved = false;
 	for (;;) {
 		const game = coopGame(s);
@@ -127,7 +139,13 @@ export function advance(s: RoomState, rng: Rng, now: number): boolean {
 		if (!game || who.length === 0) return moved;
 		const step = game.step;
 		if (step.kind === 'propose') {
-			if (!who.every((p) => p.pid in step.proposals)) return moved;
+			if (!who.every((p) => p.pid in step.proposals || isPassed(step, p.pid))) return moved;
+			// 접속 중 전원이 패스했는데 제안이 하나도 없으면 진행할 수가 없다. 패스를 모두 풀어 다시 받는다.
+			if (Object.keys(step.proposals).length === 0) {
+				step.passes = {};
+				game.passResetAt = now;
+				return true;
+			}
 			closePropose(s, game, step, rng, now);
 		} else {
 			// 찍을 후보가 없는 사람은 기다리지 않는다. 대상이 0명이면 바로 집계한다.
@@ -160,7 +178,7 @@ export function draft(s: RoomState, pid: Pid, jamo: string): Result<{ changed: b
 	return { ok: true, changed: true };
 }
 
-/** 제안 확정. 마감 전에는 다시 보내 덮어쓸 수 있고 철회는 없다. `valid`는 DO 셸이 D1에서 읽은 사전 여부. */
+/** 제안 확정. 마감 전에는 다시 보내 덮어쓸 수 있고 철회는 없다. 패스했다면 풀린다. `valid`는 DO 셸이 D1에서 읽은 사전 여부. */
 export function propose(s: RoomState, pid: Pid, jamo: string, valid: boolean | undefined, rng: Rng, now: number): Result<{ changed: boolean }> {
 	const m = member(s, pid);
 	if (!m.ok) return m;
@@ -170,11 +188,37 @@ export function propose(s: RoomState, pid: Pid, jamo: string, valid: boolean | u
 	const bad = checkGuess(game.board, jamo, valid, game.settings.hard);
 	if (bad) return bad;
 
-	let changed = step.proposals[pid] !== jamo || step.drafts[pid] !== jamo;
+	let changed = step.proposals[pid] !== jamo || step.drafts[pid] !== jamo || isPassed(step, pid);
+	if (step.passes) delete step.passes[pid];
 	step.proposals[pid] = jamo;
 	step.drafts[pid] = jamo;
 	changed = advance(s, rng, now) || changed;
 	return { ok: true, changed };
+}
+
+/**
+ * 이번 행만 패스한다. 제안과 똑같이 "다 냈다"로 세어 접속 중 전원이 냈으면 선택 단계로 넘어간다.
+ * 제안이 하나도 없는데 다른 접속자가 전부 이미 패스했다면 마지막 사람은 패스할 수 없다(이 행이 영원히 안 닫힌다).
+ * 패스한 사람은 후보가 모두 자기 것이 아니니 선택 단계에서 전부 찍을 수 있다.
+ */
+export function pass(s: RoomState, pid: Pid, on: boolean, rng: Rng, now: number): Result<{ changed: boolean }> {
+	const m = member(s, pid);
+	if (!m.ok) return m;
+	const step = m.game.step;
+	if (step.kind !== 'propose') return fail('phase', '제안 단계가 아닙니다');
+	if (isPassed(step, pid) === on) return { ok: true, changed: false };
+	if (!on) {
+		delete step.passes![pid];
+		return { ok: true, changed: true };
+	}
+	if (pid in step.proposals) return fail('forbidden', '이미 제안해서 패스할 수 없습니다');
+	if (Object.keys(step.proposals).length === 0 && countable(s).every((p) => p.pid === pid || isPassed(step, p.pid)))
+		return fail('forbidden', '제안이 하나도 없어 패스할 수 없습니다');
+	(step.passes ??= {})[pid] = true;
+	// 패스한 사람의 초안은 남에게 보일 이유가 없다.
+	delete step.drafts[pid];
+	advance(s, rng, now);
+	return { ok: true, changed: true };
 }
 
 /** 공유 보드의 마감이 지났으면 그 판(등반이면 그 스테이지에서 등반 전체)을 실패로 끝낸다. 같은 now로 다시 불러도 결과가 같다. */
@@ -217,20 +261,98 @@ export function vote(s: RoomState, pid: Pid, candidate: number, rng: Rng, now: n
 	return { ok: true, changed };
 }
 
-/** 판당 1회(등반은 등반 전체에서 1회), 참가자 누구나. 계산은 경쟁 힌트와 같고 쓴 사람을 남긴다. */
-export function useHint(s: RoomState, pid: Pid): Result<{ pos: number; jamo: string }> {
+/**
+ * 힌트 투표를 연다. 판당 1회(등반은 등반 전체에서 1회)이고 참가자 누구나 요청할 수 있다. 게임은 멈추지 않는다.
+ * 요청한 사람이 찬성 1표다. 투표권자가 혼자면 바로 통과한다. 힌트 계산은 경쟁 힌트와 같다.
+ */
+export function useHint(s: RoomState, pid: Pid, now: number): Result {
 	const m = member(s, pid);
 	if (!m.ok) return m;
 	const { game } = m;
 	const board = game.board;
 	if (!game.settings.hints) return fail('forbidden', '힌트를 쓸 수 없는 방입니다');
 	if (board.hintUsed) return fail('forbidden', hintUsedMsg(game.settings));
+	if (game.hintVote) return fail('forbidden', '이미 힌트 투표가 진행 중입니다');
+	const last = game.lastHintVote;
+	if (last && (last.outcome === 'failed' || last.outcome === 'timeout') && now < last.at + HINT_VOTE_COOLDOWN_MS)
+		return fail('cooldown', '부결된 직후라 잠시 뒤에 다시 요청할 수 있습니다');
 	const h = hintFor(board, game.answers[board.n].jamo);
 	if (!h.ok) return h;
-	board.hints[h.pos] = h.jamo;
-	board.hintUsed = true;
-	game.hintBy = pid;
-	return h;
+	game.hintVote = { by: pid, yes: [pid], no: [], deadline: now + HINT_VOTE_MS };
+	settleHintVote(s, now);
+	return { ok: true };
+}
+
+/** 힌트 투표에 한 표. 집계 전에는 바꿀 수 있다. 요청한 사람의 찬성은 고정이다. */
+export function hintVote(s: RoomState, pid: Pid, yes: boolean, now: number): Result<{ changed: boolean }> {
+	const m = member(s, pid);
+	if (!m.ok) return m;
+	const v = m.game.hintVote;
+	if (!v) return fail('phase', '진행 중인 힌트 투표가 없습니다');
+	if (v.by === pid) return fail('forbidden', '요청한 사람은 찬성으로 정해져 있습니다');
+	const [mine, other] = yes ? [v.yes, v.no] : [v.no, v.yes];
+	if (mine.includes(pid)) return { ok: true, changed: false };
+	const k = other.indexOf(pid);
+	if (k >= 0) other.splice(k, 1);
+	mine.push(pid);
+	settleHintVote(s, now);
+	return { ok: true, changed: true };
+}
+
+/** 투표권자(접속 중인 참가자) 기준 집계. 끊긴 사람과 나간 사람의 표는 세지 않는다. */
+export function hintTally(s: RoomState, v: HintVote): { electorate: number; yes: number; no: number; needed: number } {
+	const who = countable(s).map((p) => p.pid);
+	return {
+		electorate: who.length,
+		yes: v.yes.filter((x) => who.includes(x)).length,
+		no: v.no.filter((x) => who.includes(x)).length,
+		needed: Math.floor(who.length / 2) + 1
+	};
+}
+
+function dropHintVote(game: CoopGame, outcome: CoopHintVoteEnd['outcome'], now: number): void {
+	if (!game.hintVote) return;
+	game.hintVote = null;
+	game.lastHintVote = { at: now, outcome };
+}
+
+/**
+ * 힌트 투표를 판정한다. 찬성이 과반이면 통과하고 힌트를 보드에 적용한다. 반대가 쌓여
+ * 남은 표를 다 찬성으로 받아도 과반이 안 되면 바로 부결한다. 투표권자가 0명이면 기다린다(마감이 부결한다).
+ * 같은 상태에서 다시 불러도 결과가 같다.
+ */
+function settleHintVote(s: RoomState, now: number): boolean {
+	const game = coopGame(s);
+	const v = game?.hintVote;
+	if (!game || !v) return false;
+	const { electorate, yes, no } = hintTally(s, v);
+	if (electorate === 0) return false;
+	if (yes * 2 > electorate) {
+		const board = game.board;
+		const h = hintFor(board, game.answers[board.n].jamo);
+		if (!h.ok) dropHintVote(game, 'moot', now);
+		else {
+			board.hints[h.pos] = h.jamo;
+			board.hintUsed = true;
+			game.hintBy = v.by;
+			dropHintVote(game, 'passed', now);
+		}
+		return true;
+	}
+	if (no * 2 >= electorate) {
+		dropHintVote(game, 'failed', now);
+		return true;
+	}
+	return false;
+}
+
+/** 30초 안에 과반이 모이지 않은 힌트 투표를 부결한다. 같은 now로 다시 불러도 결과가 같다. */
+export function expireHintVote(s: RoomState, now: number): boolean {
+	const game = coopGame(s);
+	const v = game?.hintVote;
+	if (!game || !v || now < v.deadline) return false;
+	dropHintVote(game, 'timeout', now);
+	return true;
 }
 
 /** 방장이 공유 판 전체를 실패로 끝낸다. */
@@ -250,9 +372,12 @@ export function forfeit(s: RoomState, pid: Pid, rng: Rng, now: number): void {
 	const game = coopGame(s);
 	if (!game) return;
 	const step = game.step;
+	// 나간 사람이 연 힌트 투표는 접는다. 그 사람의 찬성이 빠지면 요청자 없는 투표가 된다.
+	if (game.hintVote?.by === pid) dropHintVote(game, 'moot', now);
 	if (step.kind === 'propose') {
 		delete step.proposals[pid];
 		delete step.drafts[pid];
+		if (step.passes) delete step.passes[pid];
 	} else {
 		delete step.votes[pid];
 		const kept: number[] = [];

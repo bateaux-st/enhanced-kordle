@@ -1,6 +1,7 @@
 // 개인화 스냅샷. 상태에서 필요한 필드만 골라 새 객체를 만든다(상태를 복사한 뒤 지우는 방식이 아니다).
 // 새 필드는 여기서 명시적으로 추가하지 않는 한 클라이언트에 나가지 않는다.
-import type { CompGameView, CoopGameView, CoopStepView, HostView, OwnBoardView, PanelView, Pid, PlayerView, Snapshot } from '../../mp/protocol.ts';
+import type { CompGameView, CoopGameView, CoopHintVoteView, CoopStepView, HostView, OwnBoardView, PanelView, Pid, PlayerView, Snapshot } from '../../mp/protocol.ts';
+import { hintTally } from './coop.ts';
 import { canStart } from './members.ts';
 import { standings } from './rank.ts';
 import type { CompGame, CompPlayer, CoopGame, RoomState } from './state.ts';
@@ -48,7 +49,7 @@ function compView(s: RoomState, game: CompGame, pid: Pid): CompGameView {
 
 /** 득표수는 실시간으로 보이지만 누가 어느 후보를 찍었는지는 본인 표만 보낸다. */
 function stepView(step: CoopGame['step'], pid: Pid): CoopStepView {
-	if (step.kind === 'propose') return { kind: 'propose', proposals: { ...step.proposals }, drafts: { ...step.drafts } };
+	if (step.kind === 'propose') return { kind: 'propose', proposals: { ...step.proposals }, drafts: { ...step.drafts }, passes: Object.keys(step.passes ?? {}) };
 	const tally = step.candidates.map(() => 0);
 	for (const c of Object.values(step.votes)) tally[c]++;
 	return {
@@ -58,6 +59,14 @@ function stepView(step: CoopGame['step'], pid: Pid): CoopStepView {
 		voted: Object.keys(step.votes),
 		myVote: step.votes[pid] ?? null
 	};
+}
+
+/** 득표수는 보이지만 누가 어느 쪽을 찍었는지는 본인 표만 보낸다. */
+function hintVoteView(s: RoomState, game: CoopGame, pid: Pid): CoopHintVoteView | null {
+	const v = game.status === 'playing' ? game.hintVote : null;
+	if (!v) return null;
+	const { electorate, yes, no, needed } = hintTally(s, v);
+	return { by: v.by, yes, no, needed, electorate, deadline: v.deadline, myVote: v.yes.includes(pid) ? 'yes' : v.no.includes(pid) ? 'no' : null };
 }
 
 function coopView(s: RoomState, game: CoopGame, pid: Pid): CoopGameView {
@@ -72,7 +81,10 @@ function coopView(s: RoomState, game: CoopGame, pid: Pid): CoopGameView {
 		board: { stage: b.stage, n: b.n, rows: b.rows, marks: b.marks, hints: b.hints, hintUsed: b.hintUsed, hintBy: game.hintBy, deadline: b.deadline },
 		status: game.status,
 		step: game.status === 'playing' ? stepView(game.step, pid) : null,
-		lastPick: game.lastPick
+		lastPick: game.lastPick,
+		hintVote: hintVoteView(s, game, pid),
+		hintVoteEnd: game.lastHintVote ?? null,
+		passResetAt: game.passResetAt ?? null
 	};
 	if (game.endReason) view.endReason = game.endReason;
 	if (s.phase === 'result') view.answers = reachedAnswers(game.answers, b.n);

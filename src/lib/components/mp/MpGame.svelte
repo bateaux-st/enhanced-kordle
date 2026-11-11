@@ -5,7 +5,7 @@
 	import { CODE_TO_JAMO } from '$lib/jamo';
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { CoopPickView, PlayerView, Snapshot } from '$lib/mp/protocol';
-	import { CLIMB_GRACE_MS, IDLE_WARNING_MS, STAGE_CLEAR_MS } from '$lib/mp/rules';
+	import { CLIMB_GRACE_MS, coopNeedsInput, HINT_VOTE_MS, IDLE_WARNING_MS, STAGE_CLEAR_MS } from '$lib/mp/rules';
 	import type { Mark } from '$lib/types';
 	import CoopPicker from './CoopPicker.svelte';
 	import Icon from './Icon.svelte';
@@ -15,7 +15,7 @@
 	import MpTimer from './MpTimer.svelte';
 	import OpponentPanel from './OpponentPanel.svelte';
 	import { mpPrefs } from './prefs.svelte';
-	import { showToast } from './toast.svelte';
+	import { showToast, toastState } from './toast.svelte';
 
 	let { client, snap, onleave, onwait }: { client: MpClient; snap: Snapshot; onleave: () => void; onwait: () => void } = $props();
 
@@ -132,21 +132,31 @@
 	// 접속 중인 참가자만 센다(서버 집계와 같다. 나간 사람도 접속 끊김으로 보인다).
 	const counted = $derived(snap.players.filter((p) => p.inGame && p.connected));
 	const proposals = $derived(coop?.step?.kind === 'propose' ? coop.step.proposals : null);
+	const passes = $derived(coop?.step?.kind === 'propose' ? coop.step.passes : []);
 	const proposedK = $derived(proposals ? counted.filter((p) => p.pid in proposals).length : 0);
+	const passedK = $derived(counted.filter((p) => passes.includes(p.pid)).length);
 	const myProposed = $derived(proposals ? snap.you in proposals : false);
+	const myPassed = $derived(passes.includes(snap.you));
+	const iAmIn = $derived(snap.players.some((p) => p.pid === snap.you && p.inGame && p.connected));
+	// 제안이 하나도 없는데 나만 남기고 전원이 패스했으면 서버도 거절한다. 눌러 보게 하지 않고 미리 막는다.
+	const passBlocked = $derived(
+		!myPassed && proposals !== null && Object.keys(proposals).length === 0 && counted.filter((p) => p.pid !== snap.you).every((p) => passes.includes(p.pid))
+	);
 
 	function coopInfo(p: PlayerView) {
 		const st = coop?.step;
-		const base = { n, word: '', confirmed: false };
+		const base = { n, word: '', confirmed: false, pass: false, lit: false };
 		if (!p.connected) return { ...base, state: 'off' as const, word: st?.kind === 'propose' ? (st.drafts[p.pid] ?? st.proposals[p.pid] ?? '') : '' };
 		if (!st) return { ...base, state: 'idle' as const };
 		if (st.kind === 'vote') {
 			const c = st.candidates.find((x) => x.by.includes(p.pid));
 			return c ? { ...base, state: 'proposed' as const, word: c.jamo, confirmed: true } : { ...base, state: 'playing' as const };
 		}
+		// 패스한 사람의 칸은 비워 둔다. 패스 뒤에 친 글자는 제안하기 전까지 남에게 보이지 않는다.
+		if (st.passes.includes(p.pid)) return { ...base, state: 'playing' as const, pass: true };
 		const proposal = st.proposals[p.pid];
 		const word = st.drafts[p.pid] ?? proposal ?? '';
-		return { ...base, state: proposal !== undefined ? ('proposed' as const) : ('playing' as const), word, confirmed: proposal !== undefined && word === proposal };
+		return { ...base, state: proposal !== undefined ? ('proposed' as const) : ('playing' as const), word, confirmed: proposal !== undefined && word === proposal, lit: proposal !== undefined };
 	}
 
 	const voteView = $derived.by(() => {
@@ -307,6 +317,48 @@
 		showToast(`${b.hintBy ? nameOf(b.hintBy) : ''}님 힌트: ${b.hints[pos]}은(는) ${pos + 1}번째 칸`);
 	});
 
+	// 전원이 패스해서 제안을 다시 받기 시작한 순간. 서버가 남긴 시각이 바뀌면 한 번 알린다.
+	let lastPassReset = untrack(() => coop?.passResetAt ?? 0);
+	$effect(() => {
+		const at = coop?.passResetAt ?? 0;
+		if (at === lastPassReset) return;
+		lastPassReset = at;
+		if (at) showToast('모두 패스해서 다시 제안합니다');
+	});
+
+	// ---- 협동: 힌트 투표 ----
+	// 결정은 서버가 한다(통과·부결·30초 마감). 여기 시계는 남은 시간을 보여 줄 뿐이다.
+	const hv = $derived(coop && playing ? coop.hintVote : null);
+	let hvNow = $state(Date.now());
+	$effect(() => {
+		if (!hv) return;
+		hvNow = client.serverNow();
+		const id = setInterval(() => (hvNow = client.serverNow()), 250);
+		return () => clearInterval(id);
+	});
+	const hvLeft = $derived(hv ? Math.max(0, Math.ceil((hv.deadline - hvNow) / 1000)) : 0);
+
+	// 토스트는 화면 위쪽에 고정되어 막대와 겹친다. 막대가 열려 있는 동안은 막대 아래로 내린다.
+	let hvEl = $state<HTMLElement>();
+	$effect(() => {
+		void hvNow;
+		const el = hvEl;
+		if (el) toastState.top = el.getBoundingClientRect().bottom + 8;
+		return () => (toastState.top = null);
+	});
+
+	// 통과는 힌트가 보드에 들어오는 토스트가 알린다. 부결과 취소만 따로 알린다.
+	let lastVoteEnd = untrack(() => coop?.hintVoteEnd?.at ?? 0);
+	$effect(() => {
+		const e = coop?.hintVoteEnd;
+		if (!e || e.at === lastVoteEnd) return;
+		lastVoteEnd = e.at;
+		if (coop?.status !== 'playing') return;
+		if (e.outcome === 'failed') showToast('힌트 투표가 부결됐습니다');
+		else if (e.outcome === 'timeout') showToast('시간 안에 과반이 모이지 않아 부결됐습니다');
+		else if (e.outcome === 'moot') showToast('힌트 투표가 취소됐습니다');
+	});
+
 	// 거절당하면 입력을 남긴 채 흔든다(토스트는 MultiApp이 보여 준다).
 	let lastErr = untrack(() => client.error?.id ?? 0);
 	$effect(() => {
@@ -354,7 +406,7 @@
 
 	// ---- 무입력 경고 ----
 	// 서버는 모른다. 지금 입력할 것이 있는 사람 화면에서만 60초 타이머가 돌고, 경고는 자동 포기나 퇴장으로 이어지지 않는다.
-	// 경쟁은 내가 풀이 중일 때, 협동은 제안 단계에서 아직 안 냈거나 투표 단계에서 찍을 후보가 있는데 안 찍었을 때다.
+	// 경쟁은 내가 풀이 중일 때, 협동은 coopNeedsInput이다(제안도 패스도 안 했거나 찍을 후보가 있는데 안 찍었을 때).
 	const idleTarget = $derived.by(() => {
 		// 끊긴 동안은 스냅샷이 얼어 있어 서버 상태를 믿을 수 없고, 끊김 오버레이가 포커스를 쥐고 있다.
 		if (snap.phase !== 'playing' || modal !== null || kickPid !== null || client.status !== 'open') return false;
@@ -362,8 +414,7 @@
 		const mine = snap.players.find((p) => p.pid === snap.you);
 		const st = coop.step;
 		if (coop.status !== 'playing' || held || !st || !mine?.inGame || !mine.connected) return false;
-		if (st.kind === 'propose') return !(snap.you in st.proposals);
-		return st.myVote === null && st.candidates.some((c) => !c.by.includes(snap.you));
+		return coopNeedsInput(st, snap.you);
 	});
 	let idleWarn = $state(false);
 	let idleSeq = $state(0);
@@ -465,6 +516,42 @@
 	</div>
 {/if}
 
+{#if hv}
+	<!-- 게임을 멈추지 않는 막대. 보드 위에 열어야 폰에서도 화면 안에 보이고, 아래 arena는 grace 배너처럼 보드를 줄여 한 화면에 맞춘다 -->
+	<section class="hvote a-drop" aria-label="힌트 투표" bind:this={hvEl}>
+		<span class="sr" role="status">{nameOf(hv.by)}님이 힌트를 요청했습니다. 찬성 {hv.yes}, 반대 {hv.no}, 찬성 {hv.needed}명이 필요합니다.</span>
+		<div class="hv-txt" aria-hidden="true">
+			<p class="hv-t">
+				{#if hv.by === snap.you}내 힌트 요청{:else}<span class="hv-nm" title={nameOf(hv.by)}>{nameOf(hv.by)}</span><span>님의 힌트 요청</span>{/if}
+			</p>
+			<p class="hv-n">찬성 {hv.yes} · 반대 {hv.no} · {hv.needed}명 필요 <span class="nw">· {hvLeft}초</span></p>
+		</div>
+		{#if hv.by !== snap.you}
+			<div class="hv-btns">
+				<button
+					class="btn"
+					type="button"
+					aria-pressed={hv.myVote === 'yes'}
+					onclick={() => {
+						touch();
+						client.hintVote(true);
+					}}>찬성</button
+				>
+				<button
+					class="btn"
+					type="button"
+					aria-pressed={hv.myVote === 'no'}
+					onclick={() => {
+						touch();
+						client.hintVote(false);
+					}}>반대</button
+				>
+			</div>
+		{/if}
+		<div class="bar motion-only" aria-hidden="true"><i style="width:{Math.min(100, (hvLeft * 1000 * 100) / HINT_VOTE_MS)}%"></i></div>
+	</section>
+{/if}
+
 {#if me && !playing && snap.phase === 'playing'}
 	<div class="mystate">
 		<span class="bdg {me.status === 'solved' ? 'ready' : 'idle'}">
@@ -481,7 +568,7 @@
 	{/each}
 </div>
 
-<div class="arena" class:has-grace={graceActive} class:has-clock={clockOn} style="--rows:{tries}">
+<div class="arena" class:has-grace={graceActive} class:has-clock={clockOn} class:has-hv={hv !== null} style="--rows:{tries}">
 	<div class="opp-col">
 		{#each left as p (p.pid)}
 			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
@@ -517,11 +604,15 @@
 </div>
 
 {#if coop && playing}
-	<!-- 고르는 동안에도 자리를 지켜 아래 버튼이 움직이지 않게 한다 -->
+	<!-- 진행 수는 상대 패널의 칩과 테두리가 보여 준다. 여기는 내 상태 한 칸이고, 고르는 동안에도 자리를 지켜 아래 버튼이 움직이지 않게 한다 -->
 	<p class="progress" role="status">
 		{#if !selecting}
-			제안 {proposedK}/{counted.length}
-			{#if myProposed}<span class="bdg ready"><Icon name="check" width={3} />제안함</span>{/if}
+			<span class="sr">제안 {proposedK}/{counted.length}{passedK ? `, 패스 ${passedK}` : ''}{myProposed ? ' · 내 제안 확정' : myPassed ? ' · 내가 패스함' : ''}</span>
+			{#if myProposed}
+				<span class="me-st prop a-pop" aria-hidden="true"><Icon name="check" width={3} />제안함</span>
+			{:else if myPassed}
+				<span class="me-st pass a-pop" aria-hidden="true"><Icon name="chevR" />패스</span>
+			{/if}
 		{/if}
 	</p>
 {/if}
@@ -546,6 +637,25 @@
 		{#if coop && isHost && coop.step?.kind === 'propose' && !held}
 			<button class="btn primary" type="button" onclick={() => client.closeStep()} disabled={!proposals || Object.keys(proposals).length === 0}>마감</button>
 		{/if}
+		{#if coop && iAmIn && coop.step?.kind === 'propose' && !held}
+			<button
+				class="btn"
+				type="button"
+				onclick={() => {
+					touch();
+					if (!myPassed) {
+						// 서버가 내 초안을 지우므로 입력 행도 비운다. 안 비우면 곧 초안이 다시 올라간다.
+						current = '';
+						sentDraft = '';
+					}
+					client.pass(!myPassed);
+				}}
+				disabled={myProposed || passBlocked}
+				title={myProposed ? '이미 제안했습니다' : passBlocked ? '제안이 하나도 없어 패스할 수 없습니다' : '이번 행은 제안하지 않고 넘어갑니다. 다음 행에서는 다시 제안합니다'}
+			>
+				{myPassed ? '패스 취소' : '패스'}
+			</button>
+		{/if}
 		{#if snap.settings.hints}
 			{@const used = coop ? coop.board.hintUsed : me?.hintUsed}
 			<button
@@ -555,10 +665,10 @@
 					touch();
 					client.hint();
 				}}
-				disabled={used}
-				title="노란 자모 하나의 실제 위치를 알려줍니다 ({climb ? '등반 전체에서 한 번' : coop ? '한 판에 한 번' : '한 사람에 한 번'})"
+				disabled={used || hv !== null}
+				title="노란 자모 하나의 실제 위치를 알려줍니다 ({climb ? '등반 전체에서 한 번' : coop ? '한 판에 한 번' : '한 사람에 한 번'}{coop ? ', 접속 중인 참가자의 과반이 찬성해야 합니다' : ''})"
 			>
-				{used ? '힌트 사용함' : '힌트'}
+				{used ? '힌트 사용함' : hv ? '힌트 투표 중' : '힌트'}
 			</button>
 		{/if}
 		{#if !coop || isHost}
@@ -761,6 +871,85 @@
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
 	}
+	/* 내 상태 칩. 상대 패널의 제안함·패스 칩과 같은 말과 같은 색이고, 제안함은 패널처럼 2px --sel-line 테두리를 두른다 */
+	.me-st {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.1875rem 0.625rem;
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+	}
+	.me-st.prop {
+		border: 2px solid var(--sel-line);
+		padding-block: 0.0625rem;
+		color: var(--btn-text);
+		background: var(--sel-bg);
+	}
+	.me-st.pass {
+		border: 1px solid var(--muted);
+		color: var(--text);
+		background: var(--surface);
+	}
+	.hvote {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.375rem 0.75rem;
+		max-width: 28rem;
+		margin: 0 auto 1rem;
+		padding: 0.5rem 0.875rem 0.625rem;
+		border: 1px solid var(--sel-line);
+		border-radius: 0.375rem;
+		background: var(--sel-bg);
+		font-variant-numeric: tabular-nums;
+	}
+	.hv-txt {
+		/* 음절 사이에서 줄이 꺾이면 "요청했습 / 니다"처럼 읽기 어렵다 */
+		word-break: keep-all;
+	}
+	/* 이름이 길면 이름만 말줄임으로 줄여 제목을 한 줄에 둔다(전체 이름은 title과 스크린 리더 문구) */
+	.hv-t {
+		display: flex;
+		font-size: 0.875rem;
+		font-weight: 700;
+		white-space: nowrap;
+	}
+	.hv-nm {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.nw {
+		white-space: nowrap;
+	}
+	.hv-n {
+		font-size: 0.8125rem;
+	}
+	.hv-btns {
+		display: flex;
+		gap: 0.375rem;
+	}
+	/* 기본 버튼 색은 막대 배경(--sel-bg)과 거의 같아 모양이 사라진다. 고른 쪽은 전역 aria-pressed 스타일을 그대로 쓴다 */
+	.hv-btns .btn:not([aria-pressed='true']) {
+		border: 1px solid var(--sel-line);
+		background: var(--surface);
+	}
+	.hvote .bar {
+		grid-column: 1 / -1;
+		width: 100%;
+		height: 4px;
+		border-radius: 2px;
+		background: var(--line);
+		overflow: hidden;
+	}
+	.hvote .bar i {
+		display: block;
+		height: 100%;
+		background: var(--sel-line);
+		transition: width 0.25s linear;
+	}
 	.live-rank {
 		max-width: 20rem;
 		margin: 1rem auto 0;
@@ -817,19 +1006,19 @@
 		.arena {
 			--cw: 100cqw;
 			/* 보드(열 수·시도 횟수 빼고) 위아래 고정 높이와 .mp 아래 여백까지 잰 값. 상대 띠가 완주자 줄로 길어진 경우(+23px)를 기준으로 잡았다. */
-			--chrome-h: 510px;
+			--chrome-h: calc(510px + var(--x-grace, 0px) + var(--x-clock, 0px) + var(--x-hv, 0px));
 			--tile-floor: 26px;
 			display: block;
 		}
-		/* 유예 배너(+56px)와 남은 시간 줄(+28px)이 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
+		/* 유예 배너(+56px)와 남은 시간 줄(+28px)과 힌트 투표 막대(+84px)가 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
 		.arena.has-grace {
-			--chrome-h: 566px;
+			--x-grace: 56px;
 		}
 		.arena.has-clock {
-			--chrome-h: 538px;
+			--x-clock: 28px;
 		}
-		.arena.has-clock.has-grace {
-			--chrome-h: 594px;
+		.arena.has-hv {
+			--x-hv: 84px;
 		}
 		/* 세로 화면은 26px 바닥이 있으면 360x740의 12자 10회가 한 화면에 안 들어간다. 바닥만 낮춘다. */
 		@media (orientation: portrait) {
