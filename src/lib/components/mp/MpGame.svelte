@@ -15,7 +15,7 @@
 	import MpTimer from './MpTimer.svelte';
 	import OpponentPanel from './OpponentPanel.svelte';
 	import { mpPrefs } from './prefs.svelte';
-	import { showToast } from './toast.svelte';
+	import { showToast, toastState } from './toast.svelte';
 
 	let { client, snap, onleave, onwait }: { client: MpClient; snap: Snapshot; onleave: () => void; onwait: () => void } = $props();
 
@@ -338,13 +338,13 @@
 	});
 	const hvLeft = $derived(hv ? Math.max(0, Math.ceil((hv.deadline - hvNow) / 1000)) : 0);
 
-	// 남이 올린 투표는 눈에 안 띌 수 있어 한 번 알린다. 이미 열려 있던 투표(새로고침·재접속)는 알리지 않는다.
-	let announcedVote = untrack(() => coop?.hintVote?.deadline ?? 0);
+	// 토스트는 화면 위쪽에 고정되어 막대와 겹친다. 막대가 열려 있는 동안은 막대 아래로 내린다.
+	let hvEl = $state<HTMLElement>();
 	$effect(() => {
-		const v = hv;
-		if (!v || v.deadline === announcedVote) return;
-		announcedVote = v.deadline;
-		if (v.by !== snap.you) showToast(`${nameOf(v.by)}님이 힌트를 요청했습니다`);
+		void hvNow;
+		const el = hvEl;
+		if (el) toastState.top = el.getBoundingClientRect().bottom + 8;
+		return () => (toastState.top = null);
 	});
 
 	// 통과는 힌트가 보드에 들어오는 토스트가 알린다. 부결과 취소만 따로 알린다.
@@ -518,11 +518,13 @@
 
 {#if hv}
 	<!-- 게임을 멈추지 않는 막대. 보드 위에 열어야 폰에서도 화면 안에 보이고, 아래 arena는 grace 배너처럼 보드를 줄여 한 화면에 맞춘다 -->
-	<section class="hvote a-drop" aria-label="힌트 투표">
+	<section class="hvote a-drop" aria-label="힌트 투표" bind:this={hvEl}>
 		<span class="sr" role="status">{nameOf(hv.by)}님이 힌트를 요청했습니다. 찬성 {hv.yes}, 반대 {hv.no}, 찬성 {hv.needed}명이 필요합니다.</span>
 		<div class="hv-txt" aria-hidden="true">
-			<p class="hv-t">{hv.by === snap.you ? '힌트를 요청했습니다' : `${nameOf(hv.by)}님이 힌트를 요청했습니다`}</p>
-			<p class="hv-n">찬성 {hv.yes} · 반대 {hv.no} · {hv.electorate}명 중 {hv.needed}명 필요 <span class="nw">· {hvLeft}초</span></p>
+			<p class="hv-t">
+				{#if hv.by === snap.you}내 힌트 요청{:else}<span class="hv-nm" title={nameOf(hv.by)}>{nameOf(hv.by)}</span><span>님의 힌트 요청</span>{/if}
+			</p>
+			<p class="hv-n">찬성 {hv.yes} · 반대 {hv.no} · {hv.needed}명 필요 <span class="nw">· {hvLeft}초</span></p>
 		</div>
 		{#if hv.by !== snap.you}
 			<div class="hv-btns">
@@ -907,9 +909,17 @@
 		/* 음절 사이에서 줄이 꺾이면 "요청했습 / 니다"처럼 읽기 어렵다 */
 		word-break: keep-all;
 	}
+	/* 이름이 길면 이름만 말줄임으로 줄여 제목을 한 줄에 둔다(전체 이름은 title과 스크린 리더 문구) */
 	.hv-t {
+		display: flex;
 		font-size: 0.875rem;
 		font-weight: 700;
+		white-space: nowrap;
+	}
+	.hv-nm {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.nw {
 		white-space: nowrap;
