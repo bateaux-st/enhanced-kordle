@@ -4,7 +4,7 @@ import * as coop from '../src/lib/server/mp/coop.ts';
 import { disconnect, join, leave } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
-import { ANSWER, coopStarted, joinAll, lobby, rng, T0 } from './mp-helpers.mjs';
+import { ANSWER, coopStarted, grantHint, joinAll, lobby, rng, T0 } from './mp-helpers.mjs';
 
 // 정답 바나나(ㅂㅏㄴㅏㄴㅏ). 난방은 p c c p p a — mp-comp.test.mjs와 같은 실제 판정 예.
 const NANBANG = 'ㄴㅏㄴㅂㅏㅇ';
@@ -439,11 +439,11 @@ test('reduce 경로의 leave가 자동 진행까지 이어진다', () => {
 test('힌트: 판당 1회, 참가자 누구나, 누가 썼는지 남는다', () => {
 	const { s, pids } = coopStarted(['가', '나']);
 	const [host, a, b] = pids;
-	assert.equal(coop.useHint(s, a).code, 'forbidden', '노랑이 아직 없다');
+	assert.equal(coop.useHint(s, a, T0).code, 'forbidden', '노랑이 아직 없다');
 	everyoneProposes(s, NANBANG);
-	assert.deepEqual(coop.useHint(s, b), { ok: true, pos: 4, jamo: 'ㄴ' });
+	assert.equal(grantHint(s, b).ok, true);
 	assert.deepEqual([s.game.board.hints, s.game.board.hintUsed, s.game.hintBy], [{ 4: 'ㄴ' }, true, b]);
-	const again = coop.useHint(s, host);
+	const again = coop.useHint(s, host, T0 + 2);
 	assert.deepEqual([again.ok, again.code, again.msg], [false, 'forbidden', '힌트는 한 판에 한 번입니다']);
 	assert.equal(s.game.hintBy, b);
 });
@@ -451,7 +451,7 @@ test('힌트: 판당 1회, 참가자 누구나, 누가 썼는지 남는다', () 
 test('힌트가 꺼진 방은 거절한다', () => {
 	const { s, pids } = coopStarted(['가'], { hints: false });
 	everyoneProposes(s, NANBANG);
-	const r = coop.useHint(s, pids[0]);
+	const r = coop.useHint(s, pids[0], T0 + 1);
 	assert.deepEqual([r.ok, r.code, r.msg], [false, 'forbidden', '힌트를 쓸 수 없는 방입니다']);
 	assert.equal(s.game.board.hintUsed, false);
 });
@@ -464,7 +464,7 @@ test('투표 단계에서도 힌트를 쓸 수 있고 단계는 그대로다', (
 	propose(s, a, Y);
 	propose(s, b, Z);
 	assert.equal(step(s).kind, 'vote');
-	assert.equal(coop.useHint(s, a).ok, true);
+	assert.equal(grantHint(s, a, T0 + 3).ok, true);
 	assert.deepEqual([step(s).kind, s.game.hintBy], ['vote', a]);
 });
 
@@ -472,7 +472,8 @@ test('힌트 계산은 경쟁과 같은 규칙: 나중에 초록을 받은 자�
 	const { s, pids } = coopStarted(['가']);
 	everyoneProposes(s, 'ㄴㅂㅋㅋㅋㅋ'); // ㄴ·ㅂ 노랑
 	everyoneProposes(s, 'ㅋㅋㄴㅋㄴㅋ', T0 + 2); // ㄴ이 정답 속 두 자리 모두 초록
-	assert.deepEqual(coop.useHint(s, pids[0]), { ok: true, pos: 0, jamo: 'ㅂ' });
+	assert.equal(grantHint(s, pids[0], T0 + 3).ok, true);
+	assert.deepEqual([s.game.board.hints, s.game.hintBy], [{ 0: 'ㅂ' }, pids[0]]);
 });
 
 test('포기: 방장만 할 수 있고, 공유 판 전체가 실패로 끝난다', () => {
@@ -501,7 +502,7 @@ test('정답: won/solved, result로 넘어가고 준비가 풀리며 나간 사�
 	assert.equal(s.game.lastPick.how, 'single');
 	// 끝난 판에는 아무 메시지도 먹지 않는다
 	assert.equal(propose(s, host, X).code, 'phase');
-	assert.equal(coop.useHint(s, host).code, 'phase');
+	assert.equal(coop.useHint(s, host, T0 + 6).code, 'phase');
 	assert.equal(coop.giveUp(s, host, T0 + 6).code, 'phase');
 	assert.equal(coop.close(s, host, first, T0 + 6).code, 'phase');
 });

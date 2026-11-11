@@ -9,7 +9,7 @@ import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { summarize } from '../src/lib/server/mp/rooms.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
 import { nextDeadline, tick } from '../src/lib/server/mp/timers.ts';
-import { climbStart, compClimbStarted, coopClimbStarted, joinAll, lobby, rng, stageAnswer, stagesFrom, T0, wrongRow } from './mp-helpers.mjs';
+import { climbStart, compClimbStarted, coopClimbStarted, grantHint, joinAll, lobby, rng, stageAnswer, stagesFrom, T0, wrongRow } from './mp-helpers.mjs';
 
 const A10 = stageAnswer(10).jamo;
 const A11 = stageAnswer(11).jamo;
@@ -121,15 +121,15 @@ test('협동 등반: 힌트는 등반 전체에서 1회, 다음 스테이지에�
 	const { s, pids } = coopClimbStarted(['가']);
 	const [host, a] = pids;
 	coopSubmit(s, pids, `ㅋㅂ${'ㅋ'.repeat(8)}`, T0 + 1); // ㅂ이 노랑
-	const h = coop.useHint(s, a);
-	assert.deepEqual([h.ok, h.pos, h.jamo], [true, 0, 'ㅂ']);
-	assert.equal(coop.useHint(s, host).msg, '힌트는 등반 전체에서 한 번입니다');
+	assert.equal(grantHint(s, a, T0 + 1).ok, true);
+	assert.deepEqual([s.game.board.hints, s.game.hintBy], [{ 0: 'ㅂ' }, a]);
+	assert.equal(coop.useHint(s, host, T0 + 1).msg, '힌트는 등반 전체에서 한 번입니다');
 
 	coopSubmit(s, pids, A10, T0 + 2);
 	const b = s.game.board;
 	assert.deepEqual([b.n, b.hints, b.hintUsed, s.game.hintBy], [11, {}, true, a], '점선은 사라지고 사용 기록은 남는다');
 	coopSubmit(s, pids, `ㅋㅂ${'ㅋ'.repeat(9)}`, T0 + 3);
-	const again = coop.useHint(s, host);
+	const again = coop.useHint(s, host, T0 + 3);
 	assert.deepEqual([again.ok, again.code, again.msg], [false, 'forbidden', '힌트는 등반 전체에서 한 번입니다']);
 	const view = snapOf(s, host).game.board;
 	assert.deepEqual([view.hints, view.hintUsed, view.hintBy], [{}, true, a]);

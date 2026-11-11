@@ -52,6 +52,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
 		case 'propose':
 		case 'guess':
 			return isJamoWord(m.jamo) ? { type: m.type, jamo: m.jamo } : null;
+		case 'pass':
+			return typeof m.on === 'boolean' ? { type: 'pass', on: m.on } : null;
+		case 'hintvote':
+			return typeof m.yes === 'boolean' ? { type: 'hintvote', yes: m.yes } : null;
 		case 'vote':
 			return typeof m.candidate === 'number' && Number.isInteger(m.candidate) && m.candidate >= 0 && m.candidate < 10 ? { type: 'vote', candidate: m.candidate } : null;
 		case 'eliminate':

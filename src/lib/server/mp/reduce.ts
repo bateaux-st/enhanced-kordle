@@ -96,8 +96,18 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 			apply(isCoop(s) ? NOT_COMP : comp.applyGuess(s, pid, msg.jamo, io.valid, now));
 			break;
 		case 'hint':
-			apply(isCoop(s) ? coop.useHint(s, pid) : comp.useHint(s, pid));
+			apply(isCoop(s) ? coop.useHint(s, pid, now) : comp.useHint(s, pid));
 			break;
+		case 'hintvote': {
+			const r = isCoop(s) ? coop.hintVote(s, pid, msg.yes, now) : NOT_COOP;
+			apply(r, r.ok && r.changed);
+			break;
+		}
+		case 'pass': {
+			const r = isCoop(s) ? coop.pass(s, pid, msg.on, rng, now) : NOT_COOP;
+			apply(r, r.ok && r.changed);
+			break;
+		}
 		case 'giveup':
 			apply(isCoop(s) ? coop.giveUp(s, pid, now) : comp.giveUp(s, pid, now));
 			break;

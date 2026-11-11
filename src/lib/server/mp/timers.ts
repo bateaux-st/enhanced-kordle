@@ -1,7 +1,7 @@
 // 상태에는 마감 시각만 저장하고 알람은 가장 이른 하나만 건다. 제한 시간·등반 유예·경쟁 끊김 탈락을 여기서 처리한다.
 import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS, REAP_CHECK_IDLE_MS, REAP_CHECK_PLAYING_MS, SOCKET_IDLE_MS } from '../../mp/rules.ts';
 import { eliminationAt, expireCompPlayers } from './comp.ts';
-import { expireDeadline } from './coop.ts';
+import { expireDeadline, expireHintVote } from './coop.ts';
 import { hostSuccessionAt, succeedHost } from './members.ts';
 import { isListed } from './rooms.ts';
 import type { RoomState } from './state.ts';
@@ -17,6 +17,7 @@ export function nextDeadline(s: RoomState): number | null {
 	if (succession !== null) due.push(succession);
 	const game = s.phase === 'playing' ? s.game : null;
 	if (game?.kind === 'coop' && game.status === 'playing' && game.board.deadline !== null) due.push(game.board.deadline);
+	if (game?.kind === 'coop' && game.status === 'playing' && game.hintVote) due.push(game.hintVote.deadline);
 	if (game?.kind === 'comp') {
 		if (game.graceEnd !== null) due.push(game.graceEnd);
 		for (const [pid, p] of Object.entries(game.players)) {
@@ -68,5 +69,7 @@ export function tick(s: RoomState, now: number): { changed: boolean; destroy: bo
 	const succeeded = succeedHost(s, now);
 	const expired = expireCompPlayers(s, now);
 	const coopTimedOut = expireDeadline(s, now);
-	return { changed: succeeded || expired || coopTimedOut, destroy: false };
+	// 판이 끝나는 마감이 먼저다. 끝난 판의 힌트 투표는 endGame이 이미 접었다.
+	const hintExpired = expireHintVote(s, now);
+	return { changed: succeeded || expired || coopTimedOut || hintExpired, destroy: false };
 }

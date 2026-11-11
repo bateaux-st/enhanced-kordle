@@ -1,5 +1,5 @@
 // 클라이언트와 서버가 함께 쓰는 멀티플레이 상수와 순수 검증.
-import type { CompStatus, Settings } from './protocol.ts';
+import type { CompStatus, CoopStepView, Pid, Settings } from './protocol.ts';
 
 export const MAX_PLAYERS = 5;
 export const MIN_PLAYERS = 2;
@@ -10,6 +10,10 @@ export const HOST_GRACE_MS = 5_000;
 export const EMPTY_ROOM_MS = 30_000;
 export const DISCONNECT_GRACE_MS = 60_000;
 export const IDLE_WARNING_MS = 60_000;
+/** 협동 힌트 투표가 열려 있는 시간. 넘기면 과반이 안 모인 것으로 보고 부결한다. */
+export const HINT_VOTE_MS = 30_000;
+/** 부결된 뒤 다시 요청할 수 있기까지. 반대가 이긴 직후 같은 사람이 바로 다시 올리는 것을 막는다. */
+export const HINT_VOTE_COOLDOWN_MS = 10_000;
 /** 경쟁 등반에서 첫 완주자가 나온 뒤 나머지가 따라올 수 있는 시간. */
 export const CLIMB_GRACE_MS = 60_000;
 /** 단판 한 판 전체, 그리고 등반 1스테이지의 제한 시간. */
@@ -99,3 +103,12 @@ export function sameSettings(a: Settings, b: Settings): boolean {
 export const LOBBY_STALE_MS = 750_000;
 export const LOBBY_REFRESH_MS = 300_000;
 export const LOBBY_LIST_MAX = 50;
+
+/**
+ * 협동에서 지금 이 사람이 입력할 것이 남았는지. 무입력 경고의 대상 판정이다.
+ * 제안 단계는 아직 제안도 패스도 안 한 사람, 투표 단계는 찍을 후보가 있는데 안 찍은 사람이다.
+ */
+export function coopNeedsInput(step: CoopStepView, pid: Pid): boolean {
+	if (step.kind === 'propose') return !(pid in step.proposals) && !step.passes.includes(pid);
+	return step.myVote === null && step.candidates.some((c) => !c.by.includes(pid));
+}

@@ -33,8 +33,13 @@ export type ClientMsg =
 	| { type: 'draft'; jamo: string }
 	| { type: 'propose'; jamo: string }
 	| { type: 'close' }
+	/** 협동 제안 단계: 이번 행을 패스한다(on=false면 취소). 제안하면 패스는 풀린다. */
+	| { type: 'pass'; on: boolean }
 	| { type: 'vote'; candidate: number }
+	/** 협동: 열려 있는 힌트 투표에 찬성(true)·반대(false). 요청한 사람은 찬성으로 고정이다. */
+	| { type: 'hintvote'; yes: boolean }
 	| { type: 'guess'; jamo: string }
+	/** 경쟁은 바로 쓰고, 협동은 힌트 투표를 연다. */
 	| { type: 'hint' }
 	| { type: 'giveup' }
 	| { type: 'eliminate'; pid: Pid };
@@ -144,6 +149,8 @@ export type CoopStepView =
 			proposals: Record<Pid, string>;
 			/** 입력 중인 글자. 확정 제안과 다를 수 있다. 비어 있으면 키가 없다. */
 			drafts: Record<Pid, string>;
+			/** 이번 행을 패스한 사람. 제안과 같은 마감 조건에서 "낸 것"으로 센다. */
+			passes: Pid[];
 	  }
 	| {
 			kind: 'vote';
@@ -171,6 +178,50 @@ export interface CoopPickView {
 	at: number;
 }
 
+/** 열려 있는 힌트 투표. 득표는 접속 중인 참가자만 센다(투표권자는 그때그때 바뀐다). */
+export interface CoopHintVoteView {
+	/** 요청한 사람. 찬성 1표로 들어가 있다. */
+	by: Pid;
+	yes: number;
+	no: number;
+	/** 통과에 필요한 찬성 수(투표권자의 과반). */
+	needed: number;
+	/** 지금 투표권자 수. */
+	electorate: number;
+	/** 서버 시계 기준 마감(ms). 넘기면 부결한다. */
+	deadline: number;
+	/** 내 표. 아직이면 null. */
+	myVote: 'yes' | 'no' | null;
+}
+
+/** 힌트 투표가 끝난 결과. 'moot'은 스테이지가 바뀌거나 판이 끝나 의미가 없어진 것이다. */
+export interface CoopHintVoteEnd {
+	at: number;
+	outcome: 'passed' | 'failed' | 'timeout' | 'moot';
+}
+
+/** 열려 있는 힌트 투표. 득표는 접속 중인 참가자만 센다(투표권자는 그때그때 바뀐다). */
+export interface CoopHintVoteView {
+	/** 요청한 사람. 찬성 1표로 들어가 있다. */
+	by: Pid;
+	yes: number;
+	no: number;
+	/** 통과에 필요한 찬성 수(투표권자의 과반). */
+	needed: number;
+	/** 지금 투표권자 수. */
+	electorate: number;
+	/** 서버 시계 기준 마감(ms). 넘기면 부결한다. */
+	deadline: number;
+	/** 내 표. 아직이면 null. */
+	myVote: 'yes' | 'no' | null;
+}
+
+/** 힌트 투표가 끝난 결과. 'moot'은 요청자가 나가거나 스테이지가 바뀌거나 판이 끝나 의미가 없어진 것이다. */
+export interface CoopHintVoteEnd {
+	at: number;
+	outcome: 'passed' | 'failed' | 'timeout' | 'moot';
+}
+
 export interface CoopGameView {
 	kind: 'coop';
 	startN: number;
@@ -185,6 +236,12 @@ export interface CoopGameView {
 	/** 끝나면 null. */
 	step: CoopStepView | null;
 	lastPick: CoopPickView | null;
+	/** 열려 있는 힌트 투표. 없으면 null. */
+	hintVote: CoopHintVoteView | null;
+	/** 가장 최근에 끝난 힌트 투표. 클라이언트는 `at`이 바뀌면 한 번 알린다. */
+	hintVoteEnd: CoopHintVoteEnd | null;
+	/** 마지막으로 "전원 패스라 다시 제안"으로 돌린 시각. 없으면 null. `at`처럼 값이 바뀌면 한 번 알린다. */
+	passResetAt: number | null;
 	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. 등반이면 도달한 스테이지(길이)까지만 든다. */
 	answers?: Record<number, { word: string; jamo: string }>;
 }
