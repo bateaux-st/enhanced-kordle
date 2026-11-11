@@ -23,7 +23,7 @@
 		/** 모바일 한 줄 띠용 축소 카드. */
 		compact?: boolean;
 		/** 협동 표시. 있으면 미니 격자 대신 그 사람의 단어(실시간 초안, 없으면 확정 제안)를 보인다. */
-		coop?: { state: 'playing' | 'proposed' | 'off' | 'idle'; word: string; confirmed: boolean; n: number } | null;
+		coop?: { state: 'playing' | 'proposed' | 'off' | 'idle'; word: string; confirmed: boolean; n: number; pass: boolean; lit: boolean } | null;
 		/** 등반이면 상대가 있는 스테이지를 보이고, 스테이지 실패를 '탈락'으로 말한다. */
 		climb?: boolean;
 		onkick?: () => void;
@@ -31,6 +31,7 @@
 
 	const panel = $derived(player.panel);
 	const kind = $derived.by(() => {
+		if (coop?.pass) return 'passed';
 		if (coop) return coop.state === 'off' ? 'off' : coop.state === 'proposed' ? 'proposed' : coop.state === 'playing' ? 'playing' : 'idle';
 		if (!panel) return 'out';
 		if (panel.status === 'solved') return 'done';
@@ -43,7 +44,9 @@
 			? '접속 끊김'
 			: kind === 'playing'
 				? '풀이 중'
-				: kind === 'proposed'
+				: kind === 'passed'
+					? '패스'
+					: kind === 'proposed'
 					? '제안함'
 					: kind === 'idle'
 						? ''
@@ -60,6 +63,7 @@
 	const word = $derived([...(coop?.word ?? '')]);
 	const stageText = $derived(climb && panel && !coop ? `스테이지 ${panel.stage}` : '');
 	const summary = $derived.by(() => {
+		if (coop?.pass) return `${player.name}: 패스`;
 		if (coop) return `${player.name}: ${coop.word ? `${coop.confirmed ? '제안' : '입력 중'} ${coop.word}` : '제안 없음'}`;
 		const last = marks[marks.length - 1];
 		if (!last) return `${player.name}: 제출한 행 없음`;
@@ -69,12 +73,13 @@
 	});
 </script>
 
-<section class="opp" class:compact class:off={kind === 'off'} class:out={kind === 'out'} class:done={kind === 'done'} class:flash={kind === 'proposed'} aria-label={player.name}>
+<section class="opp" class:compact class:off={kind === 'off'} class:out={kind === 'out'} class:done={kind === 'done'} class:flash={kind === 'proposed'} class:lit={coop?.lit} aria-label={player.name}>
 	<span class="nm" title={player.name}>{player.name}</span>
 	{#key label}
 		{#if label}
-			<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:offc={kind === 'off'} class:outc={kind === 'out'}>
+			<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:chip={kind === 'proposed' && coop?.lit} class:passc={kind === 'passed'} class:offc={kind === 'off'} class:outc={kind === 'out'}>
 				{#if kind === 'playing'}<Icon name="edit" />
+				{:else if kind === 'passed'}<Icon name="chevR" />
 				{:else if kind === 'proposed'}<Icon name="check" width={3} />
 				{:else if kind === 'done'}<Icon name="checkc" />
 				{:else if kind === 'out'}<Icon name={player.left ? 'exit' : 'xc'} />
@@ -127,7 +132,9 @@
 	.opp.off {
 		border: 1px dashed var(--muted);
 	}
-	.opp.done {
+	/* 제안 단계에서 제안을 확정한 패널도 완료 패널과 같은 2px 테두리를 쓴다 */
+	.opp.done,
+	.opp.lit {
 		border-color: var(--sel-line);
 		box-shadow: inset 0 0 0 1px var(--sel-line);
 	}
@@ -176,6 +183,13 @@
 		color: var(--btn-text);
 		background: var(--sel-bg);
 	}
+	.st.chip {
+		padding: 0.1875rem 0.5rem;
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		background: var(--sel-bg);
+	}
+	.st.passc,
 	.st.offc,
 	.st.outc {
 		padding: 0.125rem 0.5rem;
@@ -294,6 +308,8 @@
 		white-space: nowrap;
 	}
 	.compact .st.done,
+	.compact .st.chip,
+	.compact .st.passc,
 	.compact .st.offc,
 	.compact .st.outc {
 		padding: 0.0625rem 0.25rem;
