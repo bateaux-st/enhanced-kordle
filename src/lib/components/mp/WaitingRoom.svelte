@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick as nextTick, untrack } from 'svelte';
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { Settings, Snapshot } from '$lib/mp/protocol';
 	import { CODE_LENGTH, MAX_PLAYERS, NUDGE_COOLDOWN_MS } from '$lib/mp/rules';
@@ -106,16 +106,26 @@
 
 	const changeSettings = (next: Settings) => client.settings(next);
 
-	// 결과에서 "설정 바꾸기"로 왔으면 설정 영역으로 데려간다. 좁은 화면에서는 참가자 목록 아래에 있다.
+	// 방장의 편집 UI는 기본으로 접혀 있다. 결과에서 "설정 바꾸기"로 왔으면 펼치고 그 자리로 데려간다.
+	let editOpen = $state(false);
 	let settingsHead: HTMLElement | undefined = $state();
 	$effect(() => {
 		if (!client.wantSettings || !settingsHead) return;
 		client.wantSettings = false;
-		settingsHead.scrollIntoView({ block: 'start', behavior: mpPrefs.reduced ? 'auto' : 'smooth' });
-		settingsHead.focus({ preventScroll: true });
+		editOpen = true;
+		const head = settingsHead;
+		// hidden이 풀린 뒤에야 스크롤과 포커스가 먹는다.
+		void nextTick().then(() => {
+			head.scrollIntoView({ block: 'start', behavior: mpPrefs.reduced ? 'auto' : 'smooth' });
+			head.focus({ preventScroll: true });
+		});
 	});
+
+	// 하단 고정 바가 마지막 참가자 행을 가리지 않게 본문 아래에 바 높이만큼 비운다.
+	let barH = $state(0);
 </script>
 
+<div class="wr" style:padding-bottom="calc({barH}px + 1rem)">
 <div class="room-head">
 	<button class="btn" type="button" onclick={onleave}><Icon name="back" />나가기</button>
 	<div class="id">
@@ -126,62 +136,72 @@
 	<button class="btn" type="button" onclick={copyLink}><Icon name="link" />링크 복사</button>
 </div>
 
-<div class="cols">
-	<section class="col-a" aria-label="참가자">
-		<div class="card">
-			<div class="members-head"><h2>참가자</h2></div>
-			<ul>
-				{#each rows as it (it.kind === 'p' ? it.p.pid : `g-${it.g.pid}`)}
-					{#if it.kind === 'g'}
-						<li class="member a-collapse" aria-hidden="true"><span class="nm">{it.g.name}</span></li>
-					{:else}
-						{@const p = it.p}
-						{@const host = p.pid === snap.hostPid}
-						<li class="member a-drop">
-							{#if host}
-								<span class="crown" role="img" aria-label="방장" title="방장">
-									<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="width:1.125rem;height:1.125rem"><path d="M3 18h18l1-11-5.5 4.5L12 4 7.5 11.5 2 7z" /></svg>
-								</span>
-							{/if}
-							<span class="nm">{p.name}</span>
-							{#if p.pid === snap.you}<span class="bdg me">나</span>{/if}
-							<span class="sp"></span>
-							{#if host}
-								{#if !isHost && me?.ready}
-									<button class="btn icon nudgeb" type="button" aria-label="방장 재촉" title="방장에게 시작을 재촉합니다" disabled={cooldownLeft > 0} onclick={nudge}>
-										<Icon name="bell" size="1.25rem" />
-										{#if cooldownLeft > 0}<span class="cdbadge" aria-label="{cooldownLeft}초 뒤에 다시 재촉할 수 있습니다">{cooldownLeft}</span>{/if}
-									</button>
-								{/if}
-								<span class="bdg stat hostb">방장</span>
-							{:else if !p.connected}
-								<span class="bdg stat off a-pop"><Icon name="off" size="0.875rem" />접속 끊김</span>
-							{:else if p.ready}
-								<span class="bdg stat ready a-pop"><Icon name="check" width={3} size="0.875rem" />준비 완료</span>
-							{:else}
-								<span class="bdg stat idle a-pop"><span class="ring" aria-hidden="true"></span>준비 전</span>
-							{/if}
-						</li>
-					{/if}
-				{/each}
-				{#each { length: emptySlots } as _, e (e)}
-					<li class="member empty">
-						<span class="nm">빈 자리</span>
-						{#if e === 0}<span class="note">링크나 코드를 보내 친구를 부르세요.</span>{/if}
-					</li>
-				{/each}
-			</ul>
-		</div>
-	</section>
+<section class="card sumcard" aria-label="설정 요약">
+	<RoomSettings mode="summary" settings={snap.settings} />
+	{#if isHost}
+		<button class="btn tog" type="button" aria-expanded={editOpen} aria-controls="settings-editor" onclick={() => (editOpen = !editOpen)}>
+			<Icon name="edit" />설정 바꾸기<span class="chev" class:up={editOpen} aria-hidden="true"><Icon name="chevR" /></span>
+		</button>
+	{/if}
+</section>
+{#if isHost}
+	{#if !editOpen}<p class="note editnote">설정을 바꾸면 모두의 준비가 풀립니다.</p>{/if}
+	<div id="settings-editor" class="card editor" hidden={!editOpen}>
+		<h2 tabindex="-1" bind:this={settingsHead}>설정 바꾸기</h2>
+		<RoomSettings mode="edit" settings={snap.settings} onchange={changeSettings} />
+	</div>
+{/if}
 
-	<section class="col-b" aria-label="설정">
-		<h2 tabindex="-1" bind:this={settingsHead}>설정</h2>
-		<RoomSettings settings={snap.settings} editable={isHost} onchange={changeSettings} />
-	</section>
+<section aria-label="참가자">
+	<div class="card">
+		<div class="members-head"><h2>참가자</h2></div>
+		<ul>
+			{#each rows as it (it.kind === 'p' ? it.p.pid : `g-${it.g.pid}`)}
+				{#if it.kind === 'g'}
+					<li class="member a-collapse" aria-hidden="true"><span class="nm">{it.g.name}</span></li>
+				{:else}
+					{@const p = it.p}
+					{@const host = p.pid === snap.hostPid}
+					<li class="member a-drop">
+						{#if host}
+							<span class="crown" role="img" aria-label="방장" title="방장">
+								<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="width:1.125rem;height:1.125rem"><path d="M3 18h18l1-11-5.5 4.5L12 4 7.5 11.5 2 7z" /></svg>
+							</span>
+						{/if}
+						<span class="nm">{p.name}</span>
+						{#if p.pid === snap.you}<span class="bdg me">나</span>{/if}
+						<span class="sp"></span>
+						{#if host}
+							{#if !isHost && me?.ready}
+								<button class="btn icon nudgeb" type="button" aria-label="방장 재촉" title="방장에게 시작을 재촉합니다" disabled={cooldownLeft > 0} onclick={nudge}>
+									<Icon name="bell" size="1.25rem" />
+									{#if cooldownLeft > 0}<span class="cdbadge" aria-label="{cooldownLeft}초 뒤에 다시 재촉할 수 있습니다">{cooldownLeft}</span>{/if}
+								</button>
+							{/if}
+							<span class="bdg stat hostb">방장</span>
+						{:else if !p.connected}
+							<span class="bdg stat off a-pop"><Icon name="off" size="0.875rem" />접속 끊김</span>
+						{:else if p.ready}
+							<span class="bdg stat ready a-pop"><Icon name="check" width={3} size="0.875rem" />준비 완료</span>
+						{:else}
+							<span class="bdg stat idle a-pop"><span class="ring" aria-hidden="true"></span>준비 전</span>
+						{/if}
+					</li>
+				{/if}
+			{/each}
+			{#each { length: emptySlots } as _, e (e)}
+				<li class="member empty">
+					<span class="nm">빈 자리</span>
+					{#if e === 0}<span class="note">링크나 코드를 보내 친구를 부르세요.</span>{/if}
+				</li>
+			{/each}
+		</ul>
+	</div>
+</section>
 </div>
 
-<div class="action-bar">
-	<div class="ab-main">
+<div class="action-bar" bind:offsetHeight={barH}>
+	<div class="ab-in">
 		{#if isHost}
 			<button class="btn primary big wide" class:glow={nudgeCount > 0} type="button" disabled={!snap.host?.canStart} onclick={onstart}>{startLabel}</button>
 			<div class="ab-cap">
@@ -205,6 +225,11 @@
 {/if}
 
 <style>
+	/* 데스크톱은 한 열 960px. 설정 요약 띠와 참가자 슬롯이 머리줄·하단 바와 같은 폭을 쓴다 */
+	.wr {
+		max-width: 60rem;
+		margin: 0 auto;
+	}
 	.room-head {
 		display: flex;
 		align-items: flex-start;
@@ -243,21 +268,39 @@
 		border: 1px solid var(--muted);
 		font-size: 0.75rem;
 	}
-	.cols {
+	.sumcard {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 2rem;
-		align-items: flex-start;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 0.5rem;
+		padding: 0.875rem 1rem 0.875rem 1.25rem;
 	}
-	.col-a {
-		flex: 1 1 22rem;
+	.sumcard > :global(.sum) {
+		flex: 1 1 auto;
 		min-width: 0;
 	}
-	.col-b {
-		flex: 1 1 22rem;
-		min-width: 0;
+	.tog {
+		flex: none;
+		font-size: 0.875rem;
+		font-weight: 700;
 	}
-	.col-b > h2 {
+	.chev {
+		display: inline-flex;
+		transform: rotate(90deg);
+		transition: transform var(--mo-pop);
+	}
+	.chev.up {
+		transform: rotate(-90deg);
+	}
+	.editnote {
+		margin-bottom: 1.25rem;
+	}
+	.editor {
+		margin-bottom: 1.25rem;
+		padding: 1rem 1.25rem 1.25rem;
+	}
+	.editor h2 {
+		scroll-margin-top: 1rem;
 		margin-bottom: 0.75rem;
 		font-size: 1rem;
 		font-weight: 700;
@@ -353,24 +396,31 @@
 		color: var(--on-tile);
 		background: var(--btn-primary);
 	}
+	/* 시작·준비와 사유 문구는 항상 화면 아래에 둔다. 본문은 바 높이만큼 비워 두어 마지막 행이 가려지지 않는다 */
 	.action-bar {
-		display: flex;
-		justify-content: flex-end;
-		margin-top: 1.5rem;
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 4;
+		padding: 0.75rem max(16px, env(safe-area-inset-right, 0px)) max(0.75rem, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+		border-top: 1px solid var(--line);
+		background: var(--bg);
 	}
-	.ab-main {
+	.ab-in {
 		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 0.375rem;
+		align-items: center;
+		gap: 1rem;
+		max-width: 60rem;
+		margin: 0 auto;
 	}
-	.wide {
+	.ab-in .wide {
 		min-width: 12rem;
+		min-height: 52px;
 	}
 	.ab-cap {
 		display: flex;
 		align-items: center;
-		justify-content: flex-end;
 		gap: 0.5rem;
 		min-height: 1.5rem;
 		font-size: 0.875rem;
@@ -433,24 +483,24 @@
 			font-size: 1.5rem;
 			line-height: 2rem;
 		}
-		.action-bar {
-			position: sticky;
-			bottom: 0;
-			z-index: 4;
-			margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
-			padding: 0.75rem max(16px, env(safe-area-inset-right, 0px)) max(0.75rem, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
-			border-top: 1px solid var(--line);
-			background: var(--bg);
-		}
-		.ab-main {
-			width: 100%;
+		.sumcard {
+			flex-direction: column;
 			align-items: stretch;
+			padding: 0.75rem 1rem;
+		}
+		.tog {
+			width: 100%;
+		}
+		.ab-in {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.375rem;
+		}
+		.ab-in .wide {
+			min-height: 48px;
 		}
 		.ab-cap {
 			justify-content: center;
-		}
-		.wide {
-			width: 100%;
 		}
 	}
 </style>

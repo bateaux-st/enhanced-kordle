@@ -3,11 +3,12 @@
 	import { LENGTH_MAX, LENGTH_MIN, TRIES_MAX, TRIES_MIN } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
 
+	/** summary는 모두에게 보이는 한 줄 요약, edit는 방장의 편집 UI. */
 	let {
 		settings,
-		editable,
+		mode,
 		onchange
-	}: { settings: Settings; editable: boolean; onchange: (next: Settings) => void } = $props();
+	}: { settings: Settings; mode: 'summary' | 'edit'; onchange?: (next: Settings) => void } = $props();
 
 	const LENS: Settings['length'][] = ['random', ...Array.from({ length: LENGTH_MAX - LENGTH_MIN + 1 }, (_, i) => LENGTH_MIN + i)];
 	const lenIdx = $derived(LENS.indexOf(settings.length));
@@ -19,7 +20,7 @@
 		flash = key;
 		clearTimeout(flashTimer);
 		flashTimer = setTimeout(() => (flash = ''), 400);
-		onchange({ ...settings, ...patch });
+		onchange?.({ ...settings, ...patch });
 	}
 
 	const lenText = (l: Settings['length']) => (l === 'random' ? '랜덤' : `${l}자`);
@@ -27,7 +28,7 @@
 	const climb = $derived(settings.game === 'climb');
 </script>
 
-{#if editable}
+{#if mode === 'edit'}
 	<div class="stack">
 		<div class="pair">
 			<fieldset>
@@ -130,7 +131,7 @@
 		<p class="note">설정을 바꾸면 모두의 준비가 풀립니다.</p>
 	</div>
 {:else}
-	<dl class="card sum">
+	<dl class="sum">
 		<div><dt>종류</dt><dd>{coop ? '협동' : '경쟁'}</dd></div>
 		{#if coop}<div><dt>선택 방식</dt><dd>{settings.pick === 'vote' ? '투표' : '돌림판'}</dd></div>{/if}
 		<div><dt>게임</dt><dd>{climb ? '등반' : '단판'}</dd></div>
@@ -255,27 +256,53 @@
 	.sw[aria-checked='true'] .trk i {
 		transform: translateX(1.25rem);
 	}
+	/* 데스크톱은 라벨 위, 값 아래로 구분선을 두고, 좁은 화면은 한 줄에 라벨과 값을 담은 칩으로 감긴다 */
 	.sum {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem 0;
 		margin: 0;
 	}
 	.sum > div {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.75rem 1rem;
+		padding: 0 1rem;
+		border-left: 1px solid var(--line);
 	}
-	.sum > div + div {
-		border-top: 1px solid var(--line);
+	.sum > div:first-child {
+		padding-left: 0;
+		border-left: 0;
 	}
 	dt {
-		font-size: 0.875rem;
+		font-size: 0.75rem;
+		line-height: 1rem;
 		color: var(--muted);
 	}
 	dd {
-		margin: 0;
-		font-size: 0.9rem;
+		margin: 0.125rem 0 0;
+		font-size: 1.125rem;
+		line-height: 1.5rem;
 		font-weight: 700;
-		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	@media (max-width: 899.98px) {
+		.sum {
+			gap: 0.375rem;
+		}
+		.sum > div,
+		.sum > div:first-child {
+			display: flex;
+			gap: 0.375rem;
+			padding: 0.1875rem 0.625rem;
+			border: 1px solid var(--muted);
+			border-radius: 0.25rem;
+		}
+		dt,
+		dd {
+			margin: 0;
+			font-size: 0.8125rem;
+			line-height: 1.25rem;
+		}
+		dd {
+			font-weight: 500;
+		}
 	}
 </style>
