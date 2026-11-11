@@ -67,11 +67,11 @@
 	});
 </script>
 
-<section class="opp" class:compact class:off={kind === 'off'} class:out={kind === 'out'} class:flash={kind === 'proposed'} aria-label={player.name}>
+<section class="opp" class:compact class:off={kind === 'off'} class:out={kind === 'out'} class:done={kind === 'done'} class:flash={kind === 'proposed'} aria-label={player.name}>
 	<span class="nm">{player.name}</span>
 	{#key label}
 		{#if label}
-			<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:offc={kind === 'off'}>
+			<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:offc={kind === 'off'} class:outc={kind === 'out'}>
 				{#if kind === 'playing'}<Icon name="edit" />
 				{:else if kind === 'proposed'}<Icon name="check" width={3} />
 				{:else if kind === 'done'}<Icon name="checkc" />
@@ -120,16 +120,30 @@
 		border-radius: 0.5rem;
 		background: var(--surface);
 		min-width: 0;
-		transition:
-			opacity var(--mo-fade),
-			filter var(--mo-drop);
 	}
+	/* 끝난 쪽은 칸 색을 그대로 두고 이름과 격자만 흐리게 한다. 상태 칩과 테두리는 흐리게 하지 않아 상태를 칩으로 읽는다 */
 	.opp.off {
 		border: 1px dashed var(--muted);
-		opacity: 0.6;
 	}
-	.opp.out {
-		filter: grayscale(1);
+	.opp.done {
+		border-color: var(--sel-line);
+		box-shadow: inset 0 0 0 1px var(--sel-line);
+	}
+	.nm,
+	.mini,
+	.prop-w,
+	.prop-t {
+		transition: opacity var(--mo-fade);
+	}
+	.opp.out .nm,
+	.opp.out .mini {
+		opacity: 0.7;
+	}
+	.opp.off .nm,
+	.opp.off .mini,
+	.opp.off .prop-w,
+	.opp.off .prop-t {
+		opacity: 0.6;
 	}
 	.nm {
 		font-size: 1rem;
@@ -157,7 +171,18 @@
 		color: var(--btn-text);
 		background: var(--sel-bg);
 	}
+	.st.offc,
+	.st.outc {
+		padding: 0.125rem 0.5rem;
+		border: 1px solid var(--muted);
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: var(--text);
+		background: var(--surface);
+	}
 	.st.offc {
+		border-style: dashed;
 		color: var(--muted);
 	}
 	.st.prop {
@@ -263,7 +288,9 @@
 		font-size: 0.6875rem;
 		white-space: nowrap;
 	}
-	.compact .st.done {
+	.compact .st.done,
+	.compact .st.offc,
+	.compact .st.outc {
 		padding: 0.0625rem 0.25rem;
 	}
 	.compact .kick {
