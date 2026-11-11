@@ -246,6 +246,11 @@ export interface RoomSummary {
 	players: number;
 	max: number;
 	inProgress: boolean;
+	/** 목록에 설정 배지를 그리려는 값. 이 필드가 생기기 전에 저장된 요약에는 없을 수 있어 선택으로 둔다. */
+	length?: Settings['length'];
+	tries?: number;
+	hard?: boolean;
+	timer?: boolean;
 	/** Lobby DO가 받은 시각(서버 시계). */
 	updatedAt: number;
 }

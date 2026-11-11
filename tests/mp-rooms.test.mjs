@@ -7,21 +7,28 @@ import { isListed, listRooms, nextStaleAt, sameList, sameSummary, summarize } fr
 import { initRoom } from '../src/lib/server/mp/state.ts';
 import { joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
 
-const room = (code, over = {}) => ({ code, host: '방장', kind: 'comp', game: 'single', players: 2, max: 5, inProgress: false, updatedAt: T0, ...over });
+const room = (code, over = {}) => ({ code, host: '방장', kind: 'comp', game: 'single', players: 2, max: 5, inProgress: false, length: 6, tries: 6, hard: false, timer: false, updatedAt: T0, ...over });
 
-test('요약: 방장 이름·종류·게임·인원·진행 중 여부, 정답·uid는 없다', () => {
+test('요약: 방장 이름·종류·게임·인원·진행 중 여부·길이·시도·하드·제한 시간, 정답·uid는 없다', () => {
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.deepEqual(summarize(s, T0 + 5), { code: 'ABC234', host: '방장', kind: 'comp', game: 'single', players: 2, max: 5, inProgress: false, updatedAt: T0 + 5 });
+	assert.deepEqual(summarize(s, T0 + 5), { code: 'ABC234', host: '방장', kind: 'comp', game: 'single', players: 2, max: 5, inProgress: false, length: 6, tries: 6, hard: false, timer: false, updatedAt: T0 + 5 });
 	assert.equal(summarize(started(['가']).s, T0).inProgress, true);
 	s.hostPid = null;
 	assert.equal(summarize(s, T0).host, '');
 	assert.ok(!JSON.stringify(summarize(started().s, T0)).includes('uid-'));
 });
 
+test('요약은 방 설정을 그대로 따르고, 설정이 바뀐 방은 sameSummary가 다르다고 본다', () => {
+	const a = lobby({ length: 'random', tries: 8, hard: true, timer: true });
+	const sum = summarize(a, T0);
+	assert.deepEqual([sum.length, sum.tries, sum.hard, sum.timer], ['random', 8, true, true]);
+	assert.ok(!sameSummary(summarize(lobby(), T0), sum));
+});
+
 test('sameSummary는 updatedAt을 무시하고 나머지가 하나라도 다르면 다르다', () => {
 	assert.ok(sameSummary(room('A'), room('A', { updatedAt: T0 + 999 })));
-	for (const over of [{ host: '다른' }, { players: 3 }, { inProgress: true }, { kind: 'coop' }, { game: 'climb' }]) assert.ok(!sameSummary(room('A'), room('A', over)), JSON.stringify(over));
+	for (const over of [{ host: '다른' }, { players: 3 }, { inProgress: true }, { kind: 'coop' }, { game: 'climb' }, { length: 'random' }, { tries: 8 }, { hard: true }, { timer: true }]) assert.ok(!sameSummary(room('A'), room('A', over)), JSON.stringify(over));
 });
 
 test('목록: 입장 가능한 방 먼저, 그 안에서 최신순', () => {
@@ -102,6 +109,7 @@ test('구독 푸시 판정: updatedAt·순서만 다르면 같은 목록, 항목
 	assert.ok(!sameList(a, [room('A'), room('C')]), '같은 길이라도 방이 바뀌면 보낸다');
 	assert.ok(!sameList(a, [room('A')]));
 	assert.ok(!sameList(a, [room('A'), room('B', { players: 3 })]));
+	assert.ok(!sameList(a, [room('A'), room('B', { tries: 8 })]), '설정이 바뀌면 목록 배지가 달라지므로 보낸다');
 });
 
 test('만료 알람 시각: 가장 오래된 방의 updatedAt + STALE + 1, 방이 없으면 null, 그 시각에 listRooms가 실제로 뺀다', () => {
