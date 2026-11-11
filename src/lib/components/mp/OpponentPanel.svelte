@@ -51,7 +51,9 @@
 							? rank
 								? `완료 ${rank}위`
 								: '완료'
-							: statusLabel(panel?.status ?? 'eliminated', climb)
+							: player.left
+								? '나감'
+								: statusLabel(panel?.status ?? 'eliminated', climb)
 	);
 	const marks = $derived(panel?.marks ?? []);
 	const n = $derived(coop?.n ?? panel?.n ?? 0);
@@ -68,14 +70,14 @@
 </script>
 
 <section class="opp" class:compact class:off={kind === 'off'} class:out={kind === 'out'} class:done={kind === 'done'} class:flash={kind === 'proposed'} aria-label={player.name}>
-	<span class="nm">{player.name}</span>
+	<span class="nm" title={player.name}>{player.name}</span>
 	{#key label}
 		{#if label}
 			<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:offc={kind === 'off'} class:outc={kind === 'out'}>
 				{#if kind === 'playing'}<Icon name="edit" />
 				{:else if kind === 'proposed'}<Icon name="check" width={3} />
 				{:else if kind === 'done'}<Icon name="checkc" />
-				{:else if kind === 'out'}<Icon name="xc" />
+				{:else if kind === 'out'}<Icon name={player.left ? 'exit' : 'xc'} />
 				{:else}<Icon name="off" />{/if}
 				{label}
 			</span>
@@ -145,10 +147,13 @@
 	.opp.off .prop-t {
 		opacity: 0.6;
 	}
+	/* 이름은 한 줄을 지키고 넘치면 말줄임(전체 이름은 title). 결과 표와 같은 규칙 */
 	.nm {
 		font-size: 1rem;
 		font-weight: 700;
-		overflow-wrap: anywhere;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.st {
 		display: inline-flex;

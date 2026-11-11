@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyGuess, giveUp, useHint } from '../src/lib/server/mp/comp.ts';
+import { applyGuess, eliminate, giveUp, useHint } from '../src/lib/server/mp/comp.ts';
 import * as coop from '../src/lib/server/mp/coop.ts';
 import { backToLobby, disconnect } from '../src/lib/server/mp/members.ts';
+import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
-import { ANSWER, compClimbStarted, coopStarted, joinAll, lobby, stageAnswer, started, T0 } from './mp-helpers.mjs';
+import { ANSWER, compClimbStarted, coopStarted, joinAll, lobby, rng, stageAnswer, started, T0 } from './mp-helpers.mjs';
 
 const HOST_ROW = 'ㅁㅏㅁㅁㅏㅁ';
 const A_ROW = 'ㄴㅏㄴㅂㅏㅇ';
@@ -313,4 +314,19 @@ test('등반 결과 스냅샷: answers는 도달한 스테이지까지만', () =
 	giveUp(s, pids[0], T0 + 2);
 	giveUp(s, pids[1], T0 + 3);
 	assert.deepEqual(Object.keys(snapOf(s, pids[1]).game.answers).map(Number), [10, 11]);
+});
+
+test('스스로 나간 사람만 left: true로 보이고, 끊김·방장의 탈락 처리는 보이지 않는다', () => {
+	const { s, pids } = started(['가', '나', '다']);
+	const [host, a, b, c] = pids;
+	reduce(s, a, { type: 'leave' }, {}, T0 + 5, rng);
+	disconnect(s, b, T0 + 6);
+	disconnect(s, c, T0 + 7);
+	eliminate(s, host, c, T0 + 8);
+	const view = snapOf(s, host);
+	const by = (pid) => view.players.find((p) => p.pid === pid);
+	assert.equal(by(a).left, true);
+	assert.equal(by(a).panel.status, 'eliminated');
+	for (const pid of [host, b, c]) assert.ok(!('left' in by(pid)), `${pid}에 left가 없어야 한다`);
+	assert.equal(by(c).panel.status, 'eliminated');
 });
