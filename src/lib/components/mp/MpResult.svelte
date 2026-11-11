@@ -57,6 +57,7 @@
 				name: s.name,
 				me: s.pid === snap.you,
 				rank: `${s.tied ? '공동 ' : ''}${s.rank}위`,
+				solved: s.finishOrder !== null,
 				result: s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : statusLabel(s.status, climb),
 				height: s.height,
 				tries: s.tries
@@ -65,7 +66,7 @@
 	);
 </script>
 
-<MpModal title={climb ? '등반 결과' : '결과'} {onclose}>
+<MpModal title={climb ? '등반 결과' : '결과'} wide={!coop} {onclose}>
 	{#if coop && climb}
 		<!-- 협동은 순위가 없다. 전원이 같은 결과를 받는다. -->
 		<div class="coop-res">
@@ -82,7 +83,12 @@
 			{#if coop.endReason === 'timeout'}<p class="note">시간이 다 됐습니다.</p>{/if}
 		</div>
 	{:else}
-		{#if answer && !climb}<p class="big">정답: {answer}</p>{/if}
+		{#if answer && !climb}
+			<div class="ans">
+				<p class="big">정답: {answer}</p>
+				{#if !solvedAny}<p class="note">아무도 맞히지 못했습니다</p>{/if}
+			</div>
+		{/if}
 		<div class="table" class:climb role="table" aria-label="순위">
 			<div class="trow th" role="row">
 				<span role="columnheader">순위</span><span role="columnheader">이름</span><span role="columnheader">결과</span>
@@ -91,11 +97,11 @@
 			</div>
 			{#each rows as x, i (x.pid)}
 				<div class="trow" class:mine={x.me} role="row" style="animation-delay:{Math.min(i, 5) * 90}ms">
-					<span class="rk" role="cell">{#if i === 0}<span class="first">{x.rank}</span>{:else}{x.rank}{/if}</span>
-					<span class="nm" role="cell">{x.name}{#if x.me}<span class="bdg me">나</span>{/if}</span>
-					<span class="res" role="cell"><b>{x.result}</b></span>
+					<span class="rk" role="cell">{#if i === 0 && x.solved}<span class="first">{x.rank}</span>{:else}{x.rank}{/if}</span>
+					<span class="nm" role="cell"><span class="nt" title={x.name}>{x.name}</span>{#if x.me}<span class="bdg me">나</span>{/if}</span>
+					<span class="res" role="cell"><span class="chip"><i class="dot" class:ok={x.solved} aria-hidden="true"></i>{x.result}</span></span>
 					{#if climb}<span class="tr" role="cell">{x.height ?? '-'}</span>{/if}
-					<span class="tr" role="cell">{x.tries}</span>
+					<span class="tr" role="cell">{x.tries}회</span>
 				</div>
 			{/each}
 		</div>
@@ -109,12 +115,15 @@
 	<div class="dlg-act">
 		{#if isHost}
 			<button class="btn primary big block" type="button" onclick={onagain}>같은 설정으로 한 판 더</button>
-			<button class="btn big block" type="button" onclick={onnext}>설정 바꾸기</button>
+			<div class="two">
+				<button class="btn" type="button" onclick={onnext}>설정 바꾸기</button>
+				<button class="btn" type="button" onclick={onleave}><Icon name="exit" />나가기</button>
+			</div>
 		{:else}
 			<p class="wait" role="status">방장이 다음 게임을 고르는 중입니다.</p>
 			<button class="btn primary big block" type="button" onclick={onwait}>대기실로</button>
+			<button class="btn block" type="button" onclick={onleave}><Icon name="exit" />나가기</button>
 		{/if}
-		<button class="btn big block" type="button" onclick={onleave}><Icon name="exit" />나가기</button>
 	</div>
 </MpModal>
 
@@ -144,6 +153,16 @@
 	.comp-climb {
 		margin-top: 1rem;
 	}
+	.ans {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.25rem 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+	.ans .big {
+		margin-bottom: 0;
+	}
 	.table {
 		border: 1px solid var(--line);
 		border-radius: 0.375rem;
@@ -151,7 +170,7 @@
 	}
 	.trow {
 		display: grid;
-		grid-template-columns: 4.5rem minmax(0, 1fr) minmax(0, 1.7fr) 3rem;
+		grid-template-columns: 4.5rem minmax(14rem, 1fr) 6.75rem 3rem;
 		column-gap: 0.5rem;
 		align-items: center;
 		padding: 0.625rem 0.75rem;
@@ -159,7 +178,7 @@
 		animation: mp-drop var(--mo-drop) ease-out both;
 	}
 	.table.climb .trow {
-		grid-template-columns: 4rem minmax(0, 1.4fr) minmax(0, 1.2fr) 2.25rem 2.25rem;
+		grid-template-columns: 4.5rem minmax(11rem, 1fr) 6.75rem 2.25rem 3rem;
 	}
 	.trow.th {
 		padding-block: 0.5rem;
@@ -173,10 +192,13 @@
 		background: var(--sel-bg);
 	}
 	.rk {
+		font-size: 0.9rem;
 		font-weight: 700;
+		white-space: nowrap;
 	}
 	.first {
 		display: inline-block;
+		font-size: 1.125rem;
 		animation: mp-pop var(--mo-pop) ease-out 0.2s both;
 	}
 	.nm {
@@ -185,14 +207,51 @@
 		gap: 0.375rem;
 		font-weight: 700;
 		min-width: 0;
-		overflow-wrap: anywhere;
 	}
-	.res b {
-		display: block;
+	/* 이름은 한 줄을 지키고 넘치면 말줄임. 나 배지는 줄어들지 않는다 */
+	.nt {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.nm .bdg.me {
+		flex: none;
+		background: var(--surface);
+		color: var(--text);
+	}
+	/* 결과는 색에만 기대지 않는다. 정답은 초록 점, 그 밖은 속이 빈 회색 고리, 글자가 뜻을 말한다 */
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.25rem 0.75rem;
+		border: 1px solid var(--muted);
+		border-radius: 0.25rem;
+		font-size: 0.875rem;
+		font-weight: 700;
+		color: var(--text);
+		white-space: nowrap;
+	}
+	.dot {
+		flex: none;
+		width: 0.625rem;
+		height: 0.625rem;
+		box-sizing: border-box;
+		border: 1px solid var(--muted);
+		border-radius: 50%;
+	}
+	.dot.ok {
+		border: 0;
+		background: var(--tile-correct);
 	}
 	.tr {
 		text-align: right;
+		font-size: 0.9rem;
 		font-variant-numeric: tabular-nums;
+	}
+	.trow.th .tr {
+		font-size: 0.75rem;
 	}
 	.dlg-act {
 		display: flex;
@@ -200,17 +259,30 @@
 		gap: 0.5rem;
 		margin-top: 1.25rem;
 	}
+	.two {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.two .btn {
+		flex: 1;
+	}
 	.wait {
 		text-align: center;
 		color: var(--muted);
 	}
 	@media (max-width: 899.98px) {
 		.trow {
-			grid-template-columns: 3.75rem minmax(0, 1fr) minmax(0, 1.4fr) 2.25rem;
+			grid-template-columns: 3.75rem minmax(0, 1fr) auto 2.25rem;
 			column-gap: 0.375rem;
+			padding-inline: 0.5rem;
 		}
 		.table.climb .trow {
-			grid-template-columns: 4.25rem minmax(0, 1.2fr) minmax(0, 1.1fr) 2rem 2rem;
+			grid-template-columns: 3.75rem minmax(0, 1fr) auto 1.75rem 2.25rem;
+		}
+		.chip {
+			gap: 0.375rem;
+			padding: 0.25rem 0.5rem;
+			font-size: 0.75rem;
 		}
 	}
 </style>
