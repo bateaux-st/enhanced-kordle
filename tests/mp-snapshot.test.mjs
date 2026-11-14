@@ -6,6 +6,7 @@ import { backToLobby, disconnect } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
 import { ANSWER, compClimbStarted, coopStarted, grantHint, joinAll, lobby, rng, stageAnswer, started, T0 } from './mp-helpers.mjs';
+import { VOTE_MS } from '../src/lib/mp/rules.ts';
 
 const HOST_ROW = 'ㅁㅏㅁㅁㅏㅁ';
 const A_ROW = 'ㄴㅏㄴㅂㅏㅇ';
@@ -234,7 +235,8 @@ test('협동 누출 검사(투표 단계): 후보·득표수·투표자는 보�
 		assert.deepEqual(st.tally, [0, 1, 1]);
 		assert.deepEqual([...st.voted].sort(), [host, a].sort());
 		assert.equal(st.myVote, { [host]: 1, [a]: 2, [b]: null }[pid], `${pid}의 내 표`);
-		assert.deepEqual(Object.keys(st).sort(), ['candidates', 'kind', 'myVote', 'tally', 'voted']);
+		assert.deepEqual(Object.keys(st).sort(), ['candidates', 'deadline', 'kind', 'myVote', 'tally', 'voted']);
+			assert.equal(st.deadline, T0 + 2 + VOTE_MS, '투표 단계에 들어간 시각 + VOTE_MS');
 		const bad = paths(view).filter((p) => /\.votes/.test(p));
 		assert.deepEqual(bad, [], 'pid -> 후보 맵이 없다');
 	}
@@ -329,4 +331,10 @@ test('스스로 나간 사람만 left: true로 보이고, 끊김·방장의 탈�
 	assert.equal(by(a).panel.status, 'eliminated');
 	for (const pid of [host, b, c]) assert.ok(!('left' in by(pid)), `${pid}에 left가 없어야 한다`);
 	assert.equal(by(c).panel.status, 'eliminated');
+});
+
+test('협동: deadline이 없는 저장본의 투표 단계는 스냅샷에서 null(마감 없음)이다', () => {
+	const { s, host } = coopVoting();
+	delete s.game.step.deadline;
+	assert.equal(snapOf(s, host).game.step.deadline, null);
 });

@@ -32,6 +32,8 @@ export type ClientMsg =
 	| { type: 'again' }
 	| { type: 'draft'; jamo: string }
 	| { type: 'propose'; jamo: string }
+	/** 협동 제안 단계: 확정한 내 제안을 거둔다. 초안은 그 자모열로 남는다. */
+	| { type: 'unpropose' }
 	| { type: 'close' }
 	/** 협동 제안 단계: 이번 행을 패스한다(on=false면 취소). 제안하면 패스는 풀린다. */
 	| { type: 'pass'; on: boolean }
@@ -161,6 +163,8 @@ export type CoopStepView =
 			voted: Pid[];
 			/** 내 표의 후보 번호. 아직이면 null. */
 			myVote: number | null;
+			/** 서버 시계 기준 투표 마감(ms). 넘기면 그 시점의 표로 집계한다. 이 필드가 생기기 전에 저장된 투표 단계는 null(마감 없음). */
+			deadline: number | null;
 	  };
 
 /**

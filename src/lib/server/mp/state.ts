@@ -54,7 +54,8 @@ interface GameBase {
 export type CoopStep =
 	/** passes는 패스한 사람(값은 항상 true). 패스를 쓰기 전의 저장본에는 없다. */
 	| { kind: 'propose'; proposals: Record<Pid, string>; drafts: Record<Pid, string>; passes?: Record<Pid, true> }
-	| { kind: 'vote'; candidates: { jamo: string; by: Pid[] }[]; votes: Record<Pid, number> };
+	/** deadline은 투표 단계에 들어간 시각 + VOTE_MS. 이 필드가 생기기 전에 저장된 투표 단계에는 없고, 없으면 마감 없이 기다린다. */
+	| { kind: 'vote'; candidates: { jamo: string; by: Pid[] }[]; votes: Record<Pid, number>; deadline?: number };
 
 /** 협동 힌트 투표. yes에는 요청한 사람이 처음부터 들어 있다. 득표 집계는 접속 중인 참가자만 센다. */
 export interface HintVote {
