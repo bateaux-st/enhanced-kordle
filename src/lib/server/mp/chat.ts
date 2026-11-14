@@ -1,6 +1,6 @@
 // 채팅 기록과 속도 제한. RoomState에 넣지 않고 DO 메모리에만 둔다: 저장하면 SQLite 쓰기 한도를 채팅이 먹고,
 // DO가 쉬었다 깨면 기록이 사라져도 되기 때문이다. 그래서 이 모듈은 storage를 모른다.
-import type { ChatMsg, Pid } from '../../mp/protocol.ts';
+import type { ChatMsg, Pid, ServerMsg } from '../../mp/protocol.ts';
 import { CHAT_BURST, CHAT_HISTORY, CHAT_WINDOW_MS } from '../../mp/rules.ts';
 import { fail } from './state.ts';
 import type { Result, RoomState } from './state.ts';
@@ -35,4 +35,26 @@ export class ChatLog {
 		if (this.msgs.length > CHAT_HISTORY) this.msgs.splice(0, this.msgs.length - CHAT_HISTORY);
 		return { ok: true, msg };
 	}
+}
+
+/** 접속 직후 보내는 기록. 쉬었다 깬 DO는 빈 목록을 보낸다. */
+export function historyMsg(log: ChatLog): ServerMsg {
+	return { type: 'chat_history', msgs: log.recent() };
+}
+
+/**
+ * 채팅 한 건의 발송 계획. 거절이면 보낸 사람에게만 error, 받아들이면 자리 있는 열린 소켓 전원에게 chat.
+ * 소켓 순회는 DO가 하므로 여기서는 소켓 모양만 받는다(DO 없이 방송 대상을 시험하려고 분리).
+ */
+export function planChat<W>(
+	log: ChatLog,
+	s: RoomState,
+	sender: { ws: W; pid: Pid },
+	text: string,
+	now: number,
+	peers: { ws: W; pid: Pid | null; open: boolean }[]
+): { to: W; msg: ServerMsg }[] {
+	const r = log.post(s, sender.pid, text, now);
+	if (!r.ok) return [{ to: sender.ws, msg: { type: 'error', code: r.code, msg: r.msg } }];
+	return peers.filter((w) => w.pid && w.open).map((w) => ({ to: w.ws, msg: { type: 'chat', msg: r.msg } }));
 }

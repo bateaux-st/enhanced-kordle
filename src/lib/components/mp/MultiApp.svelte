@@ -230,11 +230,15 @@
 				if (client.name && requestedName && client.name !== requestedName) showToast(`같은 이름이 있어 ${client.name} 이름으로 들어왔습니다`);
 				return;
 			}
-			// 방장 넘기기는 결과 화면에서도 되므로 단계 가드보다 앞에 둔다. 단계가 바뀐 스냅샷은 제외한다.
-			if (s.phase === p.phase && s.phase !== 'playing' && s.hostPid && s.hostPid !== p.hostPid) {
+			// 방장 승계는 어느 단계에서도 일어나므로 단계 가드보다 앞에 두고 채팅 줄은 항상 남긴다.
+			// 토스트는 게임 중과 단계가 바뀐 스냅샷에서는 띄우지 않는다.
+			if (s.hostPid && s.hostPid !== p.hostPid) {
 				const h = s.players.find((q) => q.pid === s.hostPid);
-				resetNudge();
-				notice(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
+				const text = s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`;
+				if (s.phase === p.phase && s.phase !== 'playing') {
+					resetNudge();
+					notice(text);
+				} else client.addSystemLine(text);
 			}
 			if (s.phase !== 'lobby') {
 				resetNudge();

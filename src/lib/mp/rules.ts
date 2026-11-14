@@ -88,19 +88,26 @@ export function normalizeName(raw: unknown): string | null {
 	return len >= NAME_MIN && len <= NAME_MAX ? name : null;
 }
 
+// 제어문자(Cc) 외에 Cf 중 ZWSP·LRM/RLM·양방향 제어(표시 순서를 뒤집어 이름·본문을 위조)·단어 결합자·BOM·소프트 하이픈을 뺀다.
+// ZWJ(U+200D)·ZWNJ는 이모지 시퀀스에 쓰이므로 남긴다.
+const CHAT_STRIP = /[\p{Cc}\u00AD\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/gu;
+// 공백과 ZWJ/ZWNJ, 한글 채움 문자, 점자 빈칸만 남았으면 보이는 글자가 없는 본문이다.
+const CHAT_BLANK = /^[\s\u200C\u200D\u115F\u1160\u3164\uFFA0\u2800]*$/u;
+
 /**
- * 채팅 본문 정규화: NFC, 줄바꿈·탭은 공백, 나머지 제어문자는 제거, 앞뒤 공백 제거, 1..CHAT_MAX자(코드포인트).
- * 제어문자를 걷어 낸 뒤 길이를 재므로 제어문자로 길이를 채울 수 없다. 규칙에 안 맞으면 null.
+ * 채팅 본문 정규화: NFC, 줄바꿈·탭은 공백, 제어문자와 보이지 않는 서식 문자는 제거, 앞뒤 공백 제거, 1..CHAT_MAX자(코드포인트).
+ * 걷어 낸 뒤 길이를 재므로 보이지 않는 문자로 길이를 채울 수 없고, 눈에 보이는 글자가 없으면 거절한다. 규칙에 안 맞으면 null.
  */
 export function normalizeChat(raw: unknown): string | null {
 	if (typeof raw !== 'string') return null;
 	const text = raw
 		.normalize('NFC')
 		.replace(/[\t\r\n\u2028\u2029]/g, ' ')
-		.replace(/\p{Cc}/gu, '')
+		.replace(CHAT_STRIP, '')
 		.trim();
 	const len = [...text].length;
-	return len >= 1 && len <= CHAT_MAX ? text : null;
+	if (len < 1 || len > CHAT_MAX || CHAT_BLANK.test(text)) return null;
+	return text;
 }
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;

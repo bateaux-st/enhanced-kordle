@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ChatFeed } from '../src/lib/mp/chat-feed.ts';
 import { CHAT_BURST, CHAT_HISTORY, CHAT_KEEP, CHAT_MAX, CHAT_WINDOW_MS, normalizeChat } from '../src/lib/mp/rules.ts';
-import { ChatLog } from '../src/lib/server/mp/chat.ts';
+import { ChatLog, historyMsg, planChat } from '../src/lib/server/mp/chat.ts';
 import { parseClientMsg } from '../src/lib/server/mp/parse.ts';
 import { joinAll, lobby, started, T0 } from './mp-helpers.mjs';
 
@@ -216,4 +216,56 @@ test('ChatFeed: 갱신마다 새 배열을 만든다($state.raw 대입용)', () 
 	assert.equal(f.lines, b, '새 줄이 없으면 그대로');
 	f.clear();
 	assert.deepEqual(f.lines, []);
+});
+
+test('parse: 제로폭 공백만이거나 보이는 글자가 없으면 거절한다', () => {
+	for (const bad of ['​', '​​  ⁠', '﻿', '‍', '‌ ‍', 'ㅤ', 'ᅟᅠ', '⠀', '‮', '­']) assert.equal(chat(bad), null, JSON.stringify(bad));
+});
+
+test('parse: 양방향 제어·제로폭 문자는 지우고 나머지 글자는 남긴다', () => {
+	assert.equal(chat('‮가나').text, '가나');
+	assert.equal(chat('가​나‎다⁦라⁩').text, '가나다라');
+	assert.equal(chat('a'.repeat(CHAT_MAX) + '​'.repeat(50))?.text.length, CHAT_MAX);
+	assert.equal(chat('a'.repeat(CHAT_MAX + 1) + '​'), null);
+});
+
+test('planChat: 받아들이면 자리 있는 열린 소켓 전원에게 chat, 그 밖의 소켓에는 보내지 않는다', () => {
+	const log = new ChatLog();
+	const { s, host, a } = room();
+	const peers = [
+		{ ws: 'host', pid: host, open: true },
+		{ ws: 'a', pid: a, open: true },
+		{ ws: 'closing', pid: a, open: false },
+		{ ws: 'nohello', pid: null, open: true }
+	];
+	const out = planChat(log, s, { ws: 'a', pid: a }, '안녕', T0, peers);
+	assert.deepEqual(
+		out.map((o) => o.to),
+		['host', 'a']
+	);
+	for (const o of out) assert.deepEqual(o.msg, { type: 'chat', msg: log.recent()[0] });
+});
+
+test('planChat: 거절이면 보낸 사람에게만 error를 보내고 기록하지 않는다', () => {
+	const log = new ChatLog();
+	const { s, host, a } = room();
+	const peers = [
+		{ ws: 'host', pid: host, open: true },
+		{ ws: 'a', pid: a, open: true }
+	];
+	for (let i = 0; i < CHAT_BURST; i++) planChat(log, s, { ws: 'a', pid: a }, `m${i}`, T0, peers);
+	const out = planChat(log, s, { ws: 'a', pid: a }, '여섯째', T0, peers);
+	assert.equal(out.length, 1);
+	assert.equal(out[0].to, 'a');
+	assert.equal(out[0].msg.type, 'error');
+	assert.equal(out[0].msg.code, 'cooldown');
+	assert.equal(log.recent().length, CHAT_BURST);
+});
+
+test('historyMsg: 접속 시 보내는 최근 기록, 비어 있으면 빈 목록', () => {
+	const log = new ChatLog();
+	assert.deepEqual(historyMsg(log), { type: 'chat_history', msgs: [] });
+	const { s, host } = room();
+	log.post(s, host, '하나', T0);
+	assert.deepEqual(historyMsg(log), { type: 'chat_history', msgs: log.recent() });
 });

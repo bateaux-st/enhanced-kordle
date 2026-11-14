@@ -4,7 +4,7 @@ import type { ClientMsg, ServerMsg, SessionInfo, Settings, RoomSummary } from '.
 import { LOBBY_REFRESH_MS, normalizeName } from '../../mp/rules.ts';
 import { dict } from '../dict.ts';
 import { randomIndex } from '../token.ts';
-import { ChatLog } from './chat.ts';
+import { ChatLog, historyMsg, planChat } from './chat.ts';
 import { isClimb, stageLengths } from './climb.ts';
 import { chooseStartN } from './comp.ts';
 import * as coop from './coop.ts';
@@ -224,7 +224,7 @@ export class Room extends DurableObject<RoomEnv> {
 			ws.serializeAttachment({ pid: r.pid, uid: session.uid, at: attOf(ws).at } satisfies Att);
 			this.pendingSession.set(ws, { token: session.token, exp: session.exp });
 			this.sendTo(ws, { type: 'welcome', pid: r.pid, name: r.name });
-			this.sendTo(ws, { type: 'chat_history', msgs: this.chat.recent() });
+			this.sendTo(ws, historyMsg(this.chat));
 			return { changed: true };
 		});
 		if (!this.state) closeQuietly(ws, CLOSE.NO_ROOM, 'no room');
@@ -250,11 +250,8 @@ export class Room extends DurableObject<RoomEnv> {
 	}
 
 	private postChat(ws: WebSocket, s: RoomState, pid: Pid, text: string): void {
-		const r = this.chat.post(s, pid, text, Date.now());
-		if (!r.ok) return this.sendTo(ws, { type: 'error', code: r.code, msg: r.msg });
-		for (const w of this.ctx.getWebSockets()) {
-			if (attOf(w).pid && w.readyState === OPEN) this.sendTo(w, { type: 'chat', msg: r.msg });
-		}
+		const peers = this.ctx.getWebSockets().map((w) => ({ ws: w, pid: attOf(w).pid, open: w.readyState === OPEN }));
+		for (const { to, msg } of planChat(this.chat, s, { ws, pid }, text, Date.now(), peers)) this.sendTo(to, msg);
 	}
 
 	/** 제출할 수 있는 상태일 때만 D1을 읽는다(그 밖에는 reduce가 D1 없이 거절한다). 실패하면 undefined. */
