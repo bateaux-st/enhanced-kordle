@@ -48,9 +48,16 @@ export class MpClient {
 	wantSettings = $state(false);
 	/** 최근 채팅(서버 메시지와 로컬 시스템 줄). 저장하지 않고 연결을 새로 열 때 비운다. */
 	chat = $state.raw<ChatLine[]>([]);
+	/** 채팅 화면 상태. 열림과 쓰던 글은 시트가 닫히거나 투표 시트에 밀려도 남아야 해서 화면이 아니라 여기에 둔다. */
+	chatOpen = $state(false);
+	chatDraft = $state('');
+	/** 읽은 마지막 줄의 key. 이보다 새로운 남의 메시지가 안 읽은 메시지다. */
+	chatSeen = $state(0);
 
 	code = '';
 	private feed = new ChatFeed();
+	/** 이 연결에서 첫 기록을 받았는가. 입장 전에 오간 대화는 안 읽은 메시지로 세지 않는다. */
+	private historyDone = false;
 	private typedName = '';
 	private ws: WebSocket | null = null;
 	private attempts = 0;
@@ -80,8 +87,7 @@ export class MpClient {
 		this.snap = null;
 		this.closeReason = null;
 		this.wantSettings = false;
-		this.feed.clear();
-		this.chat = this.feed.lines;
+		this.resetChat();
 		setRoomParam(code);
 		document.addEventListener('visibilitychange', this.onVisible);
 		this.open();
@@ -151,7 +157,38 @@ export class MpClient {
 		} else if (m.type === 'chat_history') {
 			this.feed.history(m.msgs);
 			this.chat = this.feed.lines;
+			if (!this.historyDone) {
+				this.historyDone = true;
+				this.markChatRead();
+			}
 		}
+	}
+
+	/** 안 읽은 남의 메시지 수. 시스템 줄과 내 메시지는 세지 않는다. */
+	get chatUnread(): number {
+		return this.chat.filter((l) => !l.system && l.key > this.chatSeen && l.pid !== this.pid).length;
+	}
+
+	/** 채팅을 연 버튼. 터치에서는 버튼을 눌러도 포커스가 안 옮겨 오는 브라우저가 있어, 닫을 때 돌려놓을 곳을 눌린 요소로 직접 적는다. */
+	chatOpener: HTMLElement | null = null;
+
+	openChat(from: EventTarget | null): void {
+		this.chatOpener = from instanceof HTMLElement ? from : null;
+		this.chatOpen = true;
+	}
+
+	markChatRead(): void {
+		const last = this.chat[this.chat.length - 1];
+		if (last) this.chatSeen = last.key;
+	}
+
+	private resetChat(): void {
+		this.feed.clear();
+		this.chat = this.feed.lines;
+		this.chatOpen = false;
+		this.chatDraft = '';
+		this.chatSeen = 0;
+		this.historyDone = false;
 	}
 
 	/** 입장·퇴장·방장 변경 같은 로컬 시스템 줄. 서버는 만들지 않는다. */
@@ -278,8 +315,7 @@ export class MpClient {
 		this.close();
 		this.snap = null;
 		this.pid = null;
-		this.feed.clear();
-		this.chat = this.feed.lines;
+		this.resetChat();
 		this.finish('left');
 	}
 }

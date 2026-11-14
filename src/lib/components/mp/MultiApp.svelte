@@ -7,6 +7,7 @@
 	import type { Snapshot } from '$lib/mp/protocol';
 	import { CODE_RE, normalizeName, sameSettings } from '$lib/mp/rules';
 	import './mp.css';
+	import ChatSheet from './ChatSheet.svelte';
 	import ConnectionOverlay from './ConnectionOverlay.svelte';
 	import Icon from './Icon.svelte';
 	import LobbyView from './LobbyView.svelte';
@@ -304,13 +305,29 @@
 	const lateJoiner = $derived(snap?.phase === 'result' && !inGame && snap.hostPid !== snap.you);
 	const between = $derived(snap?.phase === 'result' && (!inGame || (snap.game !== null && snap.game.startedAt === parkedGame)));
 
+	// ---- 채팅 ----
+	// 협동 투표 시트가 우선이다. 열려 있던 채팅은 쓰던 글을 남기고 닫히며, 투표 중에는 열리지 않는다.
+	const voting = $derived(snap?.phase === 'playing' && snap.game?.kind === 'coop' && snap.game.step?.kind === 'vote');
+	$effect(() => {
+		if (voting && client.chatOpen) client.chatOpen = false;
+	});
+	const chatLabel = $derived(client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅');
+
 	const viewKey = $derived(
 		view === 'room' ? (client.status === 'dev' ? 'dev' : !snap ? 'load' : snap.phase === 'lobby' || lateJoiner ? 'wait' : between ? 'between' : 'game') : view
 	);
 </script>
 
 <div class="mp">
-	<button class="btn gear" type="button" onclick={() => (settingsOpen = true)}>설정</button>
+	<div class="tools">
+		{#if snap && (viewKey === 'game' || viewKey === 'between')}
+			<button class="btn icon chat" type="button" aria-label={chatLabel} aria-haspopup="dialog" aria-disabled={voting} onclick={(e) => !voting && client.openChat(e.currentTarget)}>
+				<Icon name="chat" size="1.25rem" />
+				{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
+			</button>
+		{/if}
+		<button class="btn gear" type="button" onclick={() => (settingsOpen = true)}>설정</button>
+	</div>
 
 	<main bind:this={screenEl} class="screen">
 		{#key viewKey}
@@ -401,6 +418,10 @@
 			onsubmit={(name) => void submitPending(name)}
 			oncancel={() => toLobby()}
 		/>
+	{/if}
+
+	{#if view === 'room' && snap && client.chatOpen && !voting}
+		<ChatSheet {client} />
 	{/if}
 
 	{#if settingsOpen}

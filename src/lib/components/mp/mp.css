@@ -76,6 +76,18 @@
 	right: max(16px, env(safe-area-inset-right, 0px));
 	z-index: 5;
 }
+/* 방 안 화면의 오른쪽 위 도구 줄: 채팅 버튼(게임 중·결과)과 설정 */
+.mp .tools {
+	position: absolute;
+	top: 1.5rem;
+	right: max(16px, env(safe-area-inset-right, 0px));
+	z-index: 5;
+	display: flex;
+	gap: 0.5rem;
+}
+.mp .tools .gear {
+	position: static;
+}
 
 .mp .ic {
 	width: 1rem;
@@ -132,6 +144,36 @@
 	position: relative;
 	padding: 0;
 	width: 44px;
+}
+/* 채팅 진입 버튼. 안 읽은 수는 숫자 글자라서 색에 기대지 않는다 */
+.mp .btn.chat {
+	position: relative;
+	gap: 0.375rem;
+	font-size: 0.875rem;
+	font-weight: 700;
+}
+.mp .btn.chat .cbadge {
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	min-width: 1.25rem;
+	height: 1.25rem;
+	padding: 0 0.3125rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 0.625rem;
+	font-size: 0.75rem;
+	line-height: 1;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	color: var(--on-tile);
+	background: var(--btn-primary);
+	box-shadow: 0 0 0 2px var(--bg);
+}
+.mp .btn.chat[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: default;
 }
 .mp .btn.chip {
 	font-size: 0.875rem;
@@ -382,7 +424,8 @@
 	.mp {
 		padding-block: 0.75rem 3rem;
 	}
-	.mp .gear {
+	.mp .gear,
+	.mp .tools {
 		top: 0.75rem;
 	}
 }

@@ -481,7 +481,8 @@
 	// 경쟁은 내가 풀이 중일 때, 협동은 coopNeedsInput이다(제안도 패스도 안 했거나 찍을 후보가 있는데 안 찍었을 때).
 	const idleTarget = $derived.by(() => {
 		// 끊긴 동안은 스냅샷이 얼어 있어 서버 상태를 믿을 수 없고, 끊김 오버레이가 포커스를 쥐고 있다.
-		if (snap.phase !== 'playing' || modal !== null || kickPid !== null || client.status !== 'open') return false;
+		// 채팅 시트에서 글을 쓰는 동안도 자리를 비운 것이 아니고, 경고 모달이 시트 위로 키를 가로채지 않게 한다.
+		if (snap.phase !== 'playing' || modal !== null || kickPid !== null || client.chatOpen || client.status !== 'open') return false;
 		if (!coop) return me?.status === 'playing';
 		const mine = snap.players.find((p) => p.pid === snap.you);
 		const st = coop.step;
@@ -817,6 +818,7 @@
 
 {#if modal === 'result'}
 	<MpResult
+		{client}
 		{snap}
 		{isHost}
 		onclose={() => (modal = null)}
@@ -884,7 +886,7 @@
 		/* 상대 열 2개 + 중앙 + 열 간격(.arena)과 같은 폭에 머리줄을 맞춘다 */
 		max-width: 62rem;
 		margin: 0 auto 0.5rem;
-		padding-right: 4.5rem;
+		padding-right: 8rem;
 	}
 	.game-title {
 		flex: 1 1 auto;
