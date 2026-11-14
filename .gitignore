@@ -25,3 +25,4 @@ d1/*.sql
 # Playwright 산출물
 test-results/
 playwright-report/
+e2e/.svelte-kit/
