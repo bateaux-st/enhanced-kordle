@@ -42,8 +42,7 @@ test('모르는 모드와 깨진 본문은 D1을 읽지 않고 400 bad request',
 	assert.equal(db.queries.length, 0);
 });
 
-// `in` 연산자는 프로토타입 키도 통과시킨다. t가 함수가 되어 NaN idx 토큰이 200으로 나간다(src 수정은 이번 범위 밖).
-test('Object.prototype 키(constructor 등)와 배열 모드는 모드가 아니다', { todo: 'api/game: mode in POOL_THRESHOLD가 프로토타입 키를 허용' }, async (t) => {
+test('Object.prototype 키(constructor 등)와 배열 모드는 모드가 아니다', async (t) => {
 	const { platform } = await setup(t);
 	for (const mode of ['constructor', 'toString', '__proto__', 'hasOwnProperty', ['daily']]) {
 		assert.equal((await call(POST, { body: { mode }, platform })).status, 400, String(mode));

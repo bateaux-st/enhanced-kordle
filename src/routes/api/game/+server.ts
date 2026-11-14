@@ -12,7 +12,7 @@ const SPAN = MAX_N - MIN_N + 1;
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const { db, secret } = ctx(platform);
 	const body = (await request.json().catch(() => null)) as NewGameRequest | null;
-	if (!body || !(body.mode in POOL_THRESHOLD)) error(400, 'bad request');
+	if (!body || typeof body.mode !== 'string' || !Object.hasOwn(POOL_THRESHOLD, body.mode)) error(400, 'bad request');
 	if (body.n !== undefined && (!Number.isInteger(body.n) || body.n < MIN_N || body.n > MAX_N)) {
 		error(400, `n must be ${MIN_N}..${MAX_N}`);
 	}
