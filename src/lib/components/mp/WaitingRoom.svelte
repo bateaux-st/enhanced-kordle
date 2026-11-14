@@ -120,14 +120,25 @@
 		settingsOpen = false;
 		void nextTick().then(() => settingsBtn?.focus());
 	}
+	// 방장을 잃으면 모달이 조건으로만 사라지고 열림 상태가 남아, 다시 방장이 될 때 저절로 뜬다.
+	$effect(() => {
+		if (!isHost) settingsOpen = false;
+	});
 
 	// ---- 방장 넘기기: 확인 뒤에 보낸다 ----
 	let transferTo = $state<string | null>(null);
+	let membersHead: HTMLElement | undefined = $state();
 	// 대상이 그사이 나가거나 끊기면 대화상자가 저절로 닫힌다.
 	const target = $derived(isHost && transferTo ? snap.players.find((p) => p.pid === transferTo && p.connected) : undefined);
+	// 대상이 사라지거나 방장을 잃어 대화상자가 조건으로만 닫히면 상태도 비운다. 아니면 대상이 다시 접속할 때 저절로 뜬다.
+	$effect(() => {
+		if (transferTo && !target) transferTo = null;
+	});
 	function confirmTransfer() {
 		if (target) client.transfer(target.pid);
 		transferTo = null;
+		// 모달이 포커스를 돌려줄 여는 버튼은 넘기고 나면 사라지는 행에 있다. 행이 바뀌어도 남는 참가자 제목으로 옮긴다.
+		void nextTick().then(() => membersHead?.focus());
 	}
 
 	// 하단 고정 바가 마지막 참가자 행을 가리지 않게 본문 아래에 바 높이만큼 비운다.
@@ -157,7 +168,7 @@
 
 <section aria-label="참가자">
 	<div class="card">
-		<div class="members-head"><h2>참가자</h2></div>
+		<div class="members-head"><h2 tabindex="-1" bind:this={membersHead}>참가자</h2></div>
 		<ul>
 			{#each rows as it (it.kind === 'p' ? it.p.pid : `g-${it.g.pid}`)}
 				{#if it.kind === 'g'}
