@@ -47,6 +47,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 ```bash
 pnpm check                                                    # 타입·svelte 검사
 pnpm test                                                     # 판정·토큰 단위 테스트
+pnpm e2e                                                      # UI e2e (서버·D1 mock, 로컬 전용)
 pnpm dev                                                      # 로컬 (D1은 .wrangler/state, d1/import.sh --local 필요)
 python3 scripts/smoke.py http://localhost:5173                # 로컬 smoke
 pnpm run deploy                                               # 빌드 + wrangler deploy  (pnpm deploy 아님)
