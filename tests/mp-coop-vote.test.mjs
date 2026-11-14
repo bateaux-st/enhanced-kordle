@@ -113,6 +113,17 @@ test('마감은 DO 알람 경로(tick)로 처리된다: 만료 시 changed, 다�
 	assert.equal(nextDeadline(s), null);
 });
 
+test('접속 중인 사람이 아무도 없으면 마감이 와도 집계하지 않고 마감만 VOTE_MS 뒤로 민다', () => {
+	const { s, host, a, b } = votingRoom();
+	for (const pid of [host, a, b]) disconnect(s, pid, T0 + 3);
+	assert.deepEqual(tick(s, DUE, first), { changed: true, destroy: false });
+	assert.equal(step(s).kind, 'vote');
+	assert.equal(s.game.board.rows.length, 0);
+	assert.equal(step(s).deadline, DUE + VOTE_MS);
+	assert.deepEqual(tick(s, DUE, first), { changed: false, destroy: false }, '같은 now로 다시 불러도 그대로');
+	assert.equal(nextDeadline(s) > DUE, true, '알람이 과거 시각으로 반복해 울리지 않는다');
+});
+
 test('reduce는 다른 메시지를 처리하기 전에 만료된 투표를 먼저 집계한다', () => {
 	const { s, host } = votingRoom();
 	const r = reduce(s, host, { type: 'vote', candidate: 1 }, {}, DUE + 1, first);

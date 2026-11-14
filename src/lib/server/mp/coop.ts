@@ -262,11 +262,16 @@ export function close(s: RoomState, pid: Pid, rng: Rng, now: number): Result {
 /**
  * 방장의 마감처럼 투표 마감이 지났으면 그 시점의 표로 집계한다(0표면 전 후보 동률이라 돌림판).
  * 같은 now로 다시 불러도 결과가 같다. deadline이 없는 투표 단계(필드 도입 전 저장본)는 마감 없이 기다린다.
+ * 접속 중인 투표권자가 없으면 집계하지 않고 마감만 VOTE_MS 뒤로 민다(끊김 유예 안에 돌아온 사람이 표도 못 찍고 한 행을 잃는다).
  */
 export function expireVote(s: RoomState, rng: Rng, now: number): boolean {
 	const game = coopGame(s);
 	const step = game?.step;
 	if (!game || step?.kind !== 'vote' || step.deadline === undefined || now < step.deadline) return false;
+	if (countable(s).length === 0) {
+		step.deadline = now + VOTE_MS;
+		return true;
+	}
 	closeVote(s, game, step, rng, now);
 	return true;
 }
