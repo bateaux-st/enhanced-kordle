@@ -27,13 +27,12 @@
 		return stageMs === null ? null : cleared + stageMs;
 	});
 
-	// 매초 낭독되지 않게 live region을 쓰지 않는다. 포커스가 들어올 때의 값을 한 번 읽어 준다.
-	let label = $state('이번 스테이지와 총 소요 시간');
-	const speak = () => (label = `이번 스테이지 ${spokenTime(stageMs)}, 총 ${spokenTime(totalMs)}`);
+	// live region이 아니라서 값이 매초 바뀌어도 낭독되지 않고, 읽기 커서가 닿는 순간의 값이 읽힌다.
+	const spoken = $derived(`이번 스테이지 ${spokenTime(stageMs)}, 총 ${spokenTime(totalMs)}`);
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="clock" role="timer" aria-live="off" tabindex="0" aria-label={label} onfocus={speak}>
+<div class="clock" role="timer" aria-live="off">
+	<span class="sr">{spoken}</span>
 	<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
 		<path d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
 	</svg>
@@ -51,15 +50,19 @@
 		justify-content: center;
 		gap: 0.375rem;
 		white-space: nowrap;
+		position: relative;
 		margin: -0.25rem 0 0.75rem;
 		font-size: 0.8125rem;
 		color: var(--muted);
 		font-variant-numeric: tabular-nums;
 	}
-	.clock:focus-visible {
-		outline: 2px solid var(--sel-line);
-		outline-offset: 2px;
-		border-radius: 0.25rem;
+	.sr {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	b {
 		font-size: 1rem;
