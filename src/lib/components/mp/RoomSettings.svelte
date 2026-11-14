@@ -66,40 +66,41 @@
 					</button>
 				</div>
 			</fieldset>
-		</div>
-
-		<div class="stepper" class:flash={flash === 'length'}>
-			<div class="lab">
-				<b id="len-label">{climb ? '시작 길이' : '자모 수'}</b>
-				<span class="note">랜덤, 5~12자.</span>
+			<div class="steps">
+			<div class="stepper" class:flash={flash === 'length'}>
+				<div class="lab">
+					<b id="len-label">{climb ? '시작 길이' : '자모 수'}</b>
+					<span class="note">랜덤, 5~12자.</span>
+				</div>
+				<button class="btn" type="button" aria-label="이전 길이" disabled={lenIdx <= 0} onclick={() => set('length', { length: LENS[lenIdx - 1] })}>
+					<Icon name="chevL" size="1.25rem" />
+				</button>
+				<span class="val" role="status" aria-labelledby="len-label">{lenText(settings.length)}</span>
+				<button
+					class="btn"
+					type="button"
+					aria-label="다음 길이"
+					disabled={lenIdx >= LENS.length - 1}
+					onclick={() => set('length', { length: LENS[lenIdx + 1] })}
+				>
+					<Icon name="chevR" size="1.25rem" />
+				</button>
 			</div>
-			<button class="btn" type="button" aria-label="이전 길이" disabled={lenIdx <= 0} onclick={() => set('length', { length: LENS[lenIdx - 1] })}>
-				<Icon name="chevL" size="1.25rem" />
-			</button>
-			<span class="val" role="status" aria-labelledby="len-label">{lenText(settings.length)}</span>
-			<button
-				class="btn"
-				type="button"
-				aria-label="다음 길이"
-				disabled={lenIdx >= LENS.length - 1}
-				onclick={() => set('length', { length: LENS[lenIdx + 1] })}
-			>
-				<Icon name="chevR" size="1.25rem" />
-			</button>
-		</div>
 
-		<div class="stepper" class:flash={flash === 'tries'}>
-			<div class="lab">
-				<b id="tries-label">시도 횟수</b>
-				<span class="note">{TRIES_MIN}~{TRIES_MAX}회.</span>
+			<div class="stepper" class:flash={flash === 'tries'}>
+				<div class="lab">
+					<b id="tries-label">시도 횟수</b>
+					<span class="note">{TRIES_MIN}~{TRIES_MAX}회.</span>
+				</div>
+				<button class="btn" type="button" aria-label="시도 횟수 줄이기" disabled={settings.tries <= TRIES_MIN} onclick={() => set('tries', { tries: settings.tries - 1 })}>
+					<Icon name="minus" size="1.25rem" />
+				</button>
+				<span class="val" role="status" aria-labelledby="tries-label">{settings.tries}회</span>
+				<button class="btn" type="button" aria-label="시도 횟수 늘리기" disabled={settings.tries >= TRIES_MAX} onclick={() => set('tries', { tries: settings.tries + 1 })}>
+					<Icon name="plus" size="1.25rem" />
+				</button>
 			</div>
-			<button class="btn" type="button" aria-label="시도 횟수 줄이기" disabled={settings.tries <= TRIES_MIN} onclick={() => set('tries', { tries: settings.tries - 1 })}>
-				<Icon name="minus" size="1.25rem" />
-			</button>
-			<span class="val" role="status" aria-labelledby="tries-label">{settings.tries}회</span>
-			<button class="btn" type="button" aria-label="시도 횟수 늘리기" disabled={settings.tries >= TRIES_MAX} onclick={() => set('tries', { tries: settings.tries + 1 })}>
-				<Icon name="plus" size="1.25rem" />
-			</button>
+			</div>
 		</div>
 
 		<div>
@@ -128,7 +129,6 @@
 				<span class="trk" aria-hidden="true"><i></i></span>
 			</button>
 		</div>
-		<p class="note">설정을 바꾸면 모두의 준비가 풀립니다.</p>
 	</div>
 {:else}
 	<dl class="sum">
@@ -149,10 +149,29 @@
 		flex-direction: column;
 		gap: 1.25rem;
 	}
+	/* 모달 폭이 넓어서 선택 그룹과 스테퍼를 2열로 둔다. 640px 이하는 한 열 */
 	.pair {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1rem 2.5rem;
+	}
+	.steps {
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
+		align-self: center;
+	}
+	fieldset {
+		min-width: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	legend {
+		margin-bottom: 0.375rem;
+		padding: 0;
+		font-size: 0.875rem;
+		font-weight: 700;
 	}
 	.opts {
 		display: grid;
@@ -171,6 +190,7 @@
 		border-radius: 0.375rem;
 		background: transparent;
 		color: var(--text);
+		word-break: keep-all;
 	}
 	.opt .d {
 		font-size: 0.8rem;
@@ -209,7 +229,7 @@
 	}
 	.stepper .btn {
 		padding: 0;
-		width: 44px;
+		width: 3.75rem;
 	}
 	.stepper.flash,
 	.sw.flash {
@@ -282,6 +302,11 @@
 		line-height: 1.5rem;
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+	}
+	@media (max-width: 640px) {
+		.pair {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 	@media (max-width: 899.98px) {
 		.sum {

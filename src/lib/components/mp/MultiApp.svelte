@@ -228,6 +228,7 @@
 			// 방장 넘기기는 결과 화면에서도 되므로 단계 가드보다 앞에 둔다. 단계가 바뀐 스냅샷은 제외한다.
 			if (s.phase === p.phase && s.phase !== 'playing' && s.hostPid && s.hostPid !== p.hostPid) {
 				const h = s.players.find((q) => q.pid === s.hostPid);
+				resetNudge();
 				showToast(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
 			}
 			if (s.phase !== 'lobby') {

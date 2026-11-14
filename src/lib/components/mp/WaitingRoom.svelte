@@ -4,6 +4,7 @@
 	import type { Settings, Snapshot } from '$lib/mp/protocol';
 	import { CODE_LENGTH, MAX_PLAYERS, NUDGE_COOLDOWN_MS } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
+	import MpModal from './MpModal.svelte';
 	import RoomSettings from './RoomSettings.svelte';
 	import { mpPrefs } from './prefs.svelte';
 	import { showToast } from './toast.svelte';
@@ -106,20 +107,28 @@
 
 	const changeSettings = (next: Settings) => client.settings(next);
 
-	// 방장의 편집 UI는 기본으로 접혀 있다. 결과에서 "설정 바꾸기"로 왔으면 펼치고 그 자리로 데려간다.
-	let editOpen = $state(false);
-	let settingsHead: HTMLElement | undefined = $state();
+	// 방장의 설정 편집은 모달이다. 결과에서 "설정 바꾸기"로 왔으면 바로 연다.
+	let settingsOpen = $state(false);
+	let settingsBtn: HTMLElement | undefined = $state();
 	$effect(() => {
-		if (!client.wantSettings || !settingsHead) return;
+		if (!client.wantSettings || !isHost) return;
 		client.wantSettings = false;
-		editOpen = true;
-		const head = settingsHead;
-		// hidden이 풀린 뒤에야 스크롤과 포커스가 먹는다.
-		void nextTick().then(() => {
-			head.scrollIntoView({ block: 'start', behavior: mpPrefs.reduced ? 'auto' : 'smooth' });
-			head.focus({ preventScroll: true });
-		});
+		settingsOpen = true;
 	});
+	// 결과에서 열었을 때는 모달이 열린 순간의 포커스가 여는 버튼이 아니므로 닫을 때 직접 돌려놓는다.
+	function closeSettings() {
+		settingsOpen = false;
+		void nextTick().then(() => settingsBtn?.focus());
+	}
+
+	// ---- 방장 넘기기: 확인 뒤에 보낸다 ----
+	let transferTo = $state<string | null>(null);
+	// 대상이 그사이 나가거나 끊기면 대화상자가 저절로 닫힌다.
+	const target = $derived(isHost && transferTo ? snap.players.find((p) => p.pid === transferTo && p.connected) : undefined);
+	function confirmTransfer() {
+		if (target) client.transfer(target.pid);
+		transferTo = null;
+	}
 
 	// 하단 고정 바가 마지막 참가자 행을 가리지 않게 본문 아래에 바 높이만큼 비운다.
 	let barH = $state(0);
@@ -139,18 +148,12 @@
 <section class="card sumcard" aria-label="설정 요약">
 	<RoomSettings mode="summary" settings={snap.settings} />
 	{#if isHost}
-		<button class="btn tog" type="button" aria-expanded={editOpen} aria-controls="settings-editor" onclick={() => (editOpen = !editOpen)}>
-			<Icon name="edit" />설정 바꾸기<span class="chev" class:up={editOpen} aria-hidden="true"><Icon name="chevR" /></span>
+		<button class="btn tog" type="button" aria-haspopup="dialog" bind:this={settingsBtn} onclick={() => (settingsOpen = true)}>
+			<Icon name="edit" />설정 바꾸기
 		</button>
 	{/if}
 </section>
-{#if isHost}
-	{#if !editOpen}<p class="note editnote">설정을 바꾸면 모두의 준비가 풀립니다.</p>{/if}
-	<div id="settings-editor" class="card editor" hidden={!editOpen}>
-		<h2 tabindex="-1" bind:this={settingsHead}>설정 바꾸기</h2>
-		<RoomSettings mode="edit" settings={snap.settings} onchange={changeSettings} />
-	</div>
-{/if}
+{#if isHost}<p class="note editnote">설정을 바꾸면 모두의 준비가 풀립니다.</p>{/if}
 
 <section aria-label="참가자">
 	<div class="card">
@@ -162,14 +165,16 @@
 				{:else}
 					{@const p = it.p}
 					{@const host = p.pid === snap.hostPid}
-					<li class="member a-drop">
-						{#if host}
-							<span class="crown" role="img" aria-label="방장" title="방장">
-								<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="width:1.125rem;height:1.125rem"><path d="M3 18h18l1-11-5.5 4.5L12 4 7.5 11.5 2 7z" /></svg>
-							</span>
-						{/if}
-						<span class="nm">{p.name}</span>
-						{#if p.pid === snap.you}<span class="bdg me">나</span>{/if}
+					<li class="member a-drop" class:stack={isHost && p.pid !== snap.you}>
+						<span class="who">
+							{#if host}
+								<span class="crown" role="img" aria-label="방장" title="방장">
+									<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="width:1.125rem;height:1.125rem"><path d="M3 18h18l1-11-5.5 4.5L12 4 7.5 11.5 2 7z" /></svg>
+								</span>
+							{/if}
+							<span class="nm">{p.name}</span>
+							{#if p.pid === snap.you}<span class="bdg me">나</span>{/if}
+						</span>
 						<span class="sp"></span>
 						{#if host}
 							{#if !isHost && me?.ready}
@@ -186,6 +191,11 @@
 						{:else}
 							<span class="bdg stat idle a-pop"><span class="ring" aria-hidden="true"></span>준비 전</span>
 						{/if}
+						{#if isHost && !host && p.connected}
+							<button class="btn give" type="button" aria-haspopup="dialog" aria-label="{p.name}님에게 방장 넘기기" onclick={() => (transferTo = p.pid)}>
+								<Icon name="swap" size="1.125rem" />방장 넘기기
+							</button>
+						{/if}
 					</li>
 				{/if}
 			{/each}
@@ -199,6 +209,26 @@
 	</div>
 </section>
 </div>
+
+{#if target}
+	<MpModal title="방장을 넘길까요?" small initialFocus="[data-cancel]" onclose={() => (transferTo = null)}>
+		<p class="gtxt">{target.name}님이 방장이 됩니다. 설정과 시작은 새 방장이 합니다.</p>
+		<div class="two">
+			<button class="btn primary" type="button" onclick={confirmTransfer}>넘기기</button>
+			<button class="btn" type="button" data-cancel onclick={() => (transferTo = null)}>취소</button>
+		</div>
+	</MpModal>
+{/if}
+
+{#if isHost && settingsOpen}
+	<MpModal title="설정 바꾸기" sheet onclose={closeSettings}>
+		<RoomSettings mode="edit" settings={snap.settings} onchange={changeSettings} />
+		{#snippet footer()}
+			<p class="note">바꾼 설정은 바로 적용됩니다. 설정을 바꾸면 모두의 준비가 풀립니다.</p>
+			<button class="btn primary big" type="button" onclick={closeSettings}>닫기</button>
+		{/snippet}
+	</MpModal>
+{/if}
 
 <div class="action-bar" bind:offsetHeight={barH}>
 	<div class="ab-in">
@@ -284,26 +314,18 @@
 		font-size: 0.875rem;
 		font-weight: 700;
 	}
-	.chev {
-		display: inline-flex;
-		transform: rotate(90deg);
-		transition: transform var(--mo-pop);
-	}
-	.chev.up {
-		transform: rotate(-90deg);
-	}
 	.editnote {
 		margin-bottom: 1.25rem;
 	}
-	.editor {
-		margin-bottom: 1.25rem;
-		padding: 1rem 1.25rem 1.25rem;
+	.gtxt {
+		margin-bottom: 1rem;
 	}
-	.editor h2 {
-		scroll-margin-top: 1rem;
-		margin-bottom: 0.75rem;
-		font-size: 1rem;
-		font-weight: 700;
+	.two {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.two > * {
+		flex: 1;
 	}
 	.members-head {
 		padding: 0.75rem 1rem;
@@ -319,6 +341,18 @@
 		min-height: 56px;
 		padding: 0.5rem 1rem;
 		border-top: 1px solid var(--line);
+	}
+	.who {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+	.give {
+		flex: none;
+		gap: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 700;
 	}
 	.nm {
 		font-size: 1rem;
@@ -490,6 +524,29 @@
 		}
 		.tog {
 			width: 100%;
+		}
+		/* 방장 화면의 행: 이름 위, 상태 아래 두 줄로 쌓고 넘기기 버튼은 오른쪽 끝에 둔다 */
+		.member.stack {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas: 'who give' 'stat give';
+			align-items: center;
+			justify-items: start;
+			gap: 0.25rem 0.5rem;
+			min-height: 64px;
+		}
+		.stack .sp {
+			display: none;
+		}
+		.stack .who {
+			grid-area: who;
+		}
+		.stack .bdg.stat {
+			grid-area: stat;
+		}
+		.stack .give {
+			grid-area: give;
+			grid-row: 1 / span 2;
 		}
 		.ab-in {
 			flex-direction: column;
