@@ -72,6 +72,7 @@ function endGame(s: RoomState, game: CoopGame, status: 'won' | 'lost', reason: N
 	game.step = emptyPropose();
 	game.endedAt = now;
 	s.phase = 'result';
+	game.roster = s.players.filter((p) => p.inGame).map((p) => ({ pid: p.pid, name: p.name }));
 	for (const p of s.players) p.ready = false;
 	s.players = s.players.filter((p) => !p.left);
 }

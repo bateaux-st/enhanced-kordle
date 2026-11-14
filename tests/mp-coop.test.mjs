@@ -589,3 +589,16 @@ test('끝난 판의 후속: 대기실로 돌아가면 협동 게임 데이터가
 	assert.equal(reduce(s, pids[0], { type: 'again' }, {}, T0 + 2, rng).changed, true);
 	assert.deepEqual([s.phase, s.game], ['lobby', null]);
 });
+
+test('결과 명단: 중간에 나간 사람도 남고, 결과 단계의 퇴장에도 바뀌지 않는다', () => {
+	const { s, pids } = coopStarted(['가', '나']);
+	const [host, a, b] = pids;
+	leave(s, a, T0 + 1);
+	coop.forfeit(s, a, first, T0 + 1);
+	coop.giveUp(s, host, T0 + 2);
+	assert.equal(s.players.some((p) => p.pid === a), false, '나간 사람의 자리는 정리된다');
+	assert.deepEqual(personalize(s, host, T0 + 3).game.roster.map((r) => r.pid), pids);
+	leave(s, b, T0 + 4);
+	assert.equal(personalize(s, host, T0 + 5).game.roster.length, 3, '결과 화면이 열린 채 나가도 명단은 그대로');
+	assert.equal(personalize(s, host, T0 + 5).players.length, 1);
+});

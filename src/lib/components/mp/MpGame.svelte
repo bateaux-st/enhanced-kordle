@@ -12,8 +12,12 @@
 	import { statusLabel } from './labels';
 	import MpModal from './MpModal.svelte';
 	import MpResult from './MpResult.svelte';
+	import LiveStandings from './LiveStandings.svelte';
 	import MpTimer from './MpTimer.svelte';
+	import OpponentChip from './OpponentChip.svelte';
 	import OpponentPanel from './OpponentPanel.svelte';
+	import OpponentSheet from './OpponentSheet.svelte';
+	import StageBand from './StageBand.svelte';
 	import { mpPrefs } from './prefs.svelte';
 	import { showToast, toastState } from './toast.svelte';
 
@@ -119,6 +123,8 @@
 	// 경쟁은 내 보드, 협동은 공유 보드의 마감이다. 끈 방은 null이라 줄 자체를 그리지 않는다.
 	const deadline = $derived(coop ? coop.board.deadline : (me?.deadline ?? null));
 	const clockOn = $derived(playing && deadline !== null);
+	// 등반은 스테이지와 남은 시간을 한 띠에 둔다. 끝난 뒤에도 띠는 남고, 시간 초과로 끝났을 때만 0:00을 보인다.
+	const bandDeadline = $derived(deadline !== null && (playing || me?.status === 'timeout' || coop?.endReason === 'timeout') ? deadline : null);
 	// 등반은 클리어 직후부터 새 스테이지 마감이 나가므로 마감에 연출 2초가 들어 있다. 그 2초는 제한 시간을 가득 찬 값에 붙잡아 둔다.
 	const clockCap = $derived(climb && rawClear && deadline !== null ? deadline - (rawClear.at + STAGE_CLEAR_MS) : null);
 
@@ -127,6 +133,38 @@
 	const left = $derived(opponents.slice(0, 2));
 	const right = $derived(opponents.slice(2));
 	const rankOf = (pid: string) => game?.standings?.find((s) => s.pid === pid)?.rank ?? null;
+
+	// ---- 경쟁 모바일: 상대 칩을 눌러 그 격자를 내 보드 위에 펼친다 ----
+	let openPid = $state<string | null>(null);
+	const openOpp = $derived(snap.phase === 'playing' && openPid ? (opponents.find((p) => p.pid === openPid) ?? null) : null);
+	const sheetOpen = $derived(openOpp !== null);
+	const sheetId = $props.id();
+	function closeSheet(refocus = false) {
+		const pid = openPid;
+		openPid = null;
+		if (!refocus || !pid) return;
+		void tick().then(() => document.querySelector<HTMLElement>(`.oc[data-pid="${CSS.escape(pid)}"]`)?.focus());
+	}
+	// 자판은 바깥이 아니다. 격자를 펼친 채로 입력을 이어 갈 수 있어야 한다.
+	$effect(() => {
+		if (!sheetOpen) return;
+		const onesc = (e: KeyboardEvent) => {
+			if (e.key !== 'Escape' || document.querySelector('.mp [aria-modal="true"]')) return;
+			e.preventDefault();
+			closeSheet(true);
+		};
+		const onpointer = (e: PointerEvent) => {
+			if ((e.target as Element | null)?.closest('.opps, .keyboard')) return;
+			closeSheet();
+		};
+		window.addEventListener('keydown', onesc);
+		window.addEventListener('pointerdown', onpointer);
+		return () => {
+			window.removeEventListener('keydown', onesc);
+			window.removeEventListener('pointerdown', onpointer);
+		};
+	});
+	const othersPlaying = $derived(opponents.some((p) => p.panel?.status === 'playing'));
 	const isHost = $derived(snap.hostPid === snap.you);
 
 	// 접속 중인 참가자만 센다(서버 집계와 같다. 나간 사람도 접속 끊김으로 보인다).
@@ -515,9 +553,11 @@
 	});
 	const graceName = $derived(game?.standings?.find((x) => x.finishOrder === 1)?.name || nameOf(firstPid ?? '') || solvers[0]?.name || '');
 
-	const modeLine = $derived(
-		`${coop ? '협동' : '경쟁'} · ${climb ? '등반' : '단판'} · ${n}자${climb ? ` · 스테이지 ${view?.stage ?? 1}` : ''}${snap.settings.hard ? ' · 하드' : ''}`
-	);
+	// 등반은 길이가 스테이지마다 늘어나므로 제목에는 시작 길이를 두고 지금 스테이지는 띠가 보여 준다.
+	const titleN = $derived(climb ? ((coop ?? game)?.startN ?? n) : n);
+	const modeLine = $derived(`${coop ? '협동' : '경쟁'} · ${climb ? '등반' : '단판'} · ${titleN}자${snap.settings.hard ? ' · 하드' : ''}`);
+	// 띠의 숫자는 읽는 영역이 아니라서 스테이지가 바뀔 때 새 스테이지와 자모 수를 따로 알린다.
+	const stageText = $derived(climb && view ? `스테이지 ${view.stage}, ${view.n}자` : '');
 	const lastRowText = $derived.by(() => {
 		const rows = view?.rows ?? [];
 		if (!rows.length || !view) return '';
@@ -530,13 +570,13 @@
 
 <svelte:window {onkeydown} />
 
-<div class="game-head">
+<div class="game-head" class:w4={game !== null}>
 	<button class="btn" type="button" onclick={leave}><Icon name="back" />나가기</button>
-	<h1 class="game-title">꼬들 - {n}자</h1>
+	<h1 class="game-title">꼬들 - {titleN}자</h1>
 </div>
-<div class="mode-line"><span>{modeLine}</span></div>
+<div class="mode-line" class:w4={game !== null}><span>{modeLine}</span></div>
 
-{#if clockOn && deadline !== null}
+{#if clockOn && deadline !== null && !climb}
 	<div class="clock a-fadein">
 		<MpTimer {deadline} cap={clockCap} now={() => client.serverNow()} />
 	</div>
@@ -586,23 +626,57 @@
 	</section>
 {/if}
 
-{#if me && !playing && snap.phase === 'playing'}
-	<div class="mystate">
-		<span class="bdg {me.status === 'solved' ? 'ready' : 'idle'}">
-			<Icon name={me.status === 'solved' ? 'checkc' : 'xc'} />{me.status === 'solved' ? (myRank ? `완료 ${myRank}위` : '완료') : statusLabel(me.status, climb)}
-		</span>
+{#if coop}
+	<!-- 협동은 제안한 단어를 읽어야 해서 칩 대신 카드 띠를 그대로 쓴다. 띠가 넘치면 가로로 스크롤되므로 키보드로도 닿아야 한다 -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<div class="strip" role="region" aria-label="상대 진행" tabindex="0">
+		{#each opponents as p (p.pid)}
+			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} compact {climb} coop={coopInfo(p)} />
+		{/each}
+	</div>
+{:else if opponents.length}
+	<div class="opps">
+		<div class="chips" role="region" aria-label="상대 진행">
+			{#each opponents as p (p.pid)}
+				<OpponentChip
+					player={p}
+					{tries}
+					rank={rankOf(p.pid)}
+					{climb}
+					expanded={openOpp?.pid === p.pid}
+					controls={sheetId}
+					onclick={() => (openPid = openPid === p.pid ? null : p.pid)}
+				/>
+			{/each}
+		</div>
+		{#if openOpp}
+			<OpponentSheet
+				id={sheetId}
+				player={openOpp}
+				{tries}
+				rank={rankOf(openOpp.pid)}
+				{climb}
+				canKick={isHost}
+				onkick={() => openPid && (kickPid = openPid)}
+				onclose={() => closeSheet(true)}
+			/>
+		{/if}
 	</div>
 {/if}
 
-<!-- 띠가 넘치면 가로로 스크롤되므로 키보드로도 닿아야 한다 -->
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="strip" role="region" aria-label="상대 진행" tabindex="0">
-	{#each opponents as p (p.pid)}
-		<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} compact {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
-	{/each}
-</div>
-
-<div class="arena" class:has-grace={graceActive} class:has-clock={clockOn} class:has-hv={hv !== null} class:has-note={coop !== null && playing} style="--rows:{tries}">
+<div
+	class="arena"
+	class:w4={game !== null}
+	class:has-grace={graceActive}
+	class:has-clock={clockOn && !climb}
+	class:has-band={climb}
+	class:has-state={game !== null}
+	class:has-hv={hv !== null}
+	class:has-note={coop !== null && playing}
+	class:chips-1={game !== null && opponents.length <= 2}
+	class:chips-0={game !== null && opponents.length === 0}
+	style="--rows:{tries}"
+>
 	<div class="opp-col">
 		{#each left as p (p.pid)}
 			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
@@ -610,7 +684,25 @@
 	</div>
 
 	<div class="center" class:locked={!playing || heldClear !== null || voteView !== null} class:dim={selecting}>
+		{#if climb && view}
+			<StageBand stage={view.stage} deadline={bandDeadline} cap={clockCap} now={() => client.serverNow()} />
+		{/if}
 		<Board game={boardView} />
+		{#if game && me && snap.phase === 'playing'}
+			<!-- 내가 끝난 뒤의 상태줄. 끝나기 전에도 같은 높이를 잡아 키보드가 밀리지 않게 한다 -->
+			<div class="mystate" class:vacant={playing}>
+				{#if !playing}
+					<span class="bdg {me.status === 'solved' ? 'ready' : 'idle'}">
+						<Icon name={me.status === 'solved' ? 'checkc' : me.status === 'timeout' ? 'clock' : 'xc'} />{me.status === 'solved'
+							? myRank
+								? `완료 ${myRank}위`
+								: '완료'
+							: statusLabel(me.status, climb)}
+					</span>
+					{#if othersPlaying}<span class="wait">다른 사람이 끝나길 기다리는 중입니다.</span>{/if}
+				{/if}
+			</div>
+		{/if}
 		{#if held}
 			{#key held.at}
 				<CoopPicker
@@ -633,6 +725,12 @@
 			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
 		{/each}
 	</div>
+
+	{#if liveRank && snap.phase === 'playing'}
+		<div class="standings">
+			<LiveStandings standings={liveRank} players={snap.players} you={snap.you} {climb} />
+		</div>
+	{/if}
 </div>
 
 {#if voteView}
@@ -654,20 +752,8 @@
 	</p>
 {/if}
 
+<p class="sr" aria-live="polite">{stageText}</p>
 <p class="sr" aria-live="polite">{lastRowText}</p>
-
-{#if liveRank && snap.phase === 'playing'}
-	<section class="live-rank" aria-label="현재 순위">
-		<h2>현재 순위</h2>
-		<ol>
-			{#each liveRank as s (s.pid)}
-				<li class:mine={s.pid === snap.you}>
-					<span class="rk">{s.tied ? '공동 ' : ''}{s.rank}위</span><span>{s.name}</span>
-				</li>
-			{/each}
-		</ol>
-	</section>
-{/if}
 
 <div class="actions" bind:this={actionsEl}>
 	{#if playing}
@@ -861,13 +947,31 @@
 		background: var(--sel-line);
 		transition: width 0.25s linear;
 	}
+	/* 보드 아래 상태줄. 끝나기 전에는 비워 두되 높이는 잡아 키보드 위치가 바뀌지 않는다 */
 	.mystate {
 		display: flex;
+		align-items: center;
 		justify-content: center;
-		margin-bottom: 0.75rem;
+		flex-wrap: wrap;
+		gap: 0.25rem 0.5rem;
+		min-height: 1.75rem;
 	}
-	.strip {
+	.mystate.vacant {
+		visibility: hidden;
+	}
+	.wait {
+		font-size: 0.8125rem;
+		color: var(--muted);
+	}
+	.strip,
+	.opps {
 		display: none;
+	}
+	.standings {
+		grid-column: 1 / -1;
+		justify-self: center;
+		width: min(20rem, 100%);
+		margin-top: 1rem;
 	}
 	.arena {
 		/* 100vw는 클래식 스크롤바 폭을 포함해 보드가 좌우로 넘친다. 컨테이너 폭(cqw)은 스크롤바와 좌우 여백을 뺀 값이다. */
@@ -999,41 +1103,6 @@
 		background: var(--sel-line);
 		transition: width 0.25s linear;
 	}
-	.live-rank {
-		max-width: 20rem;
-		margin: 1rem auto 0;
-	}
-	.live-rank h2 {
-		margin-bottom: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 700;
-		text-align: center;
-	}
-	.live-rank ol {
-		display: flex;
-		flex-direction: column;
-		border: 1px solid var(--line);
-		border-radius: 0.375rem;
-		background: var(--surface);
-		overflow: hidden;
-	}
-	.live-rank li {
-		display: flex;
-		gap: 0.75rem;
-		padding: 0.5rem 0.75rem;
-		font-size: 0.875rem;
-	}
-	.live-rank li + li {
-		border-top: 1px solid var(--line);
-	}
-	.live-rank li.mine {
-		background: var(--sel-bg);
-		font-weight: 700;
-	}
-	.live-rank .rk {
-		min-width: 4.5rem;
-		font-weight: 700;
-	}
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -1064,13 +1133,49 @@
 		flex: 1 1 auto;
 	}
 
+	/* 1200px 이상 경쟁: 머리글·아레나가 같은 4열 격자(상대 | 보드 | 상대 | 순위)를 쓴다 */
+	@media (min-width: 1200px) {
+		.game-head.w4,
+		.mode-line.w4 {
+			display: grid;
+			grid-template-columns: 13rem minmax(0, 28rem) 13rem 17rem;
+			column-gap: 2rem;
+			justify-content: center;
+			max-width: none;
+			padding-right: 0;
+		}
+		.game-head.w4 .game-title,
+		.mode-line.w4 > span {
+			grid-column: 2;
+			text-align: center;
+		}
+		.game-head.w4 > .btn {
+			grid-column: 1;
+			grid-row: 1;
+			justify-self: start;
+		}
+		.arena.w4 {
+			--cw: min(28rem, calc(100cqw - 26rem - 17rem - 6rem));
+			grid-template-columns: 13rem minmax(0, 28rem) 13rem 17rem;
+			column-gap: 2rem;
+		}
+		.arena.w4 .standings {
+			grid-column: auto;
+			justify-self: stretch;
+			align-self: start;
+			width: auto;
+			margin-top: 0;
+		}
+	}
+
 	/* 900px 미만: 상대 카드는 보드 위 한 줄로, 보드는 세로 공간에 맞춰 줄인다 */
 	@media (max-width: 899.98px) {
 		.arena {
 			--cw: 100cqw;
 			/* 보드(열 수·시도 횟수 빼고) 위아래 고정 높이와 .mp 아래 여백까지 잰 값. 상대 띠가 완주자 줄로 길어진 경우(+23px)를 기준으로 잡았다. */
-			--chrome-h: calc(510px + var(--x-grace, 0px) + var(--x-clock, 0px) + var(--x-hv, 0px) + var(--x-note, 0px));
+			--chrome-h: calc(510px + var(--x-grace, 0px) + var(--x-clock, 0px) + var(--x-band, 0px) + var(--x-hv, 0px) + var(--x-note, 0px) + var(--x-chips, 0px) + var(--x-state, 0px));
 			--tile-floor: 26px;
+			--old-strip: 142px;
 			display: block;
 		}
 		/* 유예 배너(+56px)와 남은 시간 줄(+28px)과 힌트 투표 막대(+84px)가 붙으면 그만큼 보드가 쓸 세로 공간이 줄어든다 */
@@ -1082,6 +1187,21 @@
 		}
 		.arena.has-hv {
 			--x-hv: 84px;
+		}
+		/* 등반 띠(스테이지+남은 시간 62px)와 위쪽 간격 */
+		.arena.has-band {
+			--x-band: 74px;
+		}
+		/* 경쟁은 협동 카드 띠(위 기준 높이에 든 142px) 대신 칩 줄(2줄 104px, 1줄 52px)이 오고, 보드 아래 상태줄(40px)이 자리를 잡는다 */
+		.arena.w4 {
+			--x-chips: calc(104px - var(--old-strip));
+			--x-state: 40px;
+		}
+		.arena.w4.chips-1 {
+			--x-chips: calc(52px - var(--old-strip));
+		}
+		.arena.w4.chips-0 {
+			--x-chips: calc(0px - var(--old-strip));
 		}
 		/* 협동은 버튼 줄 아래에 제안 취소 안내 한 줄(20px + 위 여백 4px)이 자리를 잡는다 */
 		.arena.has-note {
@@ -1111,6 +1231,17 @@
 		}
 		.strip > :global(.opp:last-child) {
 			margin-right: auto;
+		}
+		/* 경쟁 상대 칩: 2열, 4명이면 2줄. 펼친 격자는 칩 줄 바로 아래에 겹친다 */
+		.opps {
+			position: relative;
+			display: block;
+			margin-bottom: 0.5rem;
+		}
+		.chips {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 8px;
 		}
 		.clock {
 			margin: -0.25rem 0 0.5rem;
