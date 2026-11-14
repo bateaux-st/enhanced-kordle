@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { Snapshot } from '$lib/mp/protocol';
 	import { LENGTH_MAX } from '$lib/mp/rules';
 	import ClimbPyramid from './ClimbPyramid.svelte';
@@ -7,6 +8,7 @@
 	import MpModal from './MpModal.svelte';
 
 	let {
+		client,
 		snap,
 		isHost,
 		onclose,
@@ -15,6 +17,8 @@
 		onnext,
 		onwait
 	}: {
+		/** 채팅 시트를 여는 버튼과 안 읽은 수에만 쓴다. */
+		client: MpClient;
 		snap: Snapshot;
 		isHost: boolean;
 		onclose: () => void;
@@ -71,6 +75,13 @@
 		})
 	);
 </script>
+
+{#snippet chatBtn()}
+	<button class="btn chat" type="button" aria-label={client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅'} aria-haspopup="dialog" data-chat-entry onclick={(e) => client.openChat(e.currentTarget)}>
+		<Icon name="chat" size="1.25rem" />채팅
+		{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
+	</button>
+{/snippet}
 
 <MpModal title={climb ? '등반 결과' : '결과'} wide={!coop} {onclose}>
 	{#if coop}
@@ -137,13 +148,17 @@
 		{#if isHost}
 			<button class="btn primary big block" type="button" onclick={onagain}>같은 설정으로 한 판 더</button>
 			<div class="two">
+				{@render chatBtn()}
 				<button class="btn" type="button" onclick={onnext}>설정 바꾸기</button>
 				<button class="btn" type="button" onclick={onleave}><Icon name="exit" />나가기</button>
 			</div>
 		{:else}
 			<p class="wait" role="status">방장이 다음 게임을 고르는 중입니다.</p>
 			<button class="btn primary big block" type="button" onclick={onwait}>대기실로</button>
-			<button class="btn block" type="button" onclick={onleave}><Icon name="exit" />나가기</button>
+			<div class="two">
+				{@render chatBtn()}
+				<button class="btn" type="button" onclick={onleave}><Icon name="exit" />나가기</button>
+			</div>
 		{/if}
 	</div>
 </MpModal>

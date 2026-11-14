@@ -217,7 +217,9 @@
 				touch();
 				client.vote(i);
 			},
-			onclose: () => client.closeStep()
+			onclose: () => client.closeStep(),
+			unread: client.chatUnread,
+			onchat: (from: HTMLElement) => client.openChat(from)
 		};
 	});
 
@@ -481,7 +483,8 @@
 	// 경쟁은 내가 풀이 중일 때, 협동은 coopNeedsInput이다(제안도 패스도 안 했거나 찍을 후보가 있는데 안 찍었을 때).
 	const idleTarget = $derived.by(() => {
 		// 끊긴 동안은 스냅샷이 얼어 있어 서버 상태를 믿을 수 없고, 끊김 오버레이가 포커스를 쥐고 있다.
-		if (snap.phase !== 'playing' || modal !== null || kickPid !== null || client.status !== 'open') return false;
+		// 채팅 시트에서 글을 쓰는 동안도 자리를 비운 것이 아니고, 경고 모달이 시트 위로 키를 가로채지 않게 한다.
+		if (snap.phase !== 'playing' || modal !== null || kickPid !== null || client.chatOpen || client.status !== 'open') return false;
 		if (!coop) return me?.status === 'playing';
 		const mine = snap.players.find((p) => p.pid === snap.you);
 		const st = coop.step;
@@ -513,10 +516,14 @@
 	const joinedAtResult = untrack(() => snap.phase === 'result');
 	// snap은 스냅샷마다 새 객체라 phase를 직접 읽으면 effect가 매번 다시 돌아 대기 중인 타이머가 cleanup에 지워진다. 불리언 derived는 값이 같으면 재실행하지 않는다.
 	const isResult = $derived(snap.phase === 'result' && held === null);
+	// 채팅 시트가 열려 있으면 미룬다. 결과 모달은 시트 아래(z 30 < 35)에 가린 채 키 소유자가 되어 포커스·Esc·Tab·Enter를 가로챈다.
+	// 시트가 닫히면 이 effect가 다시 돌아 같은 지연으로 띄운다.
 	$effect(() => {
-		if (!isResult || resultShown) return;
-		resultShown = true;
-		const t = setTimeout(() => (modal ??= 'result'), joinedAtResult ? 0 : 1200);
+		if (!isResult || resultShown || client.chatOpen) return;
+		const t = setTimeout(() => {
+			resultShown = true;
+			modal ??= 'result';
+		}, joinedAtResult ? 0 : 1200);
 		return () => clearTimeout(t);
 	});
 
@@ -817,6 +824,7 @@
 
 {#if modal === 'result'}
 	<MpResult
+		{client}
 		{snap}
 		{isHost}
 		onclose={() => (modal = null)}
@@ -884,7 +892,7 @@
 		/* 상대 열 2개 + 중앙 + 열 간격(.arena)과 같은 폭에 머리줄을 맞춘다 */
 		max-width: 62rem;
 		margin: 0 auto 0.5rem;
-		padding-right: 4.5rem;
+		padding-right: 8rem;
 	}
 	.game-title {
 		flex: 1 1 auto;

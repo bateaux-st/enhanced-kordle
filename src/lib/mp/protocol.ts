@@ -46,7 +46,9 @@ export type ClientMsg =
 	| { type: 'giveup' }
 	| { type: 'eliminate'; pid: Pid }
 	/** 방장: 대기실·결과에서 접속 중인 다른 참가자에게 방장을 넘긴다. */
-	| { type: 'transfer'; pid: Pid };
+	| { type: 'transfer'; pid: Pid }
+	/** 방 전원에게 가는 채팅. 어느 단계에서나 보낼 수 있다. 서버가 본문을 다듬은 뒤 방송한다. */
+	| { type: 'chat'; text: string };
 
 /** 상태가 바뀌지 않는 거절. 스냅샷이 따라오지 않는다. */
 export type ErrorCode = 'invalid' | 'hard' | 'forbidden' | 'phase' | 'cooldown' | 'unavailable';
@@ -284,13 +286,27 @@ export interface SessionInfo {
 	exp: number;
 }
 
+/** 채팅 한 줄. 서버 메모리의 최근 기록에만 있고 저장하지 않는다. id는 그 메모리에서 하나씩 늘어난다. */
+export interface ChatMsg {
+	id: number;
+	pid: Pid;
+	name: string;
+	text: string;
+	/** 서버 시각(ms). */
+	at: number;
+}
+
 export type ServerMsg =
 	| { type: 'welcome'; pid: Pid; name: string }
 	| { type: 'snap'; snap: Snapshot; session?: SessionInfo }
 	| { type: 'error'; code: ErrorCode; msg: string }
 	| { type: 'nudge'; from: string }
 	/** `next`를 받은 방장에게만. 대기실의 설정 영역으로 이끈다. */
-	| { type: 'opensettings' };
+	| { type: 'opensettings' }
+	/** 새 채팅. 스냅샷에 싣지 않고 따로 방송한다. */
+	| { type: 'chat'; msg: ChatMsg }
+	/** 입장·재접속 직후 서버 메모리에 남은 최근 기록(오래된 것부터). 비어 있을 수 있다. */
+	| { type: 'chat_history'; msgs: ChatMsg[] };
 
 export const CLOSE = {
 	/** 같은 uid의 새 소켓. */

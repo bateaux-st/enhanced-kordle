@@ -37,6 +37,16 @@ export const LOBBY_WS_PATH = '/ws-lobby';
 export const LOBBY_FALLBACK_POLL_MS = 15_000;
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** 채팅 본문 최대 길이(코드포인트). */
+export const CHAT_MAX = 100;
+/** 서버 메모리에 남기는 최근 채팅 수. DO가 쉬었다 깨면 사라진다. */
+export const CHAT_HISTORY = 30;
+/** 클라이언트가 들고 있는 채팅 줄 수(시스템 줄 포함). */
+export const CHAT_KEEP = 100;
+/** 사람마다 이 시간 안에 CHAT_BURST개까지 보내고, 넘으면 거절한다. */
+export const CHAT_WINDOW_MS = 5_000;
+export const CHAT_BURST = 5;
+
 /** 0 O 1 I 제외 32자. */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
@@ -76,6 +86,33 @@ export function normalizeName(raw: unknown): string | null {
 	const name = raw.normalize('NFC').trim();
 	const len = [...name].length;
 	return len >= NAME_MIN && len <= NAME_MAX ? name : null;
+}
+
+// 제어문자(Cc) 외에 Cf 중 ZWSP·LRM/RLM·ALM·양방향 제어(표시 순서를 뒤집어 이름·본문을 위조)·단어 결합자·BOM·소프트 하이픈과,
+// 눈에 안 보이는 결합·선택·태그 문자(CGJ, 몽골 FVS, 크메르 고유 모음, 이형 선택자, 주석 표지, 태그 문자)를 뺀다.
+// ZWJ(U+200D)·ZWNJ·이모지 표시 선택자(U+FE0F)는 이모지 시퀀스에 쓰이므로 남긴다. 단독 FE0F는 CHAT_BLANK이 거른다.
+const CHAT_STRIP =
+	/[\p{Cc}\u00AD\u034F\u061C\u17B4\u17B5\u180B-\u180E\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFE00-\uFE0E\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu;
+// 공백과 ZWJ/ZWNJ, FE0F, 한글 채움 문자, 점자 빈칸만 남았으면 보이는 글자가 없는 본문이다.
+const CHAT_BLANK = /^[\s\u200C\u200D\uFE0F\u115F\u1160\u3164\uFFA0\u2800]*$/u;
+// 결합 문자(M)가 이어지면 한 글자 위에 쌓여 줄 밖으로 번진다. 연달아 3개까지만 둔다(태국어·아랍어 모음 부호는 그 안에 든다).
+const CHAT_MARK_RUN = /(\p{M}{3})\p{M}+/gu;
+
+/**
+ * 채팅 본문 정규화: NFC, 줄바꿈·탭은 공백, 제어문자와 보이지 않는 서식 문자는 제거, 앞뒤 공백 제거, 1..CHAT_MAX자(코드포인트).
+ * 걷어 낸 뒤 길이를 재므로 보이지 않는 문자로 길이를 채울 수 없고, 눈에 보이는 글자가 없으면 거절한다. 규칙에 안 맞으면 null.
+ */
+export function normalizeChat(raw: unknown): string | null {
+	if (typeof raw !== 'string') return null;
+	const text = raw
+		.normalize('NFC')
+		.replace(/[\t\r\n\u2028\u2029]/g, ' ')
+		.replace(CHAT_STRIP, '')
+		.replace(CHAT_MARK_RUN, '$1')
+		.trim();
+	const len = [...text].length;
+	if (len < 1 || len > CHAT_MAX || CHAT_BLANK.test(text)) return null;
+	return text;
 }
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;

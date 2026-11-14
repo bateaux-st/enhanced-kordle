@@ -7,6 +7,7 @@
 	import type { Snapshot } from '$lib/mp/protocol';
 	import { CODE_RE, normalizeName, sameSettings } from '$lib/mp/rules';
 	import './mp.css';
+	import ChatSheet from './ChatSheet.svelte';
 	import ConnectionOverlay from './ConnectionOverlay.svelte';
 	import Icon from './Icon.svelte';
 	import LobbyView from './LobbyView.svelte';
@@ -215,6 +216,11 @@
 
 	// ---- 방 안 사건을 토스트로: 입장·퇴장·승계·설정 변경·확정 이름 ----
 	let prev: Snapshot | null = null;
+	/** 토스트는 하나만 남지만 채팅 시스템 줄은 사건마다 쌓는다. */
+	function notice(text: string) {
+		showToast(text);
+		client.addSystemLine(text);
+	}
 	$effect(() => {
 		const s = client.snap;
 		untrack(() => {
@@ -225,11 +231,15 @@
 				if (client.name && requestedName && client.name !== requestedName) showToast(`같은 이름이 있어 ${client.name} 이름으로 들어왔습니다`);
 				return;
 			}
-			// 방장 넘기기는 결과 화면에서도 되므로 단계 가드보다 앞에 둔다. 단계가 바뀐 스냅샷은 제외한다.
-			if (s.phase === p.phase && s.phase !== 'playing' && s.hostPid && s.hostPid !== p.hostPid) {
+			// 방장 승계는 어느 단계에서도 일어나므로 단계 가드보다 앞에 두고 채팅 줄은 항상 남긴다.
+			// 토스트는 게임 중과 단계가 바뀐 스냅샷에서는 띄우지 않는다.
+			if (s.hostPid && s.hostPid !== p.hostPid) {
 				const h = s.players.find((q) => q.pid === s.hostPid);
-				resetNudge();
-				showToast(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
+				const text = s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`;
+				if (s.phase === p.phase && s.phase !== 'playing') {
+					resetNudge();
+					notice(text);
+				} else client.addSystemLine(text);
 			}
 			if (s.phase !== 'lobby') {
 				resetNudge();
@@ -238,8 +248,8 @@
 			if (p.phase !== 'lobby') return;
 			const was = new Set(p.players.map((q) => q.pid));
 			const now = new Set(s.players.map((q) => q.pid));
-			for (const q of s.players) if (!was.has(q.pid) && q.pid !== s.you) showToast(`${q.name}님이 들어왔습니다`);
-			for (const q of p.players) if (!now.has(q.pid)) showToast(`${q.name}님이 나갔습니다`);
+			for (const q of s.players) if (!was.has(q.pid) && q.pid !== s.you) notice(`${q.name}님이 들어왔습니다`);
+			for (const q of p.players) if (!now.has(q.pid)) notice(`${q.name}님이 나갔습니다`);
 			if (!sameSettings(p.settings, s.settings)) {
 				resetNudge();
 				if (s.hostPid !== s.you && p.players.find((q) => q.pid === s.you)?.ready) showToast('방장이 설정을 바꿔 준비가 풀렸습니다');
@@ -295,13 +305,32 @@
 	const lateJoiner = $derived(snap?.phase === 'result' && !inGame && snap.hostPid !== snap.you);
 	const between = $derived(snap?.phase === 'result' && (!inGame || (snap.game !== null && snap.game.startedAt === parkedGame)));
 
+	// ---- 채팅 ----
+	const chatLabel = $derived(client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅');
+
 	const viewKey = $derived(
 		view === 'room' ? (client.status === 'dev' ? 'dev' : !snap ? 'load' : snap.phase === 'lobby' || lateJoiner ? 'wait' : between ? 'between' : 'game') : view
 	);
+	// 화면이 바뀌면 시트를 닫는다. 여는 버튼이 사라지고 대기실은 자기 패널을 따로 그려 같은 대화가 둘 뜬다.
+	let chatView = untrack(() => viewKey);
+	$effect(() => {
+		const v = viewKey;
+		if (v === chatView) return;
+		chatView = v;
+		untrack(() => client.chatOpen && client.closeChat());
+	});
 </script>
 
 <div class="mp">
-	<button class="btn gear" type="button" onclick={() => (settingsOpen = true)}>설정</button>
+	<div class="tools">
+		{#if snap && (viewKey === 'game' || viewKey === 'between')}
+			<button class="btn icon chat" type="button" aria-label={chatLabel} aria-haspopup="dialog" data-chat-entry onclick={(e) => client.openChat(e.currentTarget)}>
+				<Icon name="chat" size="1.25rem" />
+				{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
+			</button>
+		{/if}
+		<button class="btn gear" type="button" onclick={() => (settingsOpen = true)}>설정</button>
+	</div>
 
 	<main bind:this={screenEl} class="screen">
 		{#key viewKey}
@@ -392,6 +421,10 @@
 			onsubmit={(name) => void submitPending(name)}
 			oncancel={() => toLobby()}
 		/>
+	{/if}
+
+	{#if view === 'room' && snap && client.chatOpen}
+		<ChatSheet {client} />
 	{/if}
 
 	{#if settingsOpen}

@@ -32,6 +32,9 @@
 			now: () => number;
 			onvote: (i: number) => void;
 			onclose: () => void;
+			/** 안 읽은 채팅 수와 채팅 시트를 여는 함수. 투표 시트가 머리 버튼을 덮으므로 시트 안에 진입점을 둔다. */
+			unread?: number;
+			onchat?: (from: HTMLElement) => void;
 		} | null;
 		wheel?: {
 			cands: { jamo: string; names: string[] }[];
@@ -91,12 +94,14 @@
 	const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 	// 모달이라 시트 안에서만 Tab이 돈다. 닫을 수 있는 화면이 아니므로 Esc는 받지 않는다(투표를 건너뛰는 길이 되지 않게).
-	// 확인 대화상자나 재촉 레이어가 위에 뜨면 그쪽이 키를 받는다.
+	// 확인 대화상자나 재촉 레이어, 채팅 시트가 위에 뜨면 그쪽이 키를 받는다.
 	onMount(() => {
 		const el = sheet;
 		if (!vote || !el) return;
-		stack.push(me);
-		(el.querySelector<HTMLElement>('[aria-pressed="true"]') ?? el.querySelector<HTMLElement>('.cands button'))?.focus();
+		// 투표는 맨 아래 층이다. 채팅이 먼저 열려 있었다면 그 위로 올라서지 않고, 쓰던 입력칸의 포커스도 뺏지 않는다.
+		const covered = stack.length > 0;
+		stack.unshift(me);
+		if (!covered) (el.querySelector<HTMLElement>('[aria-pressed="true"]') ?? el.querySelector<HTMLElement>('.cands button'))?.focus();
 
 		function onkeydown(e: KeyboardEvent) {
 			if (e.key !== 'Tab' || stack[stack.length - 1] !== me || !el) return;
@@ -173,7 +178,16 @@
 	<div class="scrim" style:--vi={toastState.top === null ? null : `${toastState.top}px`}>
 		<div bind:this={sheet} class="sheet" role="dialog" aria-modal="true" aria-labelledby="sel-vote">
 			<div class="top">
-				<h2 id="sel-vote">투표</h2>
+				<div class="th">
+					<h2 id="sel-vote">투표</h2>
+					{#if vote.onchat}
+						{@const unread = vote.unread ?? 0}
+						<button class="btn chat" type="button" aria-label={unread ? `채팅, 안 읽은 메시지 ${unread}개` : '채팅'} aria-haspopup="dialog" data-chat-entry onclick={(e) => vote.onchat?.(e.currentTarget)}>
+							<Icon name="chat" size="1.25rem" />채팅
+							{#if unread}<span class="cbadge" aria-hidden="true">{unread}</span>{/if}
+						</button>
+					{/if}
+				</div>
 				<div class="vstat">
 					<div class="r1">
 						<span class="vc">투표 {vote.k}/{vote.m}명</span>
@@ -375,8 +389,14 @@
 	.top {
 		flex: none;
 	}
+	.th {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
 	.top h2 {
-		margin-bottom: 0.75rem;
 		line-height: 1.75rem;
 	}
 	.vstat {

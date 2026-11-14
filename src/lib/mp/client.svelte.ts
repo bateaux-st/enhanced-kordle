@@ -1,7 +1,10 @@
+import { tick } from 'svelte';
+import { ChatFeed, maxKey } from './chat-feed.ts';
+import type { ChatLine } from './chat-feed.ts';
 import { readSession, writeSession } from './identity.ts';
 import { CLOSE } from './protocol.ts';
 import type { ClientMsg, ErrorCode, Pid, ServerMsg, Settings, Snapshot } from './protocol.ts';
-import { HEARTBEAT_MS } from './rules.ts';
+import { HEARTBEAT_MS, normalizeChat } from './rules.ts';
 
 export type MpStatus = 'idle' | 'dev' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 /** closed일 때 이유. 'left'는 내가 나간 것, 'lost'는 재시도를 다 쓴 것. */
@@ -44,8 +47,18 @@ export class MpClient {
 	nudge = $state.raw<{ id: number; from: string } | null>(null);
 	/** 방장이 "설정 바꾸기"를 눌렀다. 대기실이 한 번 읽고 지운다. */
 	wantSettings = $state(false);
+	/** 최근 채팅(서버 메시지와 로컬 시스템 줄). 저장하지 않고 연결을 새로 열 때 비운다. */
+	chat = $state.raw<ChatLine[]>([]);
+	/** 채팅 화면 상태. 열림과 쓰던 글은 시트가 닫히거나 투표 시트에 밀려도 남아야 해서 화면이 아니라 여기에 둔다. */
+	chatOpen = $state(false);
+	chatDraft = $state('');
+	/** 읽은 마지막 줄의 key. 이보다 새로운 남의 메시지가 안 읽은 메시지다. */
+	chatSeen = $state(0);
 
 	code = '';
+	private feed = new ChatFeed();
+	/** 이 연결에서 첫 기록을 받았는가. 입장 전에 오간 대화는 안 읽은 메시지로 세지 않는다. */
+	private historyDone = false;
 	private typedName = '';
 	private ws: WebSocket | null = null;
 	private attempts = 0;
@@ -75,6 +88,7 @@ export class MpClient {
 		this.snap = null;
 		this.closeReason = null;
 		this.wantSettings = false;
+		this.resetChat();
 		setRoomParam(code);
 		document.addEventListener('visibilitychange', this.onVisible);
 		this.open();
@@ -138,7 +152,61 @@ export class MpClient {
 			this.nudge = { id: (this.nudge?.id ?? 0) + 1, from: m.from };
 		} else if (m.type === 'opensettings') {
 			this.wantSettings = true;
+		} else if (m.type === 'chat') {
+			this.feed.message(m.msg);
+			this.chat = this.feed.lines;
+		} else if (m.type === 'chat_history') {
+			this.feed.history(m.msgs);
+			this.chat = this.feed.lines;
+			if (!this.historyDone) {
+				this.historyDone = true;
+				this.markChatRead();
+			}
 		}
+	}
+
+	/** 안 읽은 남의 메시지 수. 시스템 줄과 내 메시지는 세지 않는다. */
+	get chatUnread(): number {
+		return this.chat.filter((l) => !l.system && l.key > this.chatSeen && l.pid !== this.pid).length;
+	}
+
+	/** 채팅을 연 버튼. 터치에서는 버튼을 눌러도 포커스가 안 옮겨 오는 브라우저가 있어, 닫을 때 돌려놓을 곳을 눌린 요소로 직접 적는다. */
+	chatOpener: HTMLElement | null = null;
+
+	openChat(from: EventTarget | null): void {
+		this.chatOpener = from instanceof HTMLElement ? from : null;
+		this.chatOpen = true;
+	}
+
+	/** 닫고 포커스를 여는 버튼으로 돌린다. 버튼이 사라졌거나 다른 모달(협동 투표)에 가려졌으면 그 모달 안(없으면 화면)의 채팅 진입점으로 보낸다. */
+	closeChat(): void {
+		this.chatOpen = false;
+		const o = this.chatOpener;
+		void tick().then(() => {
+			const modal = document.querySelector('.mp [aria-modal="true"]');
+			const usable = o && document.contains(o) && (!modal || modal.contains(o));
+			(usable ? o : (modal ?? document).querySelector<HTMLElement>('[data-chat-entry]'))?.focus();
+		});
+	}
+
+	markChatRead(): void {
+		// 끊김 중 메시지가 기록으로 시각순 중간에 끼면 마지막 줄이 가장 큰 key가 아니므로 목록 전체의 최대로 맞춘다.
+		this.chatSeen = Math.max(this.chatSeen, maxKey(this.chat));
+	}
+
+	private resetChat(): void {
+		this.feed.clear();
+		this.chat = this.feed.lines;
+		this.chatOpen = false;
+		this.chatDraft = '';
+		this.chatSeen = 0;
+		this.historyDone = false;
+	}
+
+	/** 입장·퇴장·방장 변경 같은 로컬 시스템 줄. 서버는 만들지 않는다. */
+	addSystemLine(text: string): void {
+		this.feed.system(text, this.serverNow());
+		this.chat = this.feed.lines;
 	}
 
 	/** 끊김: 즉시 1회, 2초 뒤 1회 다시 붙는다. 그래도 안 되면 'lost'로 멈추고 reconnect()가 이어받는다. */
@@ -247,6 +315,11 @@ export class MpClient {
 	transfer(pid: Pid) {
 		return this.sendRaw({ type: 'transfer', pid });
 	}
+	/** 채팅 보내기. 본문이 규칙(1~100자, 공백만 아님)에 안 맞으면 보내지 않고 false. 서버가 같은 규칙으로 다시 검사한다. */
+	sendChat(text: string) {
+		const t = normalizeChat(text);
+		return t !== null && this.sendRaw({ type: 'chat', text: t });
+	}
 	/** 나가기: 자리를 버린다. 임시 계정(세션)은 지우지 않는다. */
 	leave(): void {
 		this.leaving = true;
@@ -254,6 +327,7 @@ export class MpClient {
 		this.close();
 		this.snap = null;
 		this.pid = null;
+		this.resetChat();
 		this.finish('left');
 	}
 }

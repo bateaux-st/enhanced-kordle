@@ -4,6 +4,7 @@ import type { ClientMsg, ServerMsg, SessionInfo, Settings, RoomSummary } from '.
 import { LOBBY_REFRESH_MS, normalizeName } from '../../mp/rules.ts';
 import { dict } from '../dict.ts';
 import { randomIndex } from '../token.ts';
+import { ChatLog, historyMsg, planChat } from './chat.ts';
 import { isClimb, stageLengths } from './climb.ts';
 import { chooseStartN } from './comp.ts';
 import * as coop from './coop.ts';
@@ -65,6 +66,8 @@ export class Room extends DurableObject<RoomEnv> {
 	private listed = false;
 	/** hello 직후 첫 snap에만 session을 싣는다. */
 	private pendingSession = new WeakMap<WebSocket, SessionInfo>();
+	/** 채팅은 저장하지 않는다(MULTIPLAYER.md). DO가 재시작하면 비어서 다시 시작한다. */
+	private chat = new ChatLog();
 
 	constructor(ctx: DurableObjectState, env: RoomEnv) {
 		super(ctx, env);
@@ -221,6 +224,7 @@ export class Room extends DurableObject<RoomEnv> {
 			ws.serializeAttachment({ pid: r.pid, uid: session.uid, at: attOf(ws).at } satisfies Att);
 			this.pendingSession.set(ws, { token: session.token, exp: session.exp });
 			this.sendTo(ws, { type: 'welcome', pid: r.pid, name: r.name });
+			this.sendTo(ws, historyMsg(this.chat));
 			return { changed: true };
 		});
 		if (!this.state) closeQuietly(ws, CLOSE.NO_ROOM, 'no room');
@@ -228,6 +232,8 @@ export class Room extends DurableObject<RoomEnv> {
 
 	private async act(ws: WebSocket, pid: Pid, msg: ClientMsg): Promise<void> {
 		if (!this.state || !members.findPlayer(this.state, pid)) return closeQuietly(ws, CLOSE.NO_ROOM, 'no seat');
+		// 채팅은 상태를 바꾸지 않으므로 run()(저장·스냅샷 방송)을 지나지 않는다.
+		if (msg.type === 'chat') return this.postChat(ws, this.state, pid, msg.text);
 		// D1은 await 사이에 다른 메시지가 끼어들 수 있으므로 조회를 먼저 하고, 적용(reduce)은 동기 구간에서 다시 검증한다.
 		const io: Io = {};
 		if (msg.type === 'guess' || msg.type === 'propose') io.valid = await this.lookupValid(pid, msg.type, msg.jamo);
@@ -241,6 +247,11 @@ export class Room extends DurableObject<RoomEnv> {
 			this.deliver(r.events);
 			return { changed: r.changed, skipSave: r.skipSave, destroy: r.destroy };
 		});
+	}
+
+	private postChat(ws: WebSocket, s: RoomState, pid: Pid, text: string): void {
+		const peers = this.ctx.getWebSockets().map((w) => ({ ws: w, pid: attOf(w).pid, open: w.readyState === OPEN }));
+		for (const { to, msg } of planChat(this.chat, s, { ws, pid }, text, Date.now(), peers)) this.sendTo(to, msg);
 	}
 
 	/** 제출할 수 있는 상태일 때만 D1을 읽는다(그 밖에는 reduce가 D1 없이 거절한다). 실패하면 undefined. */
@@ -421,6 +432,7 @@ export class Room extends DurableObject<RoomEnv> {
 
 	private async destroy(s: RoomState): Promise<void> {
 		this.state = null;
+		this.chat = new ChatLog();
 		for (const ws of this.ctx.getWebSockets()) {
 			ws.serializeAttachment({ pid: null, uid: null } satisfies Att);
 			closeQuietly(ws, CLOSE.DESTROYED, 'room closed');

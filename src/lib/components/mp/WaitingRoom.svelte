@@ -3,6 +3,7 @@
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import type { Settings, Snapshot } from '$lib/mp/protocol';
 	import { CODE_LENGTH, MAX_PLAYERS, NUDGE_COOLDOWN_MS } from '$lib/mp/rules';
+	import ChatPanel from './ChatPanel.svelte';
 	import Icon from './Icon.svelte';
 	import MpModal from './MpModal.svelte';
 	import RoomSettings from './RoomSettings.svelte';
@@ -141,6 +142,22 @@
 		void nextTick().then(() => membersHead?.focus());
 	}
 
+	// ---- 채팅: 넓은 화면은 참가자 옆 패널, 좁은 화면은 하단 바 버튼과 시트 ----
+	const WIDE = '(min-width: 900px)';
+	let wide = $state(matchMedia(WIDE).matches);
+	$effect(() => {
+		const mq = matchMedia(WIDE);
+		const sync = () => (wide = mq.matches);
+		sync();
+		mq.addEventListener('change', sync);
+		return () => mq.removeEventListener('change', sync);
+	});
+	// 시트가 열린 채 넓어지면 패널과 시트가 같은 대화를 둘 그린다. 시트를 닫는다.
+	$effect(() => {
+		if (wide && client.chatOpen) untrack(() => client.closeChat());
+	});
+	const chatLabel = $derived(client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅');
+
 	// 하단 고정 바가 마지막 참가자 행을 가리지 않게 본문 아래에 바 높이만큼 비운다.
 	let barH = $state(0);
 </script>
@@ -166,6 +183,7 @@
 </section>
 {#if isHost}<p class="note editnote">설정을 바꾸면 모두의 준비가 풀립니다.</p>{/if}
 
+<div class="cols" class:wide>
 <section aria-label="참가자">
 	<div class="card">
 		<div class="members-head"><h2 tabindex="-1" bind:this={membersHead}>참가자</h2></div>
@@ -219,6 +237,16 @@
 		</ul>
 	</div>
 </section>
+{#if wide}
+	<!-- 카드는 absolute라 높이를 참가자 카드가 정하고, 메시지가 쌓여도 열이 늘어나지 않는다 -->
+	<section class="chatcol" aria-label="채팅">
+		<div class="card chatcard">
+			<div class="members-head"><h2>채팅</h2></div>
+			<ChatPanel {client} />
+		</div>
+	</section>
+{/if}
+</div>
 </div>
 
 {#if target}
@@ -243,16 +271,27 @@
 
 <div class="action-bar" bind:offsetHeight={barH}>
 	<div class="ab-in">
+		<div class="ab-main">
+			{#if !wide}
+				<button class="btn chat big" type="button" aria-label={chatLabel} aria-haspopup="dialog" data-chat-entry onclick={(e) => client.openChat(e.currentTarget)}>
+					<Icon name="chat" size="1.25rem" />채팅
+					{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
+				</button>
+			{/if}
+			{#if isHost}
+				<button class="btn primary big wide" class:glow={nudgeCount > 0} type="button" disabled={!snap.host?.canStart} onclick={onstart}>{startLabel}</button>
+			{:else}
+				<button class="btn big wide" class:primary={!me?.ready} type="button" onclick={() => client.ready(!me?.ready)}>
+					{me?.ready ? '준비 취소' : '준비'}
+				</button>
+			{/if}
+		</div>
 		{#if isHost}
-			<button class="btn primary big wide" class:glow={nudgeCount > 0} type="button" disabled={!snap.host?.canStart} onclick={onstart}>{startLabel}</button>
 			<div class="ab-cap">
 				{#if nudgeCount > 0}<span class="bdg nbadge" role="status"><Icon name="bell" size="0.875rem" />재촉 {nudgeCount}회</span>{/if}
 				{#if !snap.host?.canStart}<span role="status">{startReason}</span>{/if}
 			</div>
 		{:else}
-			<button class="btn big wide" class:primary={!me?.ready} type="button" onclick={() => client.ready(!me?.ready)}>
-				{me?.ready ? '준비 취소' : '준비'}
-			</button>
 			<div class="ab-cap"><span role="status">{snap.phase === 'result' ? '방장이 다음 게임을 고르는 중입니다.' : me?.ready ? '방장이 시작하길 기다리는 중' : ''}</span></div>
 		{/if}
 	</div>
@@ -337,6 +376,22 @@
 	}
 	.two > * {
 		flex: 1;
+	}
+	/* 900px 이상에서만 두 칸. 채팅 칸은 참가자 카드와 같은 높이로 늘어난다 */
+	.cols.wide {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 21.25rem;
+		gap: 1.25rem;
+		align-items: stretch;
+	}
+	.chatcol {
+		position: relative;
+	}
+	.chatcard {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
 	}
 	.members-head {
 		padding: 0.75rem 1rem;
@@ -459,9 +514,20 @@
 		max-width: 60rem;
 		margin: 0 auto;
 	}
+	.ab-main {
+		display: flex;
+		gap: 0.5rem;
+	}
 	.ab-in .wide {
 		min-width: 12rem;
 		min-height: 52px;
+	}
+	.ab-in .chat {
+		flex: none;
+		min-width: 5.25rem;
+		min-height: 52px;
+		padding: 0 0.75rem;
+		font-size: 0.875rem;
 	}
 	.ab-cap {
 		display: flex;
@@ -564,11 +630,14 @@
 			align-items: stretch;
 			gap: 0.375rem;
 		}
-		.ab-in .wide {
-			min-height: 48px;
-		}
+		/* 사유 문구가 위, 버튼 줄이 아래. 채팅 버튼은 시작·준비 왼쪽에 붙는다 */
 		.ab-cap {
-			justify-content: center;
+			order: -1;
+		}
+		.ab-main .wide {
+			flex: 1 1 auto;
+			min-width: 0;
+			min-height: 52px;
 		}
 	}
 </style>

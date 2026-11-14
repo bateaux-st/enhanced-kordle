@@ -1,6 +1,6 @@
 // 네트워크에서 온 문자열을 ClientMsg로. 타입·길이가 어긋나면 null이고, 호출자가 error로 답한다.
 import { isJamo, MAX_N } from '../../jamo.ts';
-import { parseSettings } from '../../mp/rules.ts';
+import { normalizeChat, parseSettings } from '../../mp/rules.ts';
 import type { ClientMsg } from '../../mp/protocol.ts';
 
 export const MAX_RAW_LENGTH = 4096;
@@ -61,6 +61,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
 			return typeof m.candidate === 'number' && Number.isInteger(m.candidate) && m.candidate >= 0 && m.candidate < 10 ? { type: 'vote', candidate: m.candidate } : null;
 		case 'eliminate':
 			return typeof m.pid === 'string' && m.pid.length >= 1 && m.pid.length <= MAX_PID ? { type: 'eliminate', pid: m.pid } : null;
+		case 'chat': {
+			const text = normalizeChat(m.text);
+			return text === null ? null : { type: 'chat', text };
+		}
 		case 'transfer':
 			return typeof m.pid === 'string' && m.pid.length >= 1 && m.pid.length <= MAX_PID ? { type: 'transfer', pid: m.pid } : null;
 		default:
