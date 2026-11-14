@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PlayerView } from '$lib/mp/protocol';
 	import Icon from './Icon.svelte';
-	import { statusLabel } from './labels';
+	import { oppKind, oppLabel } from './labels';
 
 	let {
 		player,
@@ -33,31 +33,9 @@
 	const kind = $derived.by(() => {
 		if (coop?.pass) return 'passed';
 		if (coop) return coop.state === 'off' ? 'off' : coop.state === 'proposed' ? 'proposed' : coop.state === 'playing' ? 'playing' : 'idle';
-		if (!panel) return 'out';
-		if (panel.status === 'solved') return 'done';
-		if (panel.status !== 'playing') return 'out';
-		return player.connected ? 'playing' : 'off';
+		return oppKind(player);
 	});
-	// 끝난 이유(실패·포기·시간 초과·탈락)는 패널을 보는 사람이 알아야 하므로 하나로 뭉치지 않는다.
-	const label = $derived(
-		kind === 'off'
-			? '접속 끊김'
-			: kind === 'playing'
-				? '풀이 중'
-				: kind === 'passed'
-					? '패스'
-					: kind === 'proposed'
-					? '제안함'
-					: kind === 'idle'
-						? ''
-						: kind === 'done'
-							? rank
-								? `완료 ${rank}위`
-								: '완료'
-							: player.left
-								? '나감'
-								: statusLabel(panel?.status ?? 'eliminated', climb)
-	);
+	const label = $derived(kind === 'passed' ? '패스' : kind === 'proposed' ? '제안함' : kind === 'idle' ? '' : oppLabel(player, kind, rank, climb));
 	const marks = $derived(panel?.marks ?? []);
 	const n = $derived(coop?.n ?? panel?.n ?? 0);
 	const word = $derived([...(coop?.word ?? '')]);
@@ -74,21 +52,28 @@
 </script>
 
 <section class="opp" class:compact class:off={kind === 'off'} class:out={kind === 'out'} class:done={kind === 'done'} class:flash={kind === 'proposed'} class:lit={coop?.lit} aria-label={player.name}>
-	<span class="nm" title={player.name}>{player.name}</span>
-	{#key label}
-		{#if label}
-			<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:chip={kind === 'proposed' && coop?.lit} class:passc={kind === 'passed'} class:offc={kind === 'off'} class:outc={kind === 'out'}>
-				{#if kind === 'playing'}<Icon name="edit" />
-				{:else if kind === 'passed'}<Icon name="chevR" />
-				{:else if kind === 'proposed'}<Icon name="check" width={3} />
-				{:else if kind === 'done'}<Icon name="checkc" />
-				{:else if kind === 'out'}<Icon name={player.left ? 'exit' : 'xc'} />
-				{:else}<Icon name="off" />{/if}
-				{label}
-			</span>
+	<div class="top">
+		<div class="who">
+			<span class="nm" title={player.name}>{player.name}</span>
+			{#key label}
+				{#if label}
+					<span class="st a-pop" class:done={kind === 'done'} class:prop={kind === 'proposed'} class:chip={kind === 'proposed' && coop?.lit} class:passc={kind === 'passed'} class:offc={kind === 'off'} class:outc={kind === 'out'}>
+						{#if kind === 'playing'}<Icon name="edit" />
+						{:else if kind === 'passed'}<Icon name="chevR" />
+						{:else if kind === 'proposed'}<Icon name="check" width={3} />
+						{:else if kind === 'done'}<Icon name="checkc" />
+						{:else if kind === 'out'}<Icon name={player.left ? 'exit' : 'xc'} />
+						{:else}<Icon name="off" />{/if}
+						{label}
+					</span>
+				{/if}
+			{/key}
+		</div>
+		{#if stageText && panel}
+			<!-- 등반에서는 상대가 어느 스테이지에 있는지가 가장 큰 정보라 이름과 같은 줄에서 크게 보인다 -->
+			<div class="stg" aria-hidden="true"><span class="stg-l">스테이지</span><span class="stg-n">{panel.stage}</span></div>
 		{/if}
-	{/key}
-	{#if stageText}<span class="stage">{stageText}</span>{/if}
+	</div>
 	{#if coop}
 		<!-- 칸은 n개 고정이라 초안이 길어지거나 짧아져도 카드 높이가 변하지 않는다 -->
 		<div class="prop-w" role="img" aria-label={summary} style="--n:{n}">
@@ -170,10 +155,35 @@
 		font-size: 0.8125rem;
 		font-weight: 500;
 	}
-	.stage {
-		font-size: 0.75rem;
-		color: var(--muted);
+	.top {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+	.who {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.stg {
+		flex: none;
+		text-align: right;
 		font-variant-numeric: tabular-nums;
+	}
+	.stg-l {
+		display: block;
+		font-size: 0.6875rem;
+		line-height: 1rem;
+		font-weight: 500;
+		color: var(--muted);
+	}
+	.stg-n {
+		display: block;
+		font-size: 1.5rem;
+		line-height: 1.75rem;
+		font-weight: 700;
 	}
 	.st.done {
 		padding: 0.1875rem 0.5rem;
@@ -280,6 +290,10 @@
 		padding: 6px;
 		border-radius: 0.375rem;
 	}
+	.compact .top,
+	.compact .who {
+		display: contents;
+	}
 	.compact .nm {
 		max-width: 100%;
 		font-size: 0.8125rem;
@@ -297,10 +311,6 @@
 	}
 	.compact .mc {
 		border-radius: 1px;
-	}
-	.compact .stage {
-		font-size: 0.6875rem;
-		white-space: nowrap;
 	}
 	.compact .st {
 		align-self: center;

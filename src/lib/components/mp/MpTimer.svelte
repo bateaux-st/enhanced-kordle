@@ -4,12 +4,15 @@
 	let {
 		deadline,
 		cap = null,
+		band = false,
 		now
 	}: {
 		/** 서버 시계 기준 마감(ms). */
 		deadline: number;
 		/** 보이는 값의 상한(ms). 등반 클리어 연출 2초 동안 새 스테이지 시간을 가득 찬 값에 붙잡아 둔다. */
 		cap?: number | null;
+		/** 스테이지 띠의 오른쪽 칸 모양: 라벨 아래에 큰 숫자. 아니면 한 줄 알약. */
+		band?: boolean;
 		/** 서버 시계로 보정한 지금(ms). */
 		now: () => number;
 	} = $props();
@@ -47,8 +50,13 @@
 	});
 </script>
 
-<span class="clk" class:urgent={leftMs <= URGENT_MS}>
-	<span aria-hidden="true">남은 시간 {text}</span>
+<span class="clk" class:band class:urgent={leftMs <= URGENT_MS}>
+	{#if band}
+		<span class="lb" aria-hidden="true">남은 시간</span>
+		<span class="vl" aria-hidden="true">{text}</span>
+	{:else}
+		<span aria-hidden="true">남은 시간 {text}</span>
+	{/if}
 	<span class="sr" role="status">{said}</span>
 </span>
 
@@ -69,5 +77,23 @@
 	.clk.urgent {
 		background: var(--danger);
 		color: var(--on-danger);
+	}
+	/* 띠의 오른쪽 칸. 알약의 색 규칙(평소 --sel-bg, 30초 아래 --danger)은 그대로 쓴다 */
+	.clk.band {
+		flex-direction: column;
+		align-items: flex-end;
+		justify-content: center;
+		padding: 0.5rem 0.875rem;
+		border-radius: 0;
+		font-size: 1rem;
+	}
+	.band .lb {
+		font-size: 0.75rem;
+		line-height: 1rem;
+		font-weight: 500;
+	}
+	.band .vl {
+		font-size: 1.5rem;
+		line-height: 1.75rem;
 	}
 </style>

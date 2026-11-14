@@ -47,7 +47,10 @@
 	);
 	// 멈춘 곳의 정답: 협동은 멈춘 스테이지, 경쟁은 가장 높이 오른 사람이 못 넘은 스테이지.
 	const stopped = $derived(top || (coop && coop.status === 'won') ? undefined : wordAt(startN + reached));
-	const title = $derived(top ? `${LENGTH_MAX}자 완주!` : reached ? `스테이지 ${reached}까지 올랐습니다` : '첫 스테이지에서 멈췄습니다');
+	const won = $derived(coop?.status === 'won');
+	// 협동 결과: 포기한 사람은 가리지 않고, 판에 들어 있던 사람 전원이 같은 결과를 받는다.
+	const people = $derived(snap.players.filter((p) => p.inGame).map((p) => ({ pid: p.pid, name: p.name, me: p.pid === snap.you })));
+	const answerJamo = $derived([...((game ?? coop)?.answers?.[startN]?.jamo ?? '')]);
 
 	// 상태·시도·정답 순서는 순위표가 확정 시점에 들고 있다. 결과 단계에서 사람이 나가 players에서 사라져도 표는 그대로다.
 	const rows = $derived(
@@ -67,20 +70,35 @@
 </script>
 
 <MpModal title={climb ? '등반 결과' : '결과'} wide={!coop} {onclose}>
-	{#if coop && climb}
-		<!-- 협동은 순위가 없다. 전원이 같은 결과를 받는다. -->
+	{#if coop}
+		<!-- 협동은 순위가 없다. 결과 칩은 경쟁 순위표(A2)와 같은 중립 칩이라 색에만 기대지 않는다 -->
 		<div class="coop-res">
-			<p class="big climb-head">{title}</p>
-			<ClimbPyramid words={pyramid} />
-			{#if stopped}<p class="stopped">멈춘 곳의 정답: <b>{stopped}</b></p>{/if}
+			<p class="chip verdict"><i class="dot" class:ok={won} aria-hidden="true"></i>{won ? '성공' : '실패'}</p>
+			{#if climb}
+				<p class="count"><span class="num">{reached}</span><span class="unit">스테이지 클리어</span></p>
+			{:else}
+				<p class="count"><span class="num">{coop.board.rows.length}</span><span class="unit">회 시도</span></p>
+				<p class="note">시도 횟수 {snap.settings.tries}회</p>
+			{/if}
 			{#if coop.endReason === 'timeout'}<p class="note">시간이 다 됐습니다.</p>{/if}
-		</div>
-	{:else if coop}
-		<div class="coop-res">
-			<p class="big">{coop.status === 'won' ? '정답입니다' : answer ? `정답: ${answer}` : '실패했습니다'}</p>
-			{#if coop.status === 'won' && answer}<p>정답: <b>{answer}</b></p>{/if}
-			<p class="note">{coop.board.rows.length}회 시도</p>
-			{#if coop.endReason === 'timeout'}<p class="note">시간이 다 됐습니다.</p>{/if}
+			<hr class="sep" />
+			{#if climb}
+				<ClimbPyramid words={pyramid} />
+				{#if stopped}<p class="stopped">멈춘 곳의 정답: <b>{stopped}</b></p>{/if}
+			{:else}
+				<p class="lbl">정답</p>
+				<div class="tiles" class:ok={won} role="img" aria-label="정답 {answer ?? ''} {answerJamo.join('')}">
+					{#each answerJamo as ch, i (i)}<span aria-hidden="true">{ch}</span>{/each}
+				</div>
+				{#if answer}<p class="word">{answer}</p>{/if}
+			{/if}
+			<hr class="sep" />
+			<p class="lbl">함께한 사람 {people.length}명</p>
+			<ul class="people">
+				{#each people as p (p.pid)}
+					<li><span class="nt" title={p.name}>{p.name}</span>{#if p.me}<span class="bdg me">나</span>{/if}</li>
+				{/each}
+			</ul>
 		</div>
 	{:else}
 		{#if answer && !climb}
@@ -136,14 +154,98 @@
 	.coop-res {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
-	}
-	.coop-res .big {
-		margin-bottom: 0;
-	}
-	.climb-head {
+		align-items: center;
 		text-align: center;
+		padding-top: 0.25rem;
+		font-variant-numeric: tabular-nums;
+	}
+	.coop-res .verdict {
+		font-size: 0.875rem;
+	}
+	.count {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		margin-top: 1rem;
+	}
+	.count .num {
+		font-size: 4.5rem;
+		line-height: 1;
+		font-weight: 700;
+	}
+	.count .unit {
+		font-size: 1.125rem;
+		font-weight: 700;
+	}
+	.coop-res .note {
+		margin-top: 0.5rem;
+	}
+	.sep {
+		width: 100%;
+		height: 1px;
+		margin: 1.25rem 0 1rem;
+		border: 0;
+		background: var(--line);
+	}
+	.lbl {
 		margin-bottom: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	/* 정답 칸은 맞힌 판이면 초록, 놓친 판이면 중립 회색. 글자색은 칸 색에서 4.5:1을 지키는 쪽을 고른다 */
+	.tiles {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 4px;
+	}
+	.tiles span {
+		width: 2.5rem;
+		height: 2.5rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.25rem;
+		font-size: 1.25rem;
+		font-weight: 700;
+		background: var(--key);
+		color: var(--on-key);
+	}
+	.tiles.ok span {
+		background: var(--tile-correct);
+		color: var(--text);
+	}
+	:global(:root[data-theme='dark']) .tiles.ok span {
+		color: var(--on-tile);
+	}
+	.word {
+		margin-top: 0.5rem;
+		font-size: 1rem;
+		font-weight: 700;
+	}
+	.people {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.5rem;
+		max-width: 100%;
+	}
+	.people li {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		max-width: 100%;
+		padding: 0.375rem 0.625rem;
+		border: 1px solid var(--muted);
+		border-radius: 0.25rem;
+		background: var(--surface);
+		font-size: 0.9rem;
+		font-weight: 700;
+	}
+	.people .bdg.me {
+		flex: none;
+		background: var(--surface);
+		color: var(--text);
 	}
 	.coop-res .stopped,
 	.comp-climb .stopped {
