@@ -88,7 +88,10 @@ function coopView(s: RoomState, game: CoopGame, pid: Pid): CoopGameView {
 		passResetAt: game.passResetAt ?? null
 	};
 	if (game.endReason) view.endReason = game.endReason;
-	if (s.phase === 'result') view.answers = reachedAnswers(game.answers, b.n);
+	if (s.phase === 'result') {
+		view.answers = reachedAnswers(game.answers, b.n);
+		if (game.roster) view.roster = game.roster.map((r) => ({ ...r }));
+	}
 	return view;
 }
 

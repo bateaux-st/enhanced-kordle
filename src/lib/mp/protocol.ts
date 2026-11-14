@@ -250,6 +250,8 @@ export interface CoopGameView {
 	passResetAt: number | null;
 	/** result에서만. 진행 중에는 누구에게도 보내지 않는다. 등반이면 도달한 스테이지(길이)까지만 든다. */
 	answers?: Record<number, { word: string; jamo: string }>;
+	/** result에서만. 판에 든 사람 전원(중간에 나간 사람 포함). 결과 화면이 열린 채 누가 나가도 바뀌지 않는다. */
+	roster?: { pid: Pid; name: string }[];
 }
 
 export interface HostView {

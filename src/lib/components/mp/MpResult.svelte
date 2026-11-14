@@ -49,7 +49,10 @@
 	const stopped = $derived(top || (coop && coop.status === 'won') ? undefined : wordAt(startN + reached));
 	const won = $derived(coop?.status === 'won');
 	// 협동 결과: 포기한 사람은 가리지 않고, 판에 들어 있던 사람 전원이 같은 결과를 받는다.
-	const people = $derived(snap.players.filter((p) => p.inGame).map((p) => ({ pid: p.pid, name: p.name, me: p.pid === snap.you })));
+	// 서버가 끝난 시점에 확정한 명단을 쓴다. 없는 저장본만 현재 players로 대신한다.
+	const people = $derived(
+		(coop?.roster ?? snap.players.filter((p) => p.inGame)).map((p) => ({ pid: p.pid, name: p.name, me: p.pid === snap.you }))
+	);
 	const answerJamo = $derived([...((game ?? coop)?.answers?.[startN]?.jamo ?? '')]);
 
 	// 상태·시도·정답 순서는 순위표가 확정 시점에 들고 있다. 결과 단계에서 사람이 나가 players에서 사라져도 표는 그대로다.

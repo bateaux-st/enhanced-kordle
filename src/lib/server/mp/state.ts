@@ -90,6 +90,8 @@ export interface CoopGame extends GameBase {
 	lastClear?: StageClearView | null;
 	status: 'playing' | 'won' | 'lost';
 	endReason?: 'solved' | 'tries' | 'timeout' | 'giveup';
+	/** 끝난 시점에 판에 든 사람. 중간에 나간 사람도 포함하고, 결과 단계의 퇴장에도 바뀌지 않는다. 이전 저장본에는 없을 수 있다. */
+	roster?: { pid: Pid; name: string }[];
 }
 
 export interface CompPlayer {

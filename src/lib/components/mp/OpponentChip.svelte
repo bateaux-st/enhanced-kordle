@@ -86,7 +86,7 @@
 		border-color: var(--sel-line);
 		background: var(--sel-bg);
 	}
-	/* 끊긴 칩만 점선 테두리. 이름과 격자만 흐리게 하고 칩과 테두리는 선명하게 둔다 */
+	/* 끊긴 칩만 점선 테두리. 격자만 흐리게 하고 이름·칩·테두리는 선명하게 둔다. 이름은 펼친 칩의 --sel-bg 위에서 흐리면 4.5:1이 안 나온다 */
 	.oc.off {
 		border-style: dashed;
 	}
@@ -106,7 +106,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		transition: opacity var(--mo-fade);
 	}
 	.st {
 		display: inline-flex;
@@ -158,9 +157,9 @@
 		align-items: flex-end;
 		gap: 3px;
 	}
-	/* 칸 크기는 9px, 12자에서도 오른쪽 덩어리가 6.25rem을 넘지 않게 줄인다 */
+	/* 칸 크기는 9px, 12자에서도 격자가 4.75rem을 넘지 않게 줄여 이름 자리를 남긴다. 전체 격자는 탭해서 연 시트에 있다 */
 	.dots {
-		--d: min(9px, calc(6.25rem / var(--n) - 2px));
+		--d: min(9px, calc(4.75rem / var(--n) - 2px));
 		display: flex;
 		gap: 2px;
 		transition: opacity var(--mo-fade);
@@ -190,11 +189,9 @@
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
-	.out .nm,
 	.out .dots {
 		opacity: 0.7;
 	}
-	.off .nm,
 	.off .dots {
 		opacity: 0.6;
 	}

@@ -24,6 +24,8 @@
 		onclose: () => void;
 	} = $props();
 
+	// 7자부터는 격자 옆에 이름과 상세가 들어갈 폭이 360px에서 모자라 한 줄 위로 올린다.
+	const STACK_N = 7;
 	const panel = $derived(player.panel);
 	const kind = $derived(oppKind(player));
 	const label = $derived(oppLabel(player, kind, rank, climb));
@@ -33,7 +35,7 @@
 </script>
 
 <!-- 모바일 칩 아래에 겹쳐 펼치는 상대 격자. 모달이 아니라서 아래 자판과 입력은 그대로 쓴다 -->
-<section {id} class="sheet a-drop" aria-label="{player.name} 진행 격자" style="--n:{n || 6}">
+<section {id} class="sheet a-drop" class:stack={n >= STACK_N} aria-label="{player.name} 진행 격자" style="--n:{n || 6}">
 	<span class="rn" aria-hidden="true">
 		{#each { length: tries } as _, r (r)}<span>{r + 1}</span>{/each}
 	</span>
@@ -70,6 +72,15 @@
 		border-radius: 0.5rem;
 		background: var(--surface);
 		box-shadow: var(--shadow);
+	}
+	.sheet.stack {
+		--c: min(14px, calc((100vw - 5.5rem) / var(--n) - 2px));
+		flex-wrap: wrap;
+	}
+	.stack .info {
+		order: -1;
+		flex: 1 0 100%;
+		margin-left: 0;
 	}
 	.rn {
 		flex: none;

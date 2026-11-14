@@ -556,6 +556,8 @@
 	// 등반은 길이가 스테이지마다 늘어나므로 제목에는 시작 길이를 두고 지금 스테이지는 띠가 보여 준다.
 	const titleN = $derived(climb ? ((coop ?? game)?.startN ?? n) : n);
 	const modeLine = $derived(`${coop ? '협동' : '경쟁'} · ${climb ? '등반' : '단판'} · ${titleN}자${snap.settings.hard ? ' · 하드' : ''}`);
+	// 띠의 숫자는 읽는 영역이 아니라서 스테이지가 바뀔 때 새 스테이지와 자모 수를 따로 알린다.
+	const stageText = $derived(climb && view ? `스테이지 ${view.stage}, ${view.n}자` : '');
 	const lastRowText = $derived.by(() => {
 		const rows = view?.rows ?? [];
 		if (!rows.length || !view) return '';
@@ -750,6 +752,7 @@
 	</p>
 {/if}
 
+<p class="sr" aria-live="polite">{stageText}</p>
 <p class="sr" aria-live="polite">{lastRowText}</p>
 
 <div class="actions" bind:this={actionsEl}>
