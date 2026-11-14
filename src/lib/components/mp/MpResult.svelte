@@ -77,7 +77,7 @@
 </script>
 
 {#snippet chatBtn()}
-	<button class="btn chat" type="button" aria-label={client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅'} aria-haspopup="dialog" onclick={(e) => client.openChat(e.currentTarget)}>
+	<button class="btn chat" type="button" aria-label={client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅'} aria-haspopup="dialog" data-chat-entry onclick={(e) => client.openChat(e.currentTarget)}>
 		<Icon name="chat" size="1.25rem" />채팅
 		{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
 	</button>

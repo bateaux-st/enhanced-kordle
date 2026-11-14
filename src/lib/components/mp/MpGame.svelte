@@ -217,7 +217,9 @@
 				touch();
 				client.vote(i);
 			},
-			onclose: () => client.closeStep()
+			onclose: () => client.closeStep(),
+			unread: client.chatUnread,
+			onchat: (from: HTMLElement) => client.openChat(from)
 		};
 	});
 

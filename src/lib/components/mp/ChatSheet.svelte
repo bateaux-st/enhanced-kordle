@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import type { MpClient } from '$lib/mp/client.svelte';
 	import ChatPanel from './ChatPanel.svelte';
 	import Icon from './Icon.svelte';
@@ -17,15 +17,14 @@
 
 	const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-	/** 사용자가 닫았다: 포커스를 여는 버튼으로 돌린다. 투표 시트에 밀려 닫힐 때는 이 함수를 지나지 않으므로 돌리지 않는다. */
-	function close() {
-		client.chatOpen = false;
-		const o = client.chatOpener;
-		void tick().then(() => o && document.contains(o) && o.focus());
-	}
+	const close = () => client.closeChat();
+
+	// 좁은 화면에서 열자마자 입력칸에 포커스를 주면 키보드가 올라와 읽으려던 시트를 가린다. 시트에 포커스를 두고, 입력칸은 눌러야 열린다.
+	const narrow = matchMedia('(max-width: 640px)').matches;
 
 	onMount(() => {
 		stack.push(me);
+		if (narrow) dlg?.focus({ preventScroll: true });
 
 		const vv = window.visualViewport;
 		const sync = () => {
@@ -80,7 +79,7 @@
 			<h2 {id}>채팅</h2>
 			<button class="x" type="button" aria-label="닫기" onclick={close}><Icon name="x" size="1.25rem" /></button>
 		</div>
-		<ChatPanel {client} divider autofocus />
+		<ChatPanel {client} divider autofocus={!narrow} />
 	</div>
 </div>
 

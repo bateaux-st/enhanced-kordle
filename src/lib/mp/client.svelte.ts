@@ -1,3 +1,4 @@
+import { tick } from 'svelte';
 import { ChatFeed } from './chat-feed.ts';
 import type { ChatLine } from './chat-feed.ts';
 import { readSession, writeSession } from './identity.ts';
@@ -175,6 +176,17 @@ export class MpClient {
 	openChat(from: EventTarget | null): void {
 		this.chatOpener = from instanceof HTMLElement ? from : null;
 		this.chatOpen = true;
+	}
+
+	/** 닫고 포커스를 여는 버튼으로 돌린다. 버튼이 사라졌거나 다른 모달(협동 투표)에 가려졌으면 그 모달 안(없으면 화면)의 채팅 진입점으로 보낸다. */
+	closeChat(): void {
+		this.chatOpen = false;
+		const o = this.chatOpener;
+		void tick().then(() => {
+			const modal = document.querySelector('.mp [aria-modal="true"]');
+			const usable = o && document.contains(o) && (!modal || modal.contains(o));
+			(usable ? o : (modal ?? document).querySelector<HTMLElement>('[data-chat-entry]'))?.focus();
+		});
 	}
 
 	markChatRead(): void {

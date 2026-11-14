@@ -306,22 +306,25 @@
 	const between = $derived(snap?.phase === 'result' && (!inGame || (snap.game !== null && snap.game.startedAt === parkedGame)));
 
 	// ---- 채팅 ----
-	// 협동 투표 시트가 우선이다. 열려 있던 채팅은 쓰던 글을 남기고 닫히며, 투표 중에는 열리지 않는다.
-	const voting = $derived(snap?.phase === 'playing' && snap.game?.kind === 'coop' && snap.game.step?.kind === 'vote');
-	$effect(() => {
-		if (voting && client.chatOpen) client.chatOpen = false;
-	});
 	const chatLabel = $derived(client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅');
 
 	const viewKey = $derived(
 		view === 'room' ? (client.status === 'dev' ? 'dev' : !snap ? 'load' : snap.phase === 'lobby' || lateJoiner ? 'wait' : between ? 'between' : 'game') : view
 	);
+	// 화면이 바뀌면 시트를 닫는다. 여는 버튼이 사라지고 대기실은 자기 패널을 따로 그려 같은 대화가 둘 뜬다.
+	let chatView = untrack(() => viewKey);
+	$effect(() => {
+		const v = viewKey;
+		if (v === chatView) return;
+		chatView = v;
+		untrack(() => client.chatOpen && client.closeChat());
+	});
 </script>
 
 <div class="mp">
 	<div class="tools">
 		{#if snap && (viewKey === 'game' || viewKey === 'between')}
-			<button class="btn icon chat" type="button" aria-label={chatLabel} aria-haspopup="dialog" aria-disabled={voting} onclick={(e) => !voting && client.openChat(e.currentTarget)}>
+			<button class="btn icon chat" type="button" aria-label={chatLabel} aria-haspopup="dialog" data-chat-entry onclick={(e) => client.openChat(e.currentTarget)}>
 				<Icon name="chat" size="1.25rem" />
 				{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
 			</button>
@@ -420,7 +423,7 @@
 		/>
 	{/if}
 
-	{#if view === 'room' && snap && client.chatOpen && !voting}
+	{#if view === 'room' && snap && client.chatOpen}
 		<ChatSheet {client} />
 	{/if}
 

@@ -152,6 +152,10 @@
 		mq.addEventListener('change', sync);
 		return () => mq.removeEventListener('change', sync);
 	});
+	// 시트가 열린 채 넓어지면 패널과 시트가 같은 대화를 둘 그린다. 시트를 닫는다.
+	$effect(() => {
+		if (wide && client.chatOpen) untrack(() => client.closeChat());
+	});
 	const chatLabel = $derived(client.chatUnread ? `채팅, 안 읽은 메시지 ${client.chatUnread}개` : '채팅');
 
 	// 하단 고정 바가 마지막 참가자 행을 가리지 않게 본문 아래에 바 높이만큼 비운다.
@@ -269,7 +273,7 @@
 	<div class="ab-in">
 		<div class="ab-main">
 			{#if !wide}
-				<button class="btn chat big" type="button" aria-label={chatLabel} aria-haspopup="dialog" onclick={(e) => client.openChat(e.currentTarget)}>
+				<button class="btn chat big" type="button" aria-label={chatLabel} aria-haspopup="dialog" data-chat-entry onclick={(e) => client.openChat(e.currentTarget)}>
 					<Icon name="chat" size="1.25rem" />채팅
 					{#if client.chatUnread}<span class="cbadge" aria-hidden="true">{client.chatUnread}</span>{/if}
 				</button>

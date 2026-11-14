@@ -14,13 +14,14 @@
 		autofocus?: boolean;
 	} = $props();
 
-	// 입력창은 IME 조합 중에 값을 건드리지 않는다. 100자 제한은 maxlength가 맡고(한글은 글자 수와 UTF-16 길이가 같다),
-	// 이모지처럼 한 글자가 둘을 차지하는 입력은 100자보다 일찍 막힌다. 서버 상한(코드포인트 100)을 넘길 수는 없다.
+	// 서버 상한과 같은 코드포인트 기준으로 센다. maxlength는 UTF-16 길이로 세어 이모지가 카운터보다 일찍 막히므로 쓰지 않고,
+	// 넘친 글은 입력 때 잘라 낸다. IME 조합 중에는 값을 건드리지 않고 조합이 끝난 뒤에 자른다.
 	const COUNT_FROM = 80;
 	const id = $props.id();
 	let input: HTMLInputElement | undefined = $state();
 	let logEl: HTMLElement | undefined = $state();
-	let failed = $state(false);
+	// 입력칸 아래에 한 줄로 보이는 안내: 보내기 실패, 속도 제한
+	let note = $state('');
 
 	// 열린 순간에 정한다. 열려 있는 동안 새 메시지가 와도 구분선과 숫자는 그대로 둔다.
 	const mark = untrack(() => {
@@ -51,18 +52,34 @@
 		if (logEl && pinned) logEl.scrollTop = logEl.scrollHeight;
 	});
 	onMount(() => {
-		if (autofocus) input?.focus();
+		// 안 읽은 메시지가 있으면 구분선이 보이게 올려 둔다. 포커스 이동으로 로그가 다시 밀리지 않게 preventScroll을 건다.
+		const d = logEl?.querySelector('.unread');
+		if (logEl && d) {
+			logEl.scrollTop += d.getBoundingClientRect().top - logEl.getBoundingClientRect().top - 8;
+			onscroll();
+		}
+		if (autofocus) input?.focus({ preventScroll: true });
 	});
+
+	function clamp() {
+		const cps = [...client.chatDraft];
+		if (cps.length > CHAT_MAX) client.chatDraft = cps.slice(0, CHAT_MAX).join('');
+	}
+	function oninput(e: Event) {
+		note = '';
+		if (!(e as InputEvent).isComposing) clamp();
+	}
 
 	let lastSent = '';
 	function send() {
+		clamp();
 		const text = client.chatDraft;
 		if (!text.trim()) return;
 		if (!client.sendChat(text)) {
-			failed = true;
+			note = '보내지 못했습니다. 다시 시도하세요.';
 			return;
 		}
-		failed = false;
+		note = '';
 		lastSent = text;
 		client.chatDraft = '';
 		pinned = true;
@@ -75,7 +92,10 @@
 		const e = client.error;
 		if (!e || e.id === lastErr) return;
 		lastErr = e.id;
-		if (e.code === 'cooldown' && e.msg.startsWith('채팅')) untrack(() => !client.chatDraft && (client.chatDraft = lastSent));
+		if (e.code !== 'cooldown' || !e.msg.startsWith('채팅')) return;
+		// 토스트는 입력칸에서 멀고 키보드에 가릴 수 있어 같은 문구를 입력칸 아래에도 남긴다.
+		note = e.msg;
+		untrack(() => !client.chatDraft && (client.chatDraft = lastSent));
 	});
 
 	function onkeydown(e: KeyboardEvent) {
@@ -116,21 +136,22 @@
 				{id}
 				class="input"
 				type="text"
-				maxlength={CHAT_MAX}
 				autocomplete="off"
 				placeholder="메시지 입력"
 				enterkeyhint="send"
 				bind:this={input}
 				bind:value={client.chatDraft}
-				oninput={() => (failed = false)}
+				data-chat-entry={divider ? undefined : ''}
+				{oninput}
+				oncompositionend={clamp}
 				{onkeydown}
 			/>
 			{#if count > COUNT_FROM}<span class="cnt" class:full={count >= CHAT_MAX} aria-hidden="true">{count}/{CHAT_MAX}</span>{/if}
 		</div>
 		<button class="btn primary" type="button" onclick={send}>보내기</button>
 	</div>
-	{#if count > COUNT_FROM}<p class="sr" role="status">{count >= CHAT_MAX ? '글자 수 한도에 닿았습니다' : `${CHAT_MAX - count}자 남음`}</p>{/if}
-	{#if failed}<p class="fail" role="status">보내지 못했습니다. 다시 시도하세요.</p>{/if}
+	{#if count > COUNT_FROM}<p class="sr" role="status">{count >= CHAT_MAX ? '글자 수 한도에 닿았습니다' : `${Math.max(0, CHAT_MAX - count)}자 남음`}</p>{/if}
+	{#if note}<p class="fail" role="status">{note}</p>{/if}
 </div>
 
 <style>

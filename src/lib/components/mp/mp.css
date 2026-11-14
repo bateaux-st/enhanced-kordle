@@ -171,10 +171,6 @@
 	background: var(--btn-primary);
 	box-shadow: 0 0 0 2px var(--bg);
 }
-.mp .btn.chat[aria-disabled='true'] {
-	opacity: 0.45;
-	cursor: default;
-}
 .mp .btn.chip {
 	font-size: 0.875rem;
 	font-weight: 700;
