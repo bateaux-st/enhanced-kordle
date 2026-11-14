@@ -13,7 +13,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const body = (await request.json().catch(() => null)) as HintRequest | null;
 	const answer = body && typeof body.token === 'string' ? await decodeToken(body.token, secret) : null;
 	if (!answer) error(400, 'bad token');
-	if (!isJamo(body!.jamo)) error(400, 'bad jamo');
+	if (typeof body!.jamo !== 'string' || !isJamo(body!.jamo)) error(400, 'bad jamo');
 
 	const { jamo } = await db.answerAt(answer.t, answer.n, answer.idx);
 	if (!jamo.includes(body!.jamo)) error(400, 'jamo not in answer');

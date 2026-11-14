@@ -72,11 +72,10 @@ test('자모가 아니면 D1을 읽지 않고 400 bad jamo', async () => {
 	assert.equal(db.queries.length, 0);
 });
 
-// isJamo가 jamo.length를 먼저 읽어 undefined·null이면 TypeError가 난다(src 수정은 이번 범위 밖).
-test('jamo가 없거나 null이면 500이 아니라 400 bad jamo', { todo: 'api/hint: isJamo(undefined)가 TypeError를 던져 500이 된다' }, async () => {
+test('jamo가 없거나 문자열이 아니면 500이 아니라 400 bad jamo', async () => {
 	const { platform } = setup();
 	const t = await token();
-	for (const body of [{ token: t }, { token: t, jamo: null }]) {
+	for (const body of [{ token: t }, { token: t, jamo: null }, { token: t, jamo: ['ㅏ'] }]) {
 		const res = await call(POST, { body, platform });
 		assert.deepEqual([res.status, res.message], [400, 'bad jamo'], JSON.stringify(body));
 	}
