@@ -11,6 +11,7 @@
 	import HelpModal from '$lib/components/HelpModal.svelte';
 	import StatsModal from '$lib/components/StatsModal.svelte';
 	import ClimbModal from '$lib/components/ClimbModal.svelte';
+	import ClimbClock from '$lib/components/ClimbClock.svelte';
 	import ModeChoice from '$lib/components/mp/ModeChoice.svelte';
 	import MultiApp from '$lib/components/mp/MultiApp.svelte';
 
@@ -115,6 +116,9 @@
 				· <b class="hard">하드</b>
 			{/if}
 		</div>
+		{#if isClimb(game.config.mode)}
+			<ClimbClock {game} />
+		{/if}
 
 		<Board {game} />
 		<Keyboard states={game.keyStates} {onkey} />

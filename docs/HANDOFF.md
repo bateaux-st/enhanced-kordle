@@ -335,7 +335,8 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | `stats:<mode>` | `{played, won, streak, maxStreak, dist[]}` | 모드별 |
 | `best:<mode>:<lengthKey>` | number | 등반 최고 스테이지. `lengthKey` = `fixed-6` / `random` |
 | `daily:<YYYY-MM-DD>:<token>` | `{rows, marks, status, answer, hints}` | 데일리·일일 등반의 한 판. 저장할 때 `dailyDay`보다 오래된 날짜 키만 삭제 |
-| `dclimb:<YYYY-MM-DD>` | `{stage, n, climbWords}` | 일일 등반 코스 위치. `dailyDay`보다 오래된 날짜 키만 삭제 |
+| `dclimb:<YYYY-MM-DD>` | `{stage, n, climbWords, stageStartAt?, stageTimes?, lostMs?, stageBests?, runBest?}` | 일일 등반 코스 위치. `dailyDay`보다 오래된 날짜 키만 삭제. 뒤의 다섯은 소요 시간용 선택 필드(옛 저장본에는 없고, 없으면 그 스테이지 시간을 모르는 것으로 읽어 `-`로 표시·기록 비교에서 뺀다). `stageStartAt`은 보드가 뜬 시각(epoch ms)이라 새로고침 뒤에도 시간이 이어진다 |
+| `climbtime:<mode>:<lengthKey>` | `{best: {stage, ms} \| null, stages: {<스테이지>: ms}}` | 솔로 등반 3종의 소요 시간. `best` = 최고 스테이지와 그때까지 클리어한 스테이지 시간의 합(스테이지가 높을수록, 같으면 짧을수록 좋음), `stages` = 스테이지별 최단. `best:`와 같은 키 조합을 쓰고 함께 갱신하지만 `best:`의 형식은 그대로다. 시간 기록 이전에 `best:`만 있던 사용자는 그 스테이지 미만 클리어로 `best`가 덮이지 않는다. 순수 계산은 `src/lib/climbtime.ts` |
 
 키 형식을 바꾸면 기존 사용자의 진행·통계가 사라진다. 마이그레이션은 없다(토이).
 
