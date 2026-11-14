@@ -1,0 +1,38 @@
+// 채팅 기록과 속도 제한. RoomState에 넣지 않고 DO 메모리에만 둔다: 저장하면 SQLite 쓰기 한도를 채팅이 먹고,
+// DO가 쉬었다 깨면 기록이 사라져도 되기 때문이다. 그래서 이 모듈은 storage를 모른다.
+import type { ChatMsg, Pid } from '../../mp/protocol.ts';
+import { CHAT_BURST, CHAT_HISTORY, CHAT_WINDOW_MS } from '../../mp/rules.ts';
+import { fail } from './state.ts';
+import type { Result, RoomState } from './state.ts';
+import { findPlayer } from './members.ts';
+
+export class ChatLog {
+	private msgs: ChatMsg[] = [];
+	private nextId = 1;
+	/** 사람마다 받아들인 메시지의 시각. 창 밖의 것은 보낼 때마다 걷어 낸다. */
+	private sent = new Map<Pid, number[]>();
+
+	/** 최근 기록(오래된 것부터). 복사본이라 호출자가 바꿔도 기록은 그대로다. */
+	recent(): ChatMsg[] {
+		return [...this.msgs];
+	}
+
+	/**
+	 * text는 parse가 normalizeChat으로 다듬은 값이다. 단계와 무관하게 자리가 있고 나가지 않은 사람만 보낼 수 있다.
+	 * 거절된 메시지는 속도 창에 세지 않는다: 막힌 사람이 계속 눌러도 풀리는 시각이 밀리지 않는다.
+	 */
+	post(s: RoomState, pid: Pid, text: string, now: number): Result<{ msg: ChatMsg }> {
+		const me = findPlayer(s, pid);
+		if (!me || me.left) return fail('forbidden', '채팅할 수 없습니다');
+		const recent = (this.sent.get(pid) ?? []).filter((t) => now - t < CHAT_WINDOW_MS);
+		if (recent.length >= CHAT_BURST) {
+			this.sent.set(pid, recent);
+			return fail('cooldown', '채팅을 너무 빨리 보내고 있습니다');
+		}
+		this.sent.set(pid, [...recent, now]);
+		const msg: ChatMsg = { id: this.nextId++, pid, name: me.name, text, at: now };
+		this.msgs.push(msg);
+		if (this.msgs.length > CHAT_HISTORY) this.msgs.splice(0, this.msgs.length - CHAT_HISTORY);
+		return { ok: true, msg };
+	}
+}

@@ -37,6 +37,16 @@ export const LOBBY_WS_PATH = '/ws-lobby';
 export const LOBBY_FALLBACK_POLL_MS = 15_000;
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** 채팅 본문 최대 길이(코드포인트). */
+export const CHAT_MAX = 100;
+/** 서버 메모리에 남기는 최근 채팅 수. DO가 쉬었다 깨면 사라진다. */
+export const CHAT_HISTORY = 30;
+/** 클라이언트가 들고 있는 채팅 줄 수(시스템 줄 포함). */
+export const CHAT_KEEP = 100;
+/** 사람마다 이 시간 안에 CHAT_BURST개까지 보내고, 넘으면 거절한다. */
+export const CHAT_WINDOW_MS = 5_000;
+export const CHAT_BURST = 5;
+
 /** 0 O 1 I 제외 32자. */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
@@ -76,6 +86,21 @@ export function normalizeName(raw: unknown): string | null {
 	const name = raw.normalize('NFC').trim();
 	const len = [...name].length;
 	return len >= NAME_MIN && len <= NAME_MAX ? name : null;
+}
+
+/**
+ * 채팅 본문 정규화: NFC, 줄바꿈·탭은 공백, 나머지 제어문자는 제거, 앞뒤 공백 제거, 1..CHAT_MAX자(코드포인트).
+ * 제어문자를 걷어 낸 뒤 길이를 재므로 제어문자로 길이를 채울 수 없다. 규칙에 안 맞으면 null.
+ */
+export function normalizeChat(raw: unknown): string | null {
+	if (typeof raw !== 'string') return null;
+	const text = raw
+		.normalize('NFC')
+		.replace(/[\t\r\n\u2028\u2029]/g, ' ')
+		.replace(/\p{Cc}/gu, '')
+		.trim();
+	const len = [...text].length;
+	return len >= 1 && len <= CHAT_MAX ? text : null;
 }
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;

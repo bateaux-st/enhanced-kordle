@@ -1,7 +1,9 @@
+import { ChatFeed } from './chat-feed.ts';
+import type { ChatLine } from './chat-feed.ts';
 import { readSession, writeSession } from './identity.ts';
 import { CLOSE } from './protocol.ts';
 import type { ClientMsg, ErrorCode, Pid, ServerMsg, Settings, Snapshot } from './protocol.ts';
-import { HEARTBEAT_MS } from './rules.ts';
+import { HEARTBEAT_MS, normalizeChat } from './rules.ts';
 
 export type MpStatus = 'idle' | 'dev' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 /** closed일 때 이유. 'left'는 내가 나간 것, 'lost'는 재시도를 다 쓴 것. */
@@ -44,8 +46,11 @@ export class MpClient {
 	nudge = $state.raw<{ id: number; from: string } | null>(null);
 	/** 방장이 "설정 바꾸기"를 눌렀다. 대기실이 한 번 읽고 지운다. */
 	wantSettings = $state(false);
+	/** 최근 채팅(서버 메시지와 로컬 시스템 줄). 저장하지 않고 연결을 새로 열 때 비운다. */
+	chat = $state.raw<ChatLine[]>([]);
 
 	code = '';
+	private feed = new ChatFeed();
 	private typedName = '';
 	private ws: WebSocket | null = null;
 	private attempts = 0;
@@ -75,6 +80,8 @@ export class MpClient {
 		this.snap = null;
 		this.closeReason = null;
 		this.wantSettings = false;
+		this.feed.clear();
+		this.chat = this.feed.lines;
 		setRoomParam(code);
 		document.addEventListener('visibilitychange', this.onVisible);
 		this.open();
@@ -138,7 +145,19 @@ export class MpClient {
 			this.nudge = { id: (this.nudge?.id ?? 0) + 1, from: m.from };
 		} else if (m.type === 'opensettings') {
 			this.wantSettings = true;
+		} else if (m.type === 'chat') {
+			this.feed.message(m.msg);
+			this.chat = this.feed.lines;
+		} else if (m.type === 'chat_history') {
+			this.feed.history(m.msgs);
+			this.chat = this.feed.lines;
 		}
+	}
+
+	/** 입장·퇴장·방장 변경 같은 로컬 시스템 줄. 서버는 만들지 않는다. */
+	addSystemLine(text: string): void {
+		this.feed.system(text, this.serverNow());
+		this.chat = this.feed.lines;
 	}
 
 	/** 끊김: 즉시 1회, 2초 뒤 1회 다시 붙는다. 그래도 안 되면 'lost'로 멈추고 reconnect()가 이어받는다. */
@@ -247,6 +266,11 @@ export class MpClient {
 	transfer(pid: Pid) {
 		return this.sendRaw({ type: 'transfer', pid });
 	}
+	/** 채팅 보내기. 본문이 규칙(1~100자, 공백만 아님)에 안 맞으면 보내지 않고 false. 서버가 같은 규칙으로 다시 검사한다. */
+	sendChat(text: string) {
+		const t = normalizeChat(text);
+		return t !== null && this.sendRaw({ type: 'chat', text: t });
+	}
 	/** 나가기: 자리를 버린다. 임시 계정(세션)은 지우지 않는다. */
 	leave(): void {
 		this.leaving = true;
@@ -254,6 +278,8 @@ export class MpClient {
 		this.close();
 		this.snap = null;
 		this.pid = null;
+		this.feed.clear();
+		this.chat = this.feed.lines;
 		this.finish('left');
 	}
 }

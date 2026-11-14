@@ -215,6 +215,11 @@
 
 	// ---- 방 안 사건을 토스트로: 입장·퇴장·승계·설정 변경·확정 이름 ----
 	let prev: Snapshot | null = null;
+	/** 토스트는 하나만 남지만 채팅 시스템 줄은 사건마다 쌓는다. */
+	function notice(text: string) {
+		showToast(text);
+		client.addSystemLine(text);
+	}
 	$effect(() => {
 		const s = client.snap;
 		untrack(() => {
@@ -229,7 +234,7 @@
 			if (s.phase === p.phase && s.phase !== 'playing' && s.hostPid && s.hostPid !== p.hostPid) {
 				const h = s.players.find((q) => q.pid === s.hostPid);
 				resetNudge();
-				showToast(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
+				notice(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
 			}
 			if (s.phase !== 'lobby') {
 				resetNudge();
@@ -238,8 +243,8 @@
 			if (p.phase !== 'lobby') return;
 			const was = new Set(p.players.map((q) => q.pid));
 			const now = new Set(s.players.map((q) => q.pid));
-			for (const q of s.players) if (!was.has(q.pid) && q.pid !== s.you) showToast(`${q.name}님이 들어왔습니다`);
-			for (const q of p.players) if (!now.has(q.pid)) showToast(`${q.name}님이 나갔습니다`);
+			for (const q of s.players) if (!was.has(q.pid) && q.pid !== s.you) notice(`${q.name}님이 들어왔습니다`);
+			for (const q of p.players) if (!now.has(q.pid)) notice(`${q.name}님이 나갔습니다`);
 			if (!sameSettings(p.settings, s.settings)) {
 				resetNudge();
 				if (s.hostPid !== s.you && p.players.find((q) => q.pid === s.you)?.ready) showToast('방장이 설정을 바꿔 준비가 풀렸습니다');
