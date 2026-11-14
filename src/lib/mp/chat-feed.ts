@@ -14,6 +14,9 @@ export interface ChatLine {
 	at: number;
 }
 
+/** 목록에서 가장 큰 key. 목록은 시각순이고 key는 도착순이라 마지막 줄의 key와 다를 수 있다. 읽음 표시는 이 값으로 맞춘다. */
+export const maxKey = (lines: ChatLine[]): number => lines.reduce((m, l) => (l.key > m ? l.key : m), 0);
+
 /**
  * 최근 CHAT_KEEP줄. 갱신할 때마다 새 배열을 만들어 `lines`에 넣으므로 $state.raw에 그대로 대입할 수 있다.
  * 같은 서버 메시지가 기록(chat_history)과 방송(chat)으로 두 번 와도 한 줄만 남긴다. 키는 id만으로 두지 않고 시각·보낸 사람을 함께 본다:

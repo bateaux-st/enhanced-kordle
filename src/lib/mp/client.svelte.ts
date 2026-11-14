@@ -1,5 +1,5 @@
 import { tick } from 'svelte';
-import { ChatFeed } from './chat-feed.ts';
+import { ChatFeed, maxKey } from './chat-feed.ts';
 import type { ChatLine } from './chat-feed.ts';
 import { readSession, writeSession } from './identity.ts';
 import { CLOSE } from './protocol.ts';
@@ -190,8 +190,8 @@ export class MpClient {
 	}
 
 	markChatRead(): void {
-		const last = this.chat[this.chat.length - 1];
-		if (last) this.chatSeen = last.key;
+		// 끊김 중 메시지가 기록으로 시각순 중간에 끼면 마지막 줄이 가장 큰 key가 아니므로 목록 전체의 최대로 맞춘다.
+		this.chatSeen = Math.max(this.chatSeen, maxKey(this.chat));
 	}
 
 	private resetChat(): void {

@@ -88,11 +88,15 @@ export function normalizeName(raw: unknown): string | null {
 	return len >= NAME_MIN && len <= NAME_MAX ? name : null;
 }
 
-// 제어문자(Cc) 외에 Cf 중 ZWSP·LRM/RLM·양방향 제어(표시 순서를 뒤집어 이름·본문을 위조)·단어 결합자·BOM·소프트 하이픈을 뺀다.
-// ZWJ(U+200D)·ZWNJ는 이모지 시퀀스에 쓰이므로 남긴다.
-const CHAT_STRIP = /[\p{Cc}\u00AD\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/gu;
-// 공백과 ZWJ/ZWNJ, 한글 채움 문자, 점자 빈칸만 남았으면 보이는 글자가 없는 본문이다.
-const CHAT_BLANK = /^[\s\u200C\u200D\u115F\u1160\u3164\uFFA0\u2800]*$/u;
+// 제어문자(Cc) 외에 Cf 중 ZWSP·LRM/RLM·ALM·양방향 제어(표시 순서를 뒤집어 이름·본문을 위조)·단어 결합자·BOM·소프트 하이픈과,
+// 눈에 안 보이는 결합·선택·태그 문자(CGJ, 몽골 FVS, 크메르 고유 모음, 이형 선택자, 주석 표지, 태그 문자)를 뺀다.
+// ZWJ(U+200D)·ZWNJ·이모지 표시 선택자(U+FE0F)는 이모지 시퀀스에 쓰이므로 남긴다. 단독 FE0F는 CHAT_BLANK이 거른다.
+const CHAT_STRIP =
+	/[\p{Cc}\u00AD\u034F\u061C\u17B4\u17B5\u180B-\u180E\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFE00-\uFE0E\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu;
+// 공백과 ZWJ/ZWNJ, FE0F, 한글 채움 문자, 점자 빈칸만 남았으면 보이는 글자가 없는 본문이다.
+const CHAT_BLANK = /^[\s\u200C\u200D\uFE0F\u115F\u1160\u3164\uFFA0\u2800]*$/u;
+// 결합 문자(M)가 이어지면 한 글자 위에 쌓여 줄 밖으로 번진다. 연달아 3개까지만 둔다(태국어·아랍어 모음 부호는 그 안에 든다).
+const CHAT_MARK_RUN = /(\p{M}{3})\p{M}+/gu;
 
 /**
  * 채팅 본문 정규화: NFC, 줄바꿈·탭은 공백, 제어문자와 보이지 않는 서식 문자는 제거, 앞뒤 공백 제거, 1..CHAT_MAX자(코드포인트).
@@ -104,6 +108,7 @@ export function normalizeChat(raw: unknown): string | null {
 		.normalize('NFC')
 		.replace(/[\t\r\n\u2028\u2029]/g, ' ')
 		.replace(CHAT_STRIP, '')
+		.replace(CHAT_MARK_RUN, '$1')
 		.trim();
 	const len = [...text].length;
 	if (len < 1 || len > CHAT_MAX || CHAT_BLANK.test(text)) return null;

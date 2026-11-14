@@ -42,6 +42,19 @@
 		untrack(() => client.markChatRead());
 	});
 
+	// 낭독은 남이 보낸 메시지만 별도 영역이 읽는다. 로그 자체를 라이브로 두면 토스트와 겹치는 입장·퇴장 줄과 내가 보낸 글까지 다시 읽힌다.
+	// 열 때 이미 있던 줄은 읽지 않고, 한꺼번에 여러 줄이 오면 마지막 줄만 읽는다.
+	let spoken = $state({ n: 0, text: '' });
+	let spokenKey = untrack(() => Math.max(0, ...client.chat.map((l) => l.key)));
+	$effect(() => {
+		const lines = client.chat;
+		untrack(() => {
+			const last = lines.findLast((l) => !l.system && l.pid !== client.pid && l.key > spokenKey);
+			spokenKey = Math.max(spokenKey, ...lines.map((l) => l.key));
+			if (last) spoken = { n: spoken.n + 1, text: `${last.name}: ${last.text}` };
+		});
+	});
+
 	// 맨 아래에 있을 때만 따라 내려간다. 올려서 읽는 중이면 그대로 둔다. 내가 보내면 항상 내려간다.
 	let pinned = true;
 	function onscroll() {
@@ -108,7 +121,7 @@
 
 <div class="chat">
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<div class="log" role="log" aria-live="polite" aria-label="채팅 기록" tabindex="0" bind:this={logEl} {onscroll}>
+	<div class="log" role="log" aria-live="off" aria-label="채팅 기록" tabindex="0" bind:this={logEl} {onscroll}>
 		{#each client.chat as l (l.key)}
 			{#if mark && l.key === mark.key}
 				<div class="unread" role="separator"><span>안 읽은 메시지 {mark.n}개</span></div>
@@ -129,6 +142,7 @@
 			<p class="empty">아직 메시지가 없습니다.</p>
 		{/each}
 	</div>
+	<div class="sr" role="status" aria-atomic="true">{#key spoken.n}{spoken.text}{/key}</div>
 	<div class="send">
 		<label class="sr" for={id}>채팅 메시지</label>
 		<div class="field">

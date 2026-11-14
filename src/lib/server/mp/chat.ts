@@ -9,8 +9,11 @@ import { findPlayer } from './members.ts';
 export class ChatLog {
 	private msgs: ChatMsg[] = [];
 	private nextId = 1;
-	/** 사람마다 받아들인 메시지의 시각. 창 밖의 것은 보낼 때마다 걷어 낸다. */
-	private sent = new Map<Pid, number[]>();
+	/**
+	 * uid마다 받아들인 메시지의 시각. 대기실에서 나갔다 다시 들어오면 pid가 새로 나오므로 pid로 세면 제한을 우회한다.
+	 * 창 밖의 것은 보낼 때마다 걷어 내고, 빈 항목은 지운다.
+	 */
+	private sent = new Map<string, number[]>();
 
 	/** 최근 기록(오래된 것부터). 복사본이라 호출자가 바꿔도 기록은 그대로다. */
 	recent(): ChatMsg[] {
@@ -24,12 +27,15 @@ export class ChatLog {
 	post(s: RoomState, pid: Pid, text: string, now: number): Result<{ msg: ChatMsg }> {
 		const me = findPlayer(s, pid);
 		if (!me || me.left) return fail('forbidden', '채팅할 수 없습니다');
-		const recent = (this.sent.get(pid) ?? []).filter((t) => now - t < CHAT_WINDOW_MS);
+		for (const [uid, ts] of this.sent) {
+			if (uid !== me.uid && now - ts[ts.length - 1] >= CHAT_WINDOW_MS) this.sent.delete(uid);
+		}
+		const recent = (this.sent.get(me.uid) ?? []).filter((t) => now - t < CHAT_WINDOW_MS);
 		if (recent.length >= CHAT_BURST) {
-			this.sent.set(pid, recent);
+			this.sent.set(me.uid, recent);
 			return fail('cooldown', '채팅을 너무 빨리 보내고 있습니다');
 		}
-		this.sent.set(pid, [...recent, now]);
+		this.sent.set(me.uid, [...recent, now]);
 		const msg: ChatMsg = { id: this.nextId++, pid, name: me.name, text, at: now };
 		this.msgs.push(msg);
 		if (this.msgs.length > CHAT_HISTORY) this.msgs.splice(0, this.msgs.length - CHAT_HISTORY);

@@ -91,6 +91,9 @@
 		z-index: 35;
 		display: flex;
 		justify-content: flex-end;
+		align-items: flex-end;
+		/* 가로로 든 폰·태블릿의 오른쪽 서랍도 소프트 키보드 위에 붙인다 */
+		padding-bottom: var(--kb, 0px);
 		background: var(--scrim);
 		animation: mp-fadein var(--mo-fade) ease-out both;
 	}
@@ -100,7 +103,7 @@
 		width: 21.25rem;
 		max-width: 100%;
 		height: 100vh;
-		height: 100dvh;
+		height: var(--vvh, 100dvh);
 		border-left: 1px solid var(--line);
 		background: var(--surface);
 		box-shadow: var(--shadow);
@@ -153,10 +156,6 @@
 		}
 	}
 	@media (max-width: 640px) {
-		.scrim {
-			align-items: flex-end;
-			padding-bottom: var(--kb, 0px);
-		}
 		.sheet {
 			width: 100%;
 			height: min(32.5rem, calc(var(--vvh, 100dvh) * 0.85));

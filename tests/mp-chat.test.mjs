@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatFeed } from '../src/lib/mp/chat-feed.ts';
+import { ChatFeed, maxKey } from '../src/lib/mp/chat-feed.ts';
 import { CHAT_BURST, CHAT_HISTORY, CHAT_KEEP, CHAT_MAX, CHAT_WINDOW_MS, normalizeChat } from '../src/lib/mp/rules.ts';
 import { ChatLog, historyMsg, planChat } from '../src/lib/server/mp/chat.ts';
+import { join, leave } from '../src/lib/server/mp/members.ts';
 import { parseClientMsg } from '../src/lib/server/mp/parse.ts';
-import { joinAll, lobby, started, T0 } from './mp-helpers.mjs';
+import { joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
 
 const p = (v) => parseClientMsg(JSON.stringify(v));
 const chat = (text) => p({ type: 'chat', text });
@@ -268,4 +269,67 @@ test('historyMsg: 접속 시 보내는 최근 기록, 비어 있으면 빈 목�
 	const { s, host } = room();
 	log.post(s, host, '하나', T0);
 	assert.deepEqual(historyMsg(log), { type: 'chat_history', msgs: log.recent() });
+});
+
+test('속도 제한: 대기실에서 나갔다 다시 들어와 pid가 바뀌어도 같은 uid는 이어서 센다', () => {
+	const log = new ChatLog();
+	const { s } = room();
+	const a0 = s.players.find((q) => q.uid === 'uid-가나다라마').pid;
+	for (let i = 0; i < CHAT_BURST; i++) assert.equal(log.post(s, a0, `m${i}`, T0).ok, true);
+	leave(s, a0, T0);
+	const r = join(s, { uid: 'uid-가나다라마', name: '가나다라마' }, T0, rng);
+	assert.equal(r.ok, true);
+	assert.notEqual(r.pid, a0, '나갔다 오면 새 pid');
+	const again = log.post(s, r.pid, '우회', T0 + 1);
+	assert.deepEqual([again.ok, again.code], [false, 'cooldown']);
+	assert.equal(log.post(s, r.pid, '창이 지난 뒤', T0 + CHAT_WINDOW_MS).ok, true);
+});
+
+test('속도 제한: 창이 지난 사람의 항목은 다음 메시지를 받을 때 지운다', () => {
+	const log = new ChatLog();
+	const { s, host, a } = room();
+	log.post(s, host, '하나', T0);
+	log.post(s, a, '둘', T0 + CHAT_WINDOW_MS);
+	assert.deepEqual([...log.sent.keys()], ['uid-가나다라마'], '방장의 낡은 항목이 빠졌다');
+});
+
+const cp = (...n) => String.fromCodePoint(...n);
+
+test('parse: 보이지 않는 결합·선택·태그 문자만 있는 본문은 거절한다', () => {
+	const only = [[0x61c], [0x34f], [0xfe0f], [0xfe00], [0xfe0e], [0x180b], [0x180e], [0x17b4], [0x17b5], [0xfff9], [0xfffb], [0xe0041, 0xe007f], [0xe0100], [0xe01ef], [0xfe0f, 0x200d, 0x61c]];
+	for (const c of only) assert.equal(chat(cp(...c)), null, c.map((x) => x.toString(16)).join(' '));
+});
+
+test('parse: 양방향 표지와 태그 문자는 글 사이에 끼어도 지운다', () => {
+	assert.equal(chat('가' + cp(0x61c) + '나').text, '가나');
+	assert.equal(chat('가' + cp(0xe0041, 0xe0042) + '나').text, '가나', '태그 문자에 실린 숨은 글');
+	assert.equal(chat('가' + cp(0x34f, 0x180b, 0x17b4, 0xfff9) + '나').text, '가나');
+	assert.equal(chat('한' + cp(0xfe00) + '글').text, '한글');
+});
+
+test('parse: 이모지 표시 선택자(FE0F)는 이모지에 붙은 채로 남는다', () => {
+	assert.equal(chat('❤' + cp(0xfe0f)).text, '❤' + cp(0xfe0f));
+	assert.equal(chat('1' + cp(0xfe0f, 0x20e3)).text, '1' + cp(0xfe0f, 0x20e3));
+});
+
+test('parse: 이어진 결합 문자는 3개까지만 남긴다', () => {
+	// 앞 글자와 합쳐지는 조합은 NFC로 먼저 합쳐지므로 기대값도 NFC로 맞춘다
+	const nfc = (t) => t.normalize('NFC');
+	const m = (n, k = 0x300) => cp(k).repeat(n);
+	assert.equal(chat('a' + m(99)).text, nfc('a' + m(99)).slice(0, 1 + 3));
+	assert.equal(chat('가' + m(50, 0xe47) + '나').text, '가' + m(3, 0xe47) + '나');
+	assert.equal(chat('a' + cp(0x300, 0x301, 0x302)).text, nfc('a' + cp(0x300, 0x301, 0x302)), '세 개는 그대로');
+	assert.equal(chat('z' + m(3) + 'q' + m(3)).text, 'z' + m(3) + 'q' + m(3), '글자마다 따로 센다');
+	assert.ok([...chat('a' + m(99)).text].length <= 4);
+});
+
+test('읽음: 끊김 중 메시지가 기록으로 시각순 중간에 끼어도 최대 key로 맞춘다', () => {
+	const f = new ChatFeed();
+	f.system('방장이 되었습니다', 600);
+	f.history([srv(1, '끊김 중', 500)]);
+	const last = f.lines[f.lines.length - 1];
+	assert.equal(last.system, true, '시스템 줄이 시각순 맨 끝');
+	assert.ok(f.lines[0].key > last.key, '기록 줄의 key가 더 크다');
+	assert.equal(maxKey(f.lines), f.lines[0].key);
+	assert.equal(maxKey([]), 0);
 });

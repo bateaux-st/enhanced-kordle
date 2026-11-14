@@ -516,10 +516,14 @@
 	const joinedAtResult = untrack(() => snap.phase === 'result');
 	// snap은 스냅샷마다 새 객체라 phase를 직접 읽으면 effect가 매번 다시 돌아 대기 중인 타이머가 cleanup에 지워진다. 불리언 derived는 값이 같으면 재실행하지 않는다.
 	const isResult = $derived(snap.phase === 'result' && held === null);
+	// 채팅 시트가 열려 있으면 미룬다. 결과 모달은 시트 아래(z 30 < 35)에 가린 채 키 소유자가 되어 포커스·Esc·Tab·Enter를 가로챈다.
+	// 시트가 닫히면 이 effect가 다시 돌아 같은 지연으로 띄운다.
 	$effect(() => {
-		if (!isResult || resultShown) return;
-		resultShown = true;
-		const t = setTimeout(() => (modal ??= 'result'), joinedAtResult ? 0 : 1200);
+		if (!isResult || resultShown || client.chatOpen) return;
+		const t = setTimeout(() => {
+			resultShown = true;
+			modal ??= 'result';
+		}, joinedAtResult ? 0 : 1200);
 		return () => clearTimeout(t);
 	});
 
