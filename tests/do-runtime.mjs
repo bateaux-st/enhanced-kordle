@@ -1,20 +1,12 @@
 // Room·Lobby DO를 workerd 없이 Node에서 만들어 보는 가짜 런타임. .test.mjs가 아니라서 테스트로 실행되지 않는다.
 // 이 파일을 import한 뒤에 room.ts·lobby.ts를 동적 import해야 한다(정적 import는 링크 단계에서 cloudflare:workers를 먼저 푼다).
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
 import { DEFAULT_SETTINGS } from '../src/lib/mp/rules.ts';
 import { issue } from '../src/lib/server/mp/session.ts';
+import './loader.mjs';
 import { T0 } from './mp-helpers.mjs';
 
 export { T0 };
-
-const DURABLE_OBJECT = 'data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }';
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if (specifier === 'cloudflare:workers') return { url: DURABLE_OBJECT, shortCircuit: true };
-		return nextResolve(specifier, context);
-	}
-});
 
 const OPEN = 1;
 const CLOSING = 2;
@@ -90,7 +82,8 @@ class FakeAutoResponsePair {
 	}
 }
 
-Object.defineProperty(globalThis, 'Response', { value: FakeResponse, configurable: true, writable: true });
+// Response는 rig·lobbyRig를 쓸 때만 바꾼다. dict·라우트 시험은 진짜 Response(json())가 필요하다.
+const installResponse = () => Object.defineProperty(globalThis, 'Response', { value: FakeResponse, configurable: true, writable: true });
 globalThis.WebSocketPair = FakeWebSocketPair;
 globalThis.WebSocketRequestResponsePair = FakeAutoResponsePair;
 
@@ -272,6 +265,7 @@ export const NAMES = ['가나다라마', '바사아자차', '카타파하거', '
  * pool·valid는 FakeD1에 그대로 넘어간다.
  */
 export async function rig(t, { secret = 'test-secret', pool = {}, valid = [], lobbyTarget, now = T0 } = {}) {
+	installResponse();
 	t.mock.timers.enable({ apis: ['Date'], now });
 	const { Room } = await import('../src/lib/server/mp/room.ts');
 	const ctx = new FakeCtx();
@@ -374,6 +368,7 @@ export const ofType = (msgs, type) => msgs.filter((m) => m.type === type);
 
 /** Lobby 하나를 가짜 런타임에 올린다. 구독 소켓의 받은 목록은 ws.take()로 읽는다. */
 export async function lobbyRig(t, { now = T0 } = {}) {
+	installResponse();
 	t.mock.timers.enable({ apis: ['Date'], now });
 	const { Lobby } = await import('../src/lib/server/mp/lobby.ts');
 	const ctx = new FakeCtx();
