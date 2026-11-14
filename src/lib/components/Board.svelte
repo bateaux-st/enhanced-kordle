@@ -10,6 +10,8 @@
 		shake: boolean;
 		invalid: boolean;
 		hints: Record<number, string>;
+		/** 협동: 내 제안을 확정한 상태. 입력 행을 제안함 색으로 칠한다. 개인 `Game`에는 없다. */
+		proposed?: boolean;
 	}
 </script>
 
@@ -49,6 +51,7 @@
 					class:p={m === 'p'}
 					class:a={m === 'a'}
 					class:filled={!m && j}
+					class:prop={row.live && game.proposed && !!j}
 					class:invalid={row.live && game.invalid}
 					class:hint={!!hint}
 					class:cell-animation={!!j}
@@ -88,6 +91,10 @@
 	}
 	.filled {
 		border-color: var(--line-strong);
+	}
+	.prop {
+		border-color: var(--sel-line);
+		background: var(--sel-bg);
 	}
 	.invalid {
 		color: var(--danger);

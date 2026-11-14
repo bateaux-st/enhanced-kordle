@@ -203,7 +203,8 @@ export function unpropose(s: RoomState, pid: Pid): Result<{ changed: boolean }> 
 	const m = member(s, pid);
 	if (!m.ok) return m;
 	const step = m.game.step;
-	if (step.kind !== 'propose') return fail('phase', '제안 단계가 아닙니다');
+	// 마지막 사람이 제안하는 순간 투표로 넘어가므로 늦은 취소가 올 수 있다. 화면에 그대로 뜨는 문구라 이유를 적는다.
+	if (step.kind !== 'propose') return fail('phase', '이미 투표가 시작됐습니다');
 	const jamo = step.proposals[pid];
 	if (jamo === undefined) return fail('forbidden', '제안한 상태가 아닙니다');
 	delete step.proposals[pid];

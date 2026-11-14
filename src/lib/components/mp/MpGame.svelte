@@ -173,6 +173,8 @@
 			k: counted.filter((p) => st.voted.includes(p.pid)).length,
 			m: counted.length,
 			isHost,
+			deadline: st.deadline,
+			now: () => client.serverNow(),
 			onvote: (i: number) => {
 				touch();
 				client.vote(i);
@@ -205,7 +207,8 @@
 		status: inputOk ? 'playing' : 'over',
 		shake,
 		invalid: false,
-		hints: view?.hints ?? {}
+		hints: view?.hints ?? {},
+		proposed: coop !== null && myProposed
 	});
 
 	const keyStates = $derived.by(() => {
@@ -241,6 +244,25 @@
 			current += k;
 		}
 	}
+
+	// 확정한 제안을 거두면 그 단어가 입력 행으로 돌아와 고칠 수 있다. 서버도 초안을 같은 단어로 두므로 보낸 초안도 맞춘다.
+	// 토스트는 서버가 거둔 것을 확인한 뒤(내 제안이 사라진 스냅샷)에 띄운다. 마지막 제안이 먼저 들어와 거절되면 오류 토스트만 남는다.
+	let cancelling = false;
+	function cancelPropose() {
+		const mine = proposals?.[snap.you];
+		if (mine === undefined || !client.unpropose()) return;
+		touch();
+		cancelling = true;
+		current = mine;
+		sentDraft = mine;
+	}
+	$effect(() => {
+		// 값을 먼저 읽어야 cancelling이 false인 처음에도 myProposed가 의존성이 된다.
+		const proposed = myProposed;
+		if (!cancelling || proposed) return;
+		cancelling = false;
+		showToast('제안을 취소했습니다');
+	});
 
 	// 서버가 행을 받아 주면 입력 행을 비운다(협동은 연출이 끝나 행이 보이는 때).
 	// 서버도 이 순간 초안을 비우므로 마지막으로 보낸 초안도 비운 것으로 맞춘다.
@@ -365,6 +387,7 @@
 		const e = client.error;
 		if (!e || e.id === lastErr) return;
 		lastErr = e.id;
+		cancelling = false;
 		if (busy) {
 			busy = false;
 			doShake();
@@ -379,8 +402,11 @@
 		const j = CODE_TO_JAMO[e.code];
 		const k = j ?? (e.key === 'Enter' || e.key === 'Backspace' ? e.key : null);
 		if (!k) return;
-		// 포커스가 일반 버튼에 있으면 Enter는 그 버튼의 몫이다(키보드 사용자).
-		if (e.key === 'Enter' && t?.tagName === 'BUTTON' && !t.classList.contains('key')) return;
+		const plainButton = t?.tagName === 'BUTTON' && !t.classList.contains('key');
+		// 포커스가 일반 버튼에 있으면 Enter는 그 버튼의 몫이다(Tab으로 찾아간 키보드 사용자).
+		if (e.key === 'Enter' && plainButton) return;
+		// 마우스로 누른 버튼은 포커스가 남는다. 자모를 치기 시작하면 놓아야 이어지는 Enter가 제출이 된다.
+		if (plainButton) t?.blur();
 		e.preventDefault();
 		onkey(k);
 	}
@@ -568,18 +594,16 @@
 	{/each}
 </div>
 
-<div class="arena" class:has-grace={graceActive} class:has-clock={clockOn} class:has-hv={hv !== null} style="--rows:{tries}">
+<div class="arena" class:has-grace={graceActive} class:has-clock={clockOn} class:has-hv={hv !== null} class:has-note={coop !== null && playing} style="--rows:{tries}">
 	<div class="opp-col">
 		{#each left as p (p.pid)}
 			<OpponentPanel player={p} {tries} rank={rankOf(p.pid)} {climb} coop={coop ? coopInfo(p) : null} canKick={isHost && !coop} onkick={() => (kickPid = p.pid)} />
 		{/each}
 	</div>
 
-	<div class="center" class:locked={!playing || heldClear !== null} class:dim={selecting}>
+	<div class="center" class:locked={!playing || heldClear !== null || voteView !== null} class:dim={selecting}>
 		<Board game={boardView} />
-		{#if voteView}
-			<CoopPicker vote={voteView} />
-		{:else if held}
+		{#if held}
 			{#key held.at}
 				<CoopPicker
 					wheel={{
@@ -602,6 +626,11 @@
 		{/each}
 	</div>
 </div>
+
+{#if voteView}
+	<!-- 시트는 position: fixed라 container-type이 걸린 .arena 안에 두면 arena 기준으로 잘린다 -->
+	<CoopPicker vote={voteView} />
+{/if}
 
 {#if coop && playing}
 	<!-- 진행 수는 상대 패널의 칩과 테두리가 보여 준다. 여기는 내 상태 한 칸이고, 고르는 동안에도 자리를 지켜 아래 버튼이 움직이지 않게 한다 -->
@@ -635,31 +664,37 @@
 <div class="actions">
 	{#if playing}
 		{#if coop && isHost && coop.step?.kind === 'propose' && !held}
-			<button class="btn primary" type="button" onclick={() => client.closeStep()} disabled={!proposals || Object.keys(proposals).length === 0}>마감</button>
+			<button class="btn primary slot" type="button" onclick={() => client.closeStep()} disabled={!proposals || Object.keys(proposals).length === 0}>마감</button>
 		{/if}
 		{#if coop && iAmIn && coop.step?.kind === 'propose' && !held}
-			<button
-				class="btn"
-				type="button"
-				onclick={() => {
-					touch();
-					if (!myPassed) {
-						// 서버가 내 초안을 지우므로 입력 행도 비운다. 안 비우면 곧 초안이 다시 올라간다.
-						current = '';
-						sentDraft = '';
-					}
-					client.pass(!myPassed);
-				}}
-				disabled={myProposed || passBlocked}
-				title={myProposed ? '이미 제안했습니다' : passBlocked ? '제안이 하나도 없어 패스할 수 없습니다' : '이번 행은 제안하지 않고 넘어갑니다. 다음 행에서는 다시 제안합니다'}
-			>
-				{myPassed ? '패스 취소' : '패스'}
-			</button>
+			<!-- 제안을 확정하면 패스 자리가 제안 취소로 바뀐다. 세 버튼은 같은 최소 폭이라 바뀌어도 마감·힌트 위치가 움직이지 않는다 -->
+			{#if myProposed}
+				<button class="btn slot" type="button" aria-describedby="cancel-note" onclick={cancelPropose}>제안 취소</button>
+			{:else}
+				<button
+					class="btn slot"
+					type="button"
+					onclick={() => {
+						touch();
+						if (!myPassed) {
+							// 서버가 내 초안을 지우므로 입력 행도 비운다. 안 비우면 곧 초안이 다시 올라간다.
+							current = '';
+							sentDraft = '';
+						}
+						client.pass(!myPassed);
+					}}
+					disabled={passBlocked}
+					title={passBlocked ? '제안이 하나도 없어 패스할 수 없습니다' : '이번 행은 제안하지 않고 넘어갑니다. 다음 행에서는 다시 제안합니다'}
+				>
+					{myPassed ? '패스 취소' : '패스'}
+				</button>
+			{/if}
 		{/if}
 		{#if snap.settings.hints}
 			{@const used = coop ? coop.board.hintUsed : me?.hintUsed}
 			<button
 				class="btn"
+				class:slot={coop !== null}
 				type="button"
 				onclick={() => {
 					touch();
@@ -679,6 +714,11 @@
 		<button class="btn primary" type="button" onclick={() => (modal = 'result')}>결과</button>
 	{/if}
 </div>
+
+{#if coop && playing}
+	<!-- 제안 전에도 같은 높이를 잡아 두어 제안 상태가 바뀌어도 버튼 줄이 흔들리지 않는다 -->
+	<p class="cancel-note" id="cancel-note" class:off={!(myProposed && coop.step?.kind === 'propose')}><span aria-hidden="true">↑ </span>제안을 취소하면 단어가 입력 행으로 돌아옵니다.</p>
+{/if}
 
 {#if modal === 'result'}
 	<MpResult
@@ -866,7 +906,7 @@
 		justify-content: center;
 		gap: 0.5rem;
 		min-height: 1.5rem;
-		margin-top: 1.5rem;
+		margin-top: 1rem;
 		font-size: 0.875rem;
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
@@ -993,6 +1033,20 @@
 		gap: 0.5rem;
 		margin-top: 0.75rem;
 	}
+	.actions .slot {
+		min-width: 5rem;
+	}
+	.cancel-note {
+		min-height: 1.25rem;
+		margin-top: 0.25rem;
+		font-size: 0.8rem;
+		line-height: 1.25rem;
+		text-align: center;
+		color: var(--muted);
+	}
+	.cancel-note.off {
+		visibility: hidden;
+	}
 	.two {
 		display: flex;
 		gap: 0.5rem;
@@ -1006,7 +1060,7 @@
 		.arena {
 			--cw: 100cqw;
 			/* 보드(열 수·시도 횟수 빼고) 위아래 고정 높이와 .mp 아래 여백까지 잰 값. 상대 띠가 완주자 줄로 길어진 경우(+23px)를 기준으로 잡았다. */
-			--chrome-h: calc(510px + var(--x-grace, 0px) + var(--x-clock, 0px) + var(--x-hv, 0px));
+			--chrome-h: calc(510px + var(--x-grace, 0px) + var(--x-clock, 0px) + var(--x-hv, 0px) + var(--x-note, 0px));
 			--tile-floor: 26px;
 			display: block;
 		}
@@ -1019,6 +1073,10 @@
 		}
 		.arena.has-hv {
 			--x-hv: 84px;
+		}
+		/* 협동은 버튼 줄 아래에 제안 취소 안내 한 줄(20px + 위 여백 4px)이 자리를 잡는다 */
+		.arena.has-note {
+			--x-note: 24px;
 		}
 		/* 세로 화면은 26px 바닥이 있으면 360x740의 12자 10회가 한 화면에 안 들어간다. 바닥만 낮춘다. */
 		@media (orientation: portrait) {

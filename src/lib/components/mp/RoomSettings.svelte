@@ -47,7 +47,7 @@
 					<legend>선택 방식</legend>
 					<div class="opts">
 						<button class="opt" class:flash={flash === 'pick' && settings.pick === 'vote'} type="button" aria-pressed={settings.pick === 'vote'} onclick={() => set('pick', { pick: 'vote' })}>
-							<b>투표</b><span class="d">자기 제안에는 투표할 수 없습니다. 동률이면 돌림판.</span>
+							<b>투표</b><span class="d">자기 제안에도 투표할 수 있습니다. 20초 안에 정하고, 동률이면 돌림판.</span>
 						</button>
 						<button class="opt" class:flash={flash === 'pick' && settings.pick === 'roulette'} type="button" aria-pressed={settings.pick === 'roulette'} onclick={() => set('pick', { pick: 'roulette' })}>
 							<b>돌림판</b><span class="d">제안 중 하나를 무작위로 고릅니다.</span>

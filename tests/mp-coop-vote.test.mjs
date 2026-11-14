@@ -232,7 +232,7 @@ test('제안 취소 거절: 제안하지 않은 사람, 투표 단계, 게임 �
 	propose(s, b, Y);
 	assert.equal(step(s).kind, 'vote');
 	const late = coop.unpropose(s, host);
-	assert.deepEqual([late.ok, late.code], [false, 'phase']);
+	assert.deepEqual([late.ok, late.code, late.msg], [false, 'phase', '이미 투표가 시작됐습니다']);
 	assert.deepEqual(step(s).candidates.map((c) => c.jamo), [X, Y], '후보는 그대로');
 
 	const l = lobby({ kind: 'coop' });
