@@ -16,6 +16,7 @@ import { hardViolation } from './hard';
 import { pickHint } from './hint';
 import { load, removeWhere, save } from './storage';
 import { todayKST } from './day';
+import { applyClear, emptyClimbTime, totalOf, type ClimbTimeRecord } from './climbtime';
 
 export interface ModeConfig {
 	mode: GameMode;
@@ -59,6 +60,12 @@ interface DailyClimbSave {
 	stage: number;
 	n: number;
 	climbWords: string[];
+	// 시간 필드는 소요 시간 기능 이전 저장본에 없다. 없으면 그 스테이지 시간을 모르는 것으로 읽는다.
+	stageStartAt?: number | null;
+	stageTimes?: (number | null)[];
+	lostMs?: number | null;
+	stageBests?: number[];
+	runBest?: boolean;
 }
 
 const emptyStats = (): Stats => ({ played: 0, won: 0, streak: 0, maxStreak: 0, dist: [] });
@@ -111,6 +118,18 @@ export class Game {
 	/** 이번 등반에서 클리어한 정답들 — 종료 시 피라미드로 보여준다. */
 	climbWords = $state<string[]>([]);
 	bestStage = $state(0);
+	/** 지금 스테이지 보드가 뜬 시각(epoch ms). 진행 중이 아니거나 모르면 null. 탭이 숨겨져도 흐르고, 일일 등반은 새로고침 뒤에도 이어진다. */
+	stageStartAt = $state<number | null>(null);
+	/** 클리어한 스테이지별 시간(ms). 인덱스 = 스테이지 − 1, 모르면 null. */
+	stageTimes = $state<(number | null)[]>([]);
+	/** 실패(시도 소진·포기)로 끝난 스테이지의 시간. 총 시간에는 넣지 않는다. */
+	lostMs = $state<number | null>(null);
+	/** 이번 판에서 이전 최단을 깬 스테이지 번호들. */
+	stageBests = $state<number[]>([]);
+	/** 이번 판이 최고 기록(스테이지, 총 시간)을 새로 썼는지. */
+	runBest = $state(false);
+	/** climbtime:<configKey> — 최고 기록과 스테이지별 최단. */
+	climbTime = $state<ClimbTimeRecord>(emptyClimbTime());
 	stats = $state<Stats>(emptyStats());
 	busy = $state(false);
 	toast = $state<string | null>(null);
@@ -142,6 +161,7 @@ export class Game {
 	private loadRecords() {
 		this.stats = load(`stats:${this.config.mode}`, emptyStats());
 		this.bestStage = load(`best:${configKey(this.config)}`, 0);
+		this.climbTime = load(`climbtime:${configKey(this.config)}`, emptyClimbTime());
 	}
 
 	showToast(msg: string, ms = 1500) {
@@ -202,14 +222,24 @@ export class Game {
 	async newGame() {
 		this.stage = 1;
 		this.climbWords = [];
+		this.stageTimes = [];
+		this.lostMs = null;
+		this.stageBests = [];
+		this.runBest = false;
 		if (this.config.mode === 'daily-climb') {
 			// 코스는 항상 5자에서 시작해 12자까지 — 모두 같은 코스여야 데일리다.
 			const saved = load<DailyClimbSave | null>(`dclimb:${this.dailyDay}`, null);
 			if (saved) {
 				this.stage = saved.stage;
 				this.climbWords = saved.climbWords;
+				this.stageTimes = saved.stageTimes ?? saved.climbWords.map(() => null);
+				this.lostMs = saved.lostMs ?? null;
+				this.stageBests = saved.stageBests ?? [];
+				this.runBest = saved.runBest ?? false;
 			}
-			await this.begin(saved?.n ?? MIN_N);
+			await this.begin(saved?.n ?? MIN_N, saved ? (saved.stageStartAt ?? null) : undefined);
+			// 첫 스테이지도 시작 시각을 저장해 두어야 첫 판 도중 새로고침해도 시간이 이어진다.
+			if (!saved) this.saveDailyClimb();
 			return;
 		}
 		await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
@@ -218,13 +248,16 @@ export class Game {
 	/** 등반 모드에서 클리어 후 다음 스테이지. 길이 상승은 n+1, 연속 클리어는 같은 규칙으로 재추첨. */
 	async nextStage() {
 		this.stage += 1;
+		this.lostMs = null;
 		if (this.config.mode === 'climb-length' || this.config.mode === 'daily-climb') await this.begin(this.n + 1);
 		else await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
 		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
 	}
 
-	private async begin(n?: number) {
+	/** resumeAt: 저장된 스테이지 시작 시각(모르면 null). 생략하면 보드가 뜨는 지금부터 잰다. */
+	private async begin(n?: number, resumeAt?: number | null) {
 		this.status = 'loading';
+		this.stageStartAt = null;
 		this.rows = [];
 		this.marks = [];
 		this.current = '';
@@ -248,10 +281,12 @@ export class Game {
 				this.status = saved.status;
 				this.answer = saved.answer;
 				this.hints = saved.hints ?? {};
+				if (saved.status === 'playing') this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
 				return;
 			}
 		}
 		this.status = 'playing';
+		this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
 	}
 
 	type(j: string) {
@@ -370,7 +405,15 @@ export class Game {
 	}
 
 	private async finish(won: boolean, revealed?: string) {
+		// 시간은 reveal 응답을 기다리기 전에 잰다. 포기 뒤 네트워크 지연이 스테이지 시간에 들어가면 안 된다.
+		const endedAt = Date.now();
 		this.status = won ? 'won' : 'lost';
+		if (isClimb(this.config.mode)) {
+			const ms = this.stageStartAt === null ? null : Math.max(0, endedAt - this.stageStartAt);
+			this.stageStartAt = null;
+			if (won) this.recordClear(ms);
+			else this.lostMs = ms;
+		}
 		const word = revealed ?? (await post<RevealResponse>('/api/reveal', { token: this.token })).word;
 		this.answer = word;
 
@@ -392,6 +435,23 @@ export class Game {
 		} else {
 			this.showToast(`정답: ${word}`, 3000);
 		}
+	}
+
+	/** 클리어한 스테이지 시간을 반영한다. bestStage 갱신보다 먼저 불러야 옛 최고 스테이지를 비교 기준으로 쓸 수 있다. */
+	private recordClear(ms: number | null) {
+		const times = [...this.stageTimes];
+		times[this.stage - 1] = ms;
+		this.stageTimes = times;
+		const res = applyClear(this.climbTime, {
+			stage: this.stage,
+			ms,
+			totalMs: totalOf(times),
+			legacyBestStage: this.bestStage
+		});
+		this.climbTime = res.rec;
+		save(`climbtime:${configKey(this.config)}`, res.rec);
+		if (res.stageBest) this.stageBests = [...this.stageBests, this.stage];
+		if (res.bestBeaten) this.runBest = true;
 	}
 
 	private recordStats(won: boolean, tries: number) {
@@ -424,7 +484,16 @@ export class Game {
 
 	private saveDailyClimb() {
 		const key = `dclimb:${this.dailyDay}`;
-		save(key, { stage: this.stage, n: this.n, climbWords: this.climbWords } satisfies DailyClimbSave);
+		save(key, {
+			stage: this.stage,
+			n: this.n,
+			climbWords: this.climbWords,
+			stageStartAt: this.stageStartAt,
+			stageTimes: this.stageTimes,
+			lostMs: this.lostMs,
+			stageBests: this.stageBests,
+			runBest: this.runBest
+		} satisfies DailyClimbSave);
 		removeWhere((k) => k.startsWith('dclimb:') && k.slice(7, 17) < this.dailyDay);
 	}
 }
