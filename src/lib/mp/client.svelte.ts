@@ -243,6 +243,10 @@ export class MpClient {
 	eliminate(pid: Pid) {
 		return this.sendRaw({ type: 'eliminate', pid });
 	}
+	/** 방장: 접속 중인 다른 참가자에게 방장을 넘긴다(대기실·결과). */
+	transfer(pid: Pid) {
+		return this.sendRaw({ type: 'transfer', pid });
+	}
 	/** 나가기: 자리를 버린다. 임시 계정(세션)은 지우지 않는다. */
 	leave(): void {
 		this.leaving = true;

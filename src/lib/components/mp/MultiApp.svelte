@@ -225,6 +225,12 @@
 				if (client.name && requestedName && client.name !== requestedName) showToast(`같은 이름이 있어 ${client.name} 이름으로 들어왔습니다`);
 				return;
 			}
+			// 방장 넘기기는 결과 화면에서도 되므로 단계 가드보다 앞에 둔다. 단계가 바뀐 스냅샷은 제외한다.
+			if (s.phase === p.phase && s.phase !== 'playing' && s.hostPid && s.hostPid !== p.hostPid) {
+				const h = s.players.find((q) => q.pid === s.hostPid);
+				resetNudge();
+				showToast(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
+			}
 			if (s.phase !== 'lobby') {
 				resetNudge();
 				return;
@@ -234,10 +240,6 @@
 			const now = new Set(s.players.map((q) => q.pid));
 			for (const q of s.players) if (!was.has(q.pid) && q.pid !== s.you) showToast(`${q.name}님이 들어왔습니다`);
 			for (const q of p.players) if (!now.has(q.pid)) showToast(`${q.name}님이 나갔습니다`);
-			if (s.hostPid && s.hostPid !== p.hostPid) {
-				const h = s.players.find((q) => q.pid === s.hostPid);
-				showToast(s.hostPid === s.you ? '방장이 되었습니다' : `${h?.name ?? ''}님이 방장이 되었습니다`);
-			}
 			if (!sameSettings(p.settings, s.settings)) {
 				resetNudge();
 				if (s.hostPid !== s.you && p.players.find((q) => q.pid === s.you)?.ready) showToast('방장이 설정을 바꿔 준비가 풀렸습니다');

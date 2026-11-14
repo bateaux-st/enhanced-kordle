@@ -61,6 +61,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
 			return typeof m.candidate === 'number' && Number.isInteger(m.candidate) && m.candidate >= 0 && m.candidate < 10 ? { type: 'vote', candidate: m.candidate } : null;
 		case 'eliminate':
 			return typeof m.pid === 'string' && m.pid.length >= 1 && m.pid.length <= MAX_PID ? { type: 'eliminate', pid: m.pid } : null;
+		case 'transfer':
+			return typeof m.pid === 'string' && m.pid.length >= 1 && m.pid.length <= MAX_PID ? { type: 'transfer', pid: m.pid } : null;
 		default:
 			return null;
 	}

@@ -203,6 +203,21 @@ export function hostSuccessionAt(s: RoomState): number | null {
 	return firstConnectedExcept(s, host.pid) ? host.disconnectedAt + HOST_GRACE_MS : null;
 }
 
+/**
+ * 방장이 접속 중인 다른 참가자에게 방장을 넘긴다. 대기실과 결과에서만 된다.
+ * 새 방장은 준비하지 않는 자리라 ready를 풀고, 옛 방장은 준비 안 함 상태의 일반 참가자가 된다.
+ */
+export function transferHost(s: RoomState, pid: Pid, target: Pid): Result {
+	if (!isHost(s, pid)) return fail('forbidden', '방장만 방장을 넘길 수 있습니다');
+	if (s.phase === 'playing') return fail('phase', '게임 중에는 방장을 넘길 수 없습니다');
+	const next = findPlayer(s, target);
+	if (!next || next.pid === pid || !next.connected) return fail('forbidden', '접속 중인 다른 참가자에게만 넘길 수 있습니다');
+	findPlayer(s, pid)!.ready = false;
+	next.ready = false;
+	s.hostPid = next.pid;
+	return { ok: true };
+}
+
 /** 끊김 유예가 지났으면 입장 순으로 접속 중인 다음 사람에게 방장을 넘긴다. */
 export function succeedHost(s: RoomState, now: number): boolean {
 	const at = hostSuccessionAt(s);

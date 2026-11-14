@@ -13,6 +13,7 @@ test('올바른 메시지는 필요한 필드만 복사해 돌려준다', () => 
 	assert.deepEqual(p({ type: 'start' }), { type: 'start', kickDisconnected: undefined });
 	assert.deepEqual(p({ type: 'start', kickDisconnected: true }), { type: 'start', kickDisconnected: true });
 	assert.deepEqual(p({ type: 'eliminate', pid: 'pabc1234' }), { type: 'eliminate', pid: 'pabc1234' });
+	assert.deepEqual(p({ type: 'transfer', pid: 'pabc1234', extra: 1 }), { type: 'transfer', pid: 'pabc1234' });
 	for (const type of ['nudge', 'leave', 'hint', 'giveup', 'close', 'again']) assert.deepEqual(p({ type }), { type });
 	assert.deepEqual(p({ type: 'settings', settings: DEFAULT_SETTINGS }), { type: 'settings', settings: DEFAULT_SETTINGS });
 });
@@ -43,7 +44,11 @@ test('필드 타입·길이가 어긋나면 null', () => {
 		{ type: 'vote', candidate: 1.5 },
 		{ type: 'eliminate' },
 		{ type: 'eliminate', pid: '' },
-		{ type: 'eliminate', pid: 'p'.repeat(17) }
+		{ type: 'eliminate', pid: 'p'.repeat(17) },
+		{ type: 'transfer' },
+		{ type: 'transfer', pid: '' },
+		{ type: 'transfer', pid: 7 },
+		{ type: 'transfer', pid: 'p'.repeat(17) }
 	];
 	for (const m of bad) assert.equal(p(m), null, JSON.stringify(m));
 });

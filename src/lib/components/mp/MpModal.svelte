@@ -9,7 +9,9 @@
 		small = false,
 		wide = false,
 		over = false,
+		sheet = false,
 		initialFocus,
+		footer,
 		children
 	}: {
 		title: string;
@@ -18,8 +20,11 @@
 		/** 표가 들어가는 모달용. 12자 이름이 한 줄에 들어가는 폭. */
 		wide?: boolean;
 		over?: boolean;
+		/** 설정 모달용. 머리·바닥(footer)은 고정하고 본문만 스크롤하며, 좁은 화면에서는 전폭 하단 시트가 된다. */
+		sheet?: boolean;
 		/** 첫 포커스를 받을 요소의 선택자. 확인 대화상자는 파괴적 버튼이 아니라 취소에 둔다. */
 		initialFocus?: string;
+		footer?: Snippet;
 		children: Snippet;
 	} = $props();
 
@@ -71,13 +76,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-<div class="scrim" class:over onclick={(e) => e.target === e.currentTarget && onclose()}>
-	<div bind:this={dialog} class="dlg" class:small class:wide role="dialog" aria-modal="true" aria-labelledby={id} tabindex="-1">
+<div class="scrim" class:over class:sheet onclick={(e) => e.target === e.currentTarget && onclose()}>
+	<div bind:this={dialog} class="dlg" class:small class:wide class:sheet role="dialog" aria-modal="true" aria-labelledby={id} tabindex="-1">
 		<div class="dlg-hd">
 			<h2 {id}>{title}</h2>
 			<button class="x" type="button" aria-label="닫기" onclick={onclose}><Icon name="x" size="1.25rem" /></button>
 		</div>
 		<div class="dlg-bd">{@render children()}</div>
+		{#if footer}<div class="dlg-ft">{@render footer()}</div>{/if}
 	</div>
 </div>
 
@@ -141,5 +147,47 @@
 		padding: 0.5rem 1.25rem 1.25rem;
 		font-size: 0.9rem;
 		line-height: 1.5;
+	}
+	/* 항목 영역만 스크롤하고 머리와 바닥은 고정한다. min-height:0이 있어야 flex 자식이 줄어든다 */
+	.dlg.sheet {
+		display: flex;
+		flex-direction: column;
+		max-width: 46rem;
+		overflow: hidden;
+	}
+	.sheet .dlg-hd {
+		flex: none;
+		padding-bottom: 0.25rem;
+	}
+	.sheet .dlg-bd {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+	.dlg-ft {
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.75rem 1.25rem max(1rem, env(safe-area-inset-bottom, 0px));
+		border-top: 1px solid var(--line);
+	}
+	@media (max-width: 640px) {
+		.scrim.sheet {
+			align-items: flex-end;
+			padding: 0;
+		}
+		.dlg.sheet {
+			max-width: none;
+			max-height: calc(100dvh - 1rem);
+			border-radius: 0.75rem 0.75rem 0 0;
+		}
+		.dlg-ft {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.5rem;
+		}
 	}
 </style>

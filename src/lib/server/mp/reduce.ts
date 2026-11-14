@@ -146,6 +146,9 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 			if (r.ok) events.push({ type: 'open_settings', to: pid });
 			break;
 		}
+		case 'transfer':
+			apply(members.transferHost(s, pid, msg.pid));
+			break;
 		default:
 			apply(UNSUPPORTED);
 	}
