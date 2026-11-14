@@ -4,6 +4,7 @@ import * as coop from '../src/lib/server/mp/coop.ts';
 import { disconnect, join, leave } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
+import { VOTE_MS } from '../src/lib/mp/rules.ts';
 import { ANSWER, coopStarted, grantHint, joinAll, lobby, rng, T0 } from './mp-helpers.mjs';
 
 // 정답 바나나(ㅂㅏㄴㅏㄴㅏ). 난방은 p c c p p a — mp-comp.test.mjs와 같은 실제 판정 예.
@@ -167,14 +168,12 @@ test('제안은 덮어쓰기만 된다: 마감 전에 다시 보내면 교체되
 	assert.equal(step(s).drafts[host], Y);
 });
 
-test('투표: 자기 제안에는 못 찍고, 집계 전에는 다른 후보로 바꿀 수 있다', () => {
+test('투표: 자기 제안에도 찍을 수 있고, 집계 전에는 다른 후보로 바꿀 수 있다', () => {
 	const { s, host, a } = votingRoom();
-	const own = vote(s, host, 0);
-	assert.deepEqual([own.ok, own.code], [false, 'forbidden']);
-	assert.deepEqual(step(s).votes, {});
-	assert.equal(vote(s, host, 1).ok, true);
-	assert.deepEqual(step(s).votes, { [host]: 1 });
-	assert.deepEqual(vote(s, host, 1), { ok: true, changed: false });
+	assert.deepEqual(vote(s, host, 0), { ok: true, changed: true });
+	assert.deepEqual(step(s).votes, { [host]: 0 });
+	assert.deepEqual(vote(s, host, 0), { ok: true, changed: false });
+	assert.deepEqual(vote(s, host, 1), { ok: true, changed: true });
 	assert.deepEqual(vote(s, host, 2), { ok: true, changed: true });
 	assert.deepEqual(step(s).votes, { [host]: 2 }, '1인 1표: 바꾸면 이전 표가 사라진다');
 	assert.equal(vote(s, a, 9).code, 'invalid', '없는 후보');
@@ -228,16 +227,16 @@ test('2인 방에서 서로 상대 제안에 투표하면 동률이라 돌림판
 	assert.deepEqual(s.game.board.rows, [Y]);
 });
 
-test('찍을 후보가 없는 사람은 "전원 투표"에 세지 않는다', () => {
-	// 모든 후보가 자기 제안인 사람은 병합 규칙상 후보가 둘 이상이면 생기지 않는다. 상태를 직접 만들어 조건 자체를 확인한다.
+test('후보가 하나뿐인 투표 단계에서도 모든 접속자가 찍어야 집계한다(자기 제안 후보도 찍는다)', () => {
+	// 병합 규칙상 후보가 둘 이상이어야 투표 단계가 생긴다. 상태를 직접 만들어 "전원 투표" 조건 자체를 확인한다.
 	const { s, pids } = coopStarted(['가', '나']);
 	const [host, a, b] = pids;
-	s.game.step = { kind: 'vote', candidates: [{ jamo: X, by: [host, a] }], votes: {} };
-	assert.equal(vote(s, host, 0).code, 'forbidden');
-	assert.equal(vote(s, a, 0).code, 'forbidden');
+	s.game.step = { kind: 'vote', candidates: [{ jamo: X, by: [host, a] }], votes: {}, deadline: T0 + 1 + VOTE_MS };
+	assert.equal(vote(s, host, 0).ok, true);
+	assert.equal(vote(s, a, 0).ok, true);
 	assert.equal(s.game.board.rows.length, 0, '아직 b가 투표하지 않았다');
 	vote(s, b, 0, first, T0 + 3);
-	assert.deepEqual([s.game.board.rows, s.game.lastPick.how, s.game.lastPick.tally], [[X], 'vote', [1]]);
+	assert.deepEqual([s.game.board.rows, s.game.lastPick.how, s.game.lastPick.tally], [[X], 'vote', [3]]);
 });
 
 test('방장 마감: 제안이 하나 이상일 때만 되고, 방장만 할 수 있다', () => {

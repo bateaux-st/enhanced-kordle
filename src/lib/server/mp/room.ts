@@ -91,7 +91,7 @@ export class Room extends DurableObject<RoomEnv> {
 		const now = Date.now();
 		const live = this.ctx.getWebSockets().flatMap((ws) => attOf(ws).pid ?? []);
 		// 축출 중에 지나간 마감이 advance보다 먼저 반영되어야 한다.
-		const t = tick(s, now);
+		const t = tick(s, now, randomIndex);
 		if (!members.reconcile(s, live, now) && !t.changed) return;
 		coop.advance(s, randomIndex, now);
 		s.seq++;
@@ -318,7 +318,7 @@ export class Room extends DurableObject<RoomEnv> {
 		const s = this.state;
 		if (!s) return;
 		const now = Date.now();
-		const t = tick(s, now);
+		const t = tick(s, now, randomIndex);
 		let changed = t.changed;
 		let save = t.changed;
 		let destroy = t.destroy;

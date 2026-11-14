@@ -31,6 +31,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
 		case 'leave':
 		case 'again':
 		case 'close':
+		case 'unpropose':
 		case 'hint':
 		case 'giveup':
 			return { type: m.type };

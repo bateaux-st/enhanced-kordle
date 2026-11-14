@@ -48,7 +48,7 @@ const NOT_COMP = fail('phase', '경쟁 게임에서만 쓸 수 있습니다');
 
 /** 항상 tick(now)부터 돌려 만료된 마감을 먼저 처리한다. */
 export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: number, rng: Rng): ReduceResult {
-	const t = tick(s, now);
+	const t = tick(s, now, rng);
 	if (t.destroy) return { events: [], changed: false, skipSave: false, destroy: true };
 
 	const events: Effect[] = [];
@@ -121,6 +121,11 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 		}
 		case 'propose': {
 			const r = isCoop(s) ? coop.propose(s, pid, msg.jamo, io.valid, rng, now) : NOT_COOP;
+			apply(r, r.ok && r.changed);
+			break;
+		}
+		case 'unpropose': {
+			const r = isCoop(s) ? coop.unpropose(s, pid) : NOT_COOP;
 			apply(r, r.ok && r.changed);
 			break;
 		}

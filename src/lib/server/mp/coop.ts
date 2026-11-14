@@ -3,7 +3,7 @@
 import { isJamo } from '../../jamo.ts';
 import { judge } from '../judge.ts';
 import type { CoopHintVoteEnd, Pid } from '../../mp/protocol.ts';
-import { HINT_VOTE_COOLDOWN_MS, HINT_VOTE_MS, STAGE_CLEAR_MS } from '../../mp/rules.ts';
+import { HINT_VOTE_COOLDOWN_MS, HINT_VOTE_MS, STAGE_CLEAR_MS, VOTE_MS } from '../../mp/rules.ts';
 import { climbUp, hintUsedMsg, isClimb, isTop, stageDeadline, startAnswers } from './climb.ts';
 import type { Start } from './climb.ts';
 import { checkGuess, freshBoard, hintFor } from './comp.ts';
@@ -54,9 +54,6 @@ export function seated(s: RoomState, pid: Pid): boolean {
 /** 집계 대상. 끊긴 사람은 빠진다. */
 const countable = (s: RoomState): Player[] => s.players.filter((p) => p.inGame && !p.left && p.connected);
 
-/** 이 사람이 찍을 수 있는 후보가 하나라도 있는지. 자기 제안이 들어간 후보는 못 찍는다. */
-const hasVotable = (step: VoteStep, pid: Pid): boolean => step.candidates.some((c) => !c.by.includes(pid));
-
 /** 같은 자모열은 후보 하나로 합친다. 순서는 처음 제안한 순. */
 function mergeProposals(proposals: Record<Pid, string>): VoteStep['candidates'] {
 	const out: VoteStep['candidates'] = [];
@@ -102,12 +99,15 @@ function submit(s: RoomState, game: CoopGame, cands: VoteStep['candidates'], cho
 	} else if (board.rows.length >= game.settings.tries) endGame(s, game, 'lost', 'tries', now);
 }
 
-/** 제안을 닫는다. 후보가 하나면 바로 제출, 돌림판 방식이면 서버가 즉시 고르고, 투표 방식이면 투표 단계로 간다. */
+/**
+ * 제안을 닫는다. 후보가 하나면 바로 제출, 돌림판 방식이면 서버가 즉시 고르고, 투표 방식이면 투표 단계로 간다.
+ * 투표 단계의 마감은 방 제한 시간과 무관하게 항상 건다.
+ */
 function closePropose(s: RoomState, game: CoopGame, step: ProposeStep, rng: Rng, now: number): void {
 	const candidates = mergeProposals(step.proposals);
 	if (candidates.length === 1) submit(s, game, candidates, 0, 'single', undefined, now);
 	else if (game.settings.pick === 'roulette') submit(s, game, candidates, rng(candidates.length), 'roulette', undefined, now);
-	else game.step = { kind: 'vote', candidates, votes: {} };
+	else game.step = { kind: 'vote', candidates, votes: {}, deadline: now + VOTE_MS };
 }
 
 /** 투표를 집계한다. 최다 득표가 하나면 그 후보, 동률(0표 동률 포함)이면 동률 후보끼리 서버가 돌림판으로 정한다. */
@@ -148,8 +148,7 @@ function advanceStep(s: RoomState, rng: Rng, now: number): boolean {
 			}
 			closePropose(s, game, step, rng, now);
 		} else {
-			// 찍을 후보가 없는 사람은 기다리지 않는다. 대상이 0명이면 바로 집계한다.
-			if (!who.filter((p) => hasVotable(step, p.pid)).every((p) => p.pid in step.votes)) return moved;
+			if (!who.every((p) => p.pid in step.votes)) return moved;
 			closeVote(s, game, step, rng, now);
 		}
 		moved = true;
@@ -178,7 +177,7 @@ export function draft(s: RoomState, pid: Pid, jamo: string): Result<{ changed: b
 	return { ok: true, changed: true };
 }
 
-/** 제안 확정. 마감 전에는 다시 보내 덮어쓸 수 있고 철회는 없다. 패스했다면 풀린다. `valid`는 DO 셸이 D1에서 읽은 사전 여부. */
+/** 제안 확정. 마감 전에는 다시 보내 덮어쓰거나 unpropose로 거둘 수 있다. 패스했다면 풀린다. `valid`는 DO 셸이 D1에서 읽은 사전 여부. */
 export function propose(s: RoomState, pid: Pid, jamo: string, valid: boolean | undefined, rng: Rng, now: number): Result<{ changed: boolean }> {
 	const m = member(s, pid);
 	if (!m.ok) return m;
@@ -194,6 +193,23 @@ export function propose(s: RoomState, pid: Pid, jamo: string, valid: boolean | u
 	step.drafts[pid] = jamo;
 	changed = advance(s, rng, now) || changed;
 	return { ok: true, changed };
+}
+
+/**
+ * 확정한 내 제안을 거둔다. 초안은 거둔 자모열로 두어 남들에게는 다시 입력 중으로 보인다.
+ * 거둔 뒤에는 패스할 수 있다. 투표 단계에서는 이미 후보가 정해졌으므로 거절한다.
+ */
+export function unpropose(s: RoomState, pid: Pid): Result<{ changed: boolean }> {
+	const m = member(s, pid);
+	if (!m.ok) return m;
+	const step = m.game.step;
+	// 마지막 사람이 제안하는 순간 투표로 넘어가므로 늦은 취소가 올 수 있다. 화면에 그대로 뜨는 문구라 이유를 적는다.
+	if (step.kind !== 'propose') return fail('phase', '이미 투표가 시작됐습니다');
+	const jamo = step.proposals[pid];
+	if (jamo === undefined) return fail('forbidden', '제안한 상태가 아닙니다');
+	delete step.proposals[pid];
+	step.drafts[pid] = jamo;
+	return { ok: true, changed: true };
 }
 
 /**
@@ -244,16 +260,31 @@ export function close(s: RoomState, pid: Pid, rng: Rng, now: number): Result {
 	return { ok: true };
 }
 
-/** 1인 1표. 집계 전까지는 다른 후보로 바꿀 수 있고, 자기 제안이 들어간 후보에는 못 찍는다. */
+/**
+ * 방장의 마감처럼 투표 마감이 지났으면 그 시점의 표로 집계한다(0표면 전 후보 동률이라 돌림판).
+ * 같은 now로 다시 불러도 결과가 같다. deadline이 없는 투표 단계(필드 도입 전 저장본)는 마감 없이 기다린다.
+ * 접속 중인 투표권자가 없으면 집계하지 않고 마감만 VOTE_MS 뒤로 민다(끊김 유예 안에 돌아온 사람이 표도 못 찍고 한 행을 잃는다).
+ */
+export function expireVote(s: RoomState, rng: Rng, now: number): boolean {
+	const game = coopGame(s);
+	const step = game?.step;
+	if (!game || step?.kind !== 'vote' || step.deadline === undefined || now < step.deadline) return false;
+	if (countable(s).length === 0) {
+		step.deadline = now + VOTE_MS;
+		return true;
+	}
+	closeVote(s, game, step, rng, now);
+	return true;
+}
+
+/** 1인 1표. 집계 전까지는 다른 후보로 바꿀 수 있고, 자기 제안에도 찍을 수 있다. */
 export function vote(s: RoomState, pid: Pid, candidate: number, rng: Rng, now: number): Result<{ changed: boolean }> {
 	const m = member(s, pid);
 	if (!m.ok) return m;
 	const { game } = m;
 	const step = game.step;
 	if (step.kind !== 'vote') return fail('phase', '투표 단계가 아닙니다');
-	const target = step.candidates[candidate];
-	if (!target) return fail('invalid', '없는 후보입니다');
-	if (target.by.includes(pid)) return fail('forbidden', '자기 제안에는 투표할 수 없습니다');
+	if (!step.candidates[candidate]) return fail('invalid', '없는 후보입니다');
 
 	let changed = step.votes[pid] !== candidate;
 	step.votes[pid] = candidate;
@@ -392,7 +423,8 @@ export function forfeit(s: RoomState, pid: Pid, rng: Rng, now: number): void {
 		for (const [voter, idx] of Object.entries(step.votes)) if (kept.includes(idx)) votes[voter] = kept.indexOf(idx);
 		if (candidates.length === 0) game.step = emptyPropose();
 		else if (candidates.length === 1) submit(s, game, [candidates[0]], 0, 'single', undefined, now);
-		else game.step = { kind: 'vote', candidates, votes };
+		// 후보가 줄어 다시 꾸려도 투표 마감(step.deadline)은 처음 그대로다.
+		else game.step = { ...step, candidates, votes };
 	}
 	advance(s, rng, now);
 }

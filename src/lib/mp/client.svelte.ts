@@ -214,6 +214,10 @@ export class MpClient {
 	propose(jamo: string) {
 		return this.sendRaw({ type: 'propose', jamo });
 	}
+	/** 협동 제안 단계: 확정한 내 제안을 거둔다(초안은 그 자모열로 남는다). */
+	unpropose() {
+		return this.sendRaw({ type: 'unpropose' });
+	}
 	/** 협동 방장: 제안(또는 투표)을 지금까지로 마감한다. 소켓을 닫는 close()와 구분한다. */
 	closeStep() {
 		return this.sendRaw({ type: 'close' });

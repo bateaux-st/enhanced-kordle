@@ -57,7 +57,8 @@ function stepView(step: CoopGame['step'], pid: Pid): CoopStepView {
 		candidates: step.candidates.map((c) => ({ jamo: c.jamo, by: [...c.by] })),
 		tally,
 		voted: Object.keys(step.votes),
-		myVote: step.votes[pid] ?? null
+		myVote: step.votes[pid] ?? null,
+		deadline: step.deadline ?? null
 	};
 }
 
