@@ -44,7 +44,9 @@ export type ClientMsg =
 	/** 경쟁은 바로 쓰고, 협동은 힌트 투표를 연다. */
 	| { type: 'hint' }
 	| { type: 'giveup' }
-	| { type: 'eliminate'; pid: Pid };
+	| { type: 'eliminate'; pid: Pid }
+	/** 방장: 대기실·결과에서 접속 중인 다른 참가자에게 방장을 넘긴다. */
+	| { type: 'transfer'; pid: Pid };
 
 /** 상태가 바뀌지 않는 거절. 스냅샷이 따라오지 않는다. */
 export type ErrorCode = 'invalid' | 'hard' | 'forbidden' | 'phase' | 'cooldown' | 'unavailable';

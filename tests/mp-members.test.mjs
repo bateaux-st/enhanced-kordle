@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, HOST_GRACE_MS, MAX_PLAYERS, NUDGE_COOLDOWN_MS } from 
 import { backToLobby, canStart, disconnect, hostSuccessionAt, join, leave, reconcile, uniqueName } from '../src/lib/server/mp/members.ts';
 import { eliminate } from '../src/lib/server/mp/comp.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
+import { sameSummary, summarize } from '../src/lib/server/mp/rooms.ts';
 import { ANSWER, coopStarted, joinAll, lobby, rng, started, T0 } from './mp-helpers.mjs';
 
 const send = (s, pid, msg, now = T0, io = {}) => reduce(s, pid, msg, io, now, rng);
@@ -387,4 +388,87 @@ test('나갔던 사람은 협동·경쟁 모두 결과 단계에서 들어올 �
 		assert.equal(r.ok, true);
 		assert.equal(s.players.find((p) => p.pid === r.pid).left, undefined);
 	}
+});
+
+test('방장 넘기기: 방장만, 접속 중인 다른 참가자에게만. 거절은 상태를 바꾸지 않는다', () => {
+	const s = lobby();
+	const [host, a, b, ghost] = joinAll(s, ['가', '나', '다']);
+	disconnect(s, ghost, T0);
+	send(s, a, { type: 'ready', on: true });
+
+	assert.equal(errorOf(send(s, a, { type: 'transfer', pid: b })).code, 'forbidden', '방장이 아닌 사람');
+	assert.equal(errorOf(send(s, host, { type: 'transfer', pid: host })).code, 'forbidden', '자기 자신');
+	assert.equal(errorOf(send(s, host, { type: 'transfer', pid: ghost })).code, 'forbidden', '끊긴 사람');
+	assert.equal(errorOf(send(s, host, { type: 'transfer', pid: 'pnone' })).code, 'forbidden', '방에 없는 pid');
+	assert.equal(s.hostPid, host);
+	assert.equal(s.players.find((p) => p.pid === a).ready, true, '거절은 준비를 건드리지 않는다');
+
+	const r = send(s, host, { type: 'transfer', pid: b });
+	assert.equal(r.changed, true);
+	assert.deepEqual(r.events, []);
+	assert.equal(s.hostPid, b);
+});
+
+test('방장 넘기기: 새 방장은 준비가 풀리고 옛 방장은 준비 안 함인 일반 참가자, 나머지 준비는 유지', () => {
+	const s = lobby();
+	const [host, a, b] = joinAll(s, ['가', '나']);
+	send(s, a, { type: 'ready', on: true });
+	send(s, b, { type: 'ready', on: true });
+
+	send(s, host, { type: 'transfer', pid: a });
+	const by = (pid) => s.players.find((p) => p.pid === pid);
+	assert.equal(s.hostPid, a);
+	assert.equal(by(a).ready, false, '새 방장은 준비하지 않는다');
+	assert.equal(by(host).ready, false, '옛 방장은 준비 안 함');
+	assert.equal(by(b).ready, true, '다른 참가자의 준비는 유지');
+	assert.equal(errorOf(send(s, a, { type: 'ready', on: true })).code, 'forbidden', '새 방장은 준비 불가');
+	assert.equal(send(s, host, { type: 'ready', on: true }).changed, true, '옛 방장은 준비할 수 있다');
+	assert.equal(errorOf(send(s, host, { type: 'start' }, T0, START_IO)).code, 'forbidden', '옛 방장은 시작 불가');
+	assert.equal(send(s, a, { type: 'start' }, T0, START_IO).changed, true, '새 방장이 시작(나머지 모두 준비)');
+});
+
+test('방장 넘기기: 결과 화면에서도 되고 게임 중에는 거절한다', () => {
+	const { s, pids } = started(['가', '나']);
+	const [host, a] = pids;
+	const r = send(s, host, { type: 'transfer', pid: a }, T0 + 1);
+	assert.equal(errorOf(r).code, 'phase');
+	assert.equal(s.hostPid, host);
+
+	for (const pid of [...pids].reverse()) send(s, pid, { type: 'giveup' }, T0 + 10);
+	assert.equal(s.phase, 'result');
+	assert.equal(send(s, host, { type: 'transfer', pid: a }, T0 + 11).changed, true);
+	assert.equal(s.hostPid, a);
+	assert.equal(s.phase, 'result');
+	assert.equal(send(s, a, { type: 'again' }, T0 + 12).changed, true, '새 방장이 대기실로 돌린다');
+	assert.equal(errorOf(send(s, host, { type: 'again' }, T0 + 12)).code, 'forbidden');
+});
+
+test('방장 넘기기: 연속으로 넘기고 되받아도 방장은 하나이고 요약의 방장 이름이 바뀐다', () => {
+	const s = lobby();
+	const [host, a, b] = joinAll(s, ['가', '나']);
+	const hostOf = () => summarize(s, T0).host;
+	assert.equal(hostOf(), '방장');
+	const before = summarize(s, T0);
+
+	send(s, host, { type: 'transfer', pid: a });
+	assert.equal(sameSummary(before, summarize(s, T0)), false, '요약이 달라져 기존 upsert 경로를 탄다');
+	assert.equal(hostOf(), '가');
+	send(s, a, { type: 'transfer', pid: b });
+	assert.equal(hostOf(), '나');
+	assert.equal(errorOf(send(s, a, { type: 'transfer', pid: host })).code, 'forbidden', '넘긴 사람은 더는 방장이 아니다');
+	send(s, b, { type: 'transfer', pid: host });
+	assert.equal(s.hostPid, host);
+	assert.equal(hostOf(), '방장');
+	assert.equal(s.players.filter((p) => p.pid === s.hostPid).length, 1);
+	assert.ok(s.players.every((p) => !p.ready));
+});
+
+test('방장 넘기기: 넘긴 뒤 옛 방장이 나가도 새 방장이 유지된다', () => {
+	const s = lobby();
+	const [host, a, b] = joinAll(s, ['가', '나']);
+	send(s, host, { type: 'transfer', pid: b });
+	send(s, host, { type: 'leave' }, T0 + 1);
+	assert.equal(s.hostPid, b);
+	assert.ok(!s.players.some((p) => p.pid === host));
+	assert.ok(s.players.some((p) => p.pid === a));
 });
