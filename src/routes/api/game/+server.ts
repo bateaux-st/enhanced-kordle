@@ -18,6 +18,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	}
 	const t = POOL_THRESHOLD[body.mode];
 
+	// 풀이 비면 idx가 NaN(비데일리)이거나 0(데일리)인 토큰이 나가 이후 guess·reveal이 pool miss로 깨진다. 같은 500으로 여기서 끊는다.
+	const poolSize = async (len: number): Promise<number> => {
+		const count = await db.answerCount(t, len);
+		if (!(count > 0)) throw new Error(`pool empty t=${t} n=${len}`);
+		return count;
+	};
+
 	let n: number;
 	let idx: number;
 	if (body.mode === 'daily' || body.mode === 'daily-climb') {
@@ -27,10 +34,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const day = body.day === undefined ? today : body.day;
 		if (!validDailyDay(day, today)) error(400, 'invalid daily day');
 		n = body.n ?? MIN_N + (await seededIndex(`n:${day}`, SPAN));
-		idx = await dailyIndex(day, n, body.mode === 'daily-climb', await db.answerCount(t, n));
+		idx = await dailyIndex(day, n, body.mode === 'daily-climb', await poolSize(n));
 	} else {
 		n = body.n ?? MIN_N + randomIndex(SPAN);
-		idx = randomIndex(await db.answerCount(t, n));
+		idx = randomIndex(await poolSize(n));
 	}
 
 	const res: NewGameResponse = { token: await encodeToken({ n, t, idx }, secret), n };

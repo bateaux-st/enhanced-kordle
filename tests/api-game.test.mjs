@@ -158,11 +158,16 @@ test('platform·DB가 없으면 500, D1 오류는 던져진다', async (t) => {
 	assert.equal(res.crashed.message, 'd1 down');
 });
 
-// 풀 크기 0이면 idx가 NaN(비데일리)이거나 0(데일리)이라 서버는 200을 주고, 그 토큰은 이후 guess·reveal에서 깨진다.
-test('풀이 비어 있으면 토큰을 내주지 않는다', { todo: 'api/game: answerCount 0을 검사하지 않아 NaN idx 토큰이 200으로 나간다' }, async (t) => {
+test('풀이 비어 있으면(pool_meta 행 없음·count 0) 토큰을 내주지 않고 pool miss처럼 500', async (t) => {
 	t.mock.timers.enable({ apis: ['Date'], now: NOON });
-	const platform = platformOf({ DB: new FakeD1() });
-	for (const mode of MODES) assert.notEqual((await call(POST, { body: { mode, n: 6 }, platform })).status, 200, mode);
+	for (const pool of [{}, { '3:6': [], '1:6': [] }]) {
+		const platform = platformOf({ DB: new FakeD1({ pool }) });
+		for (const mode of MODES) {
+			const res = await call(POST, { body: { mode, n: 6 }, platform });
+			assert.equal(res.status, 500, mode);
+			assert.match(res.crashed.message, /^pool empty t=\d n=6$/, mode);
+		}
+	}
 });
 
 test('데일리 토큰은 같은 좌표를 서명한 encodeToken 결과와 같다', async (t) => {
