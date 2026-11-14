@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import Board, { type BoardView } from '$lib/components/Board.svelte';
 	import Keyboard from '$lib/components/Keyboard.svelte';
 	import { CODE_TO_JAMO } from '$lib/jamo';
@@ -248,6 +248,8 @@
 	// 확정한 제안을 거두면 그 단어가 입력 행으로 돌아와 고칠 수 있다. 서버도 초안을 같은 단어로 두므로 보낸 초안도 맞춘다.
 	// 토스트는 서버가 거둔 것을 확인한 뒤(내 제안이 사라진 스냅샷)에 띄운다. 마지막 제안이 먼저 들어와 거절되면 오류 토스트만 남는다.
 	let cancelling = false;
+	let passBtn = $state<HTMLButtonElement>();
+	let actionsEl = $state<HTMLDivElement>();
 	function cancelPropose() {
 		const mine = proposals?.[snap.you];
 		if (mine === undefined || !client.unpropose()) return;
@@ -262,6 +264,12 @@
 		if (!cancelling || proposed) return;
 		cancelling = false;
 		showToast('제안을 취소했습니다');
+		// 포커스된 취소 버튼이 DOM에서 사라지므로 같은 자리의 패스 버튼으로 옮긴다. 패스가 막혀 있으면(제안이 하나도 없음) 처음 켜진 버튼.
+		void tick().then(() => {
+			if (document.activeElement && document.activeElement !== document.body) return;
+			const target = passBtn && !passBtn.disabled ? passBtn : actionsEl?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+			target?.focus();
+		});
 	});
 
 	// 서버가 행을 받아 주면 입력 행을 비운다(협동은 연출이 끝나 행이 보이는 때).
@@ -661,7 +669,7 @@
 	</section>
 {/if}
 
-<div class="actions">
+<div class="actions" bind:this={actionsEl}>
 	{#if playing}
 		{#if coop && isHost && coop.step?.kind === 'propose' && !held}
 			<button class="btn primary slot" type="button" onclick={() => client.closeStep()} disabled={!proposals || Object.keys(proposals).length === 0}>마감</button>
@@ -674,6 +682,7 @@
 				<button
 					class="btn slot"
 					type="button"
+					bind:this={passBtn}
 					onclick={() => {
 						touch();
 						if (!myPassed) {
