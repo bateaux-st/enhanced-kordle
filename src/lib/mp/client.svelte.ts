@@ -73,7 +73,7 @@ export class MpClient {
 		return Date.now() + this.clockOffset;
 	}
 
-	/** vite dev는 WS 클라이언트가 붙었다 끊기면 죽으므로 연결하지 않는다(R32). 멀티는 build + preview로 본다. */
+	/** vite dev는 WS 클라이언트가 붙었다 끊기면 죽으므로 연결하지 않는다(R32). 실제 소켓은 build + preview로 본다. */
 	connect(code: string, name: string): void {
 		if (import.meta.env.DEV) {
 			this.status = 'dev';

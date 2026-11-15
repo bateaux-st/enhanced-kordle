@@ -24,13 +24,13 @@ class ExportTests(unittest.TestCase):
             con.close()
             out = Path(d) / "d1"
             out.mkdir()
-            (out / "valid-03.sql").write_text("INSERT INTO valid VALUES ('옛단어');")
+            (out / "valid-03.sql").write_text("INSERT INTO valid VALUES ('옛단어');", encoding="utf-8")
             with contextlib.redirect_stdout(io.StringIO()):
                 main(db, out)
             self.assertEqual([p.name for p in out.glob("valid-*.sql")], ["valid-00.sql"])
             imported = sqlite3.connect(":memory:")
             for path in [out / "schema.sql", out / "valid-00.sql", out / "pool.sql"]:
-                imported.executescript(path.read_text())
+                imported.executescript(path.read_text(encoding="utf-8"))
             self.assertEqual(imported.execute("SELECT jamo FROM valid").fetchall(), [("ㅂㅏㄴㅏㄴㅏ",)])
             self.assertEqual(imported.execute("SELECT count FROM pool_meta WHERE t=3 AND n=6").fetchone(), (1,))
             imported.close()

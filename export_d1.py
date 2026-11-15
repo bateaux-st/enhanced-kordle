@@ -81,6 +81,7 @@ def main(db_path, out_dir):
                     )
                     f.write(f"INSERT INTO pool VALUES {vals};\n")
                 sizes[(t, n)] = len(items)
+    con.close()
     print(f"pool: {sum(sizes.values()):,}행 (t={THRESHOLDS}, n={MIN_N}..{MAX_N})")
     print("크기:", ", ".join(f"{p.name} {p.stat().st_size / 2**20:.1f}MB" for p in sorted(out.iterdir())))
 
