@@ -44,8 +44,8 @@ test('지우고 다른 자모로 다시 채운 뒤 먼저 보낸 응답이 오�
 	assert.equal(check.pending.length, 2);
 	await check.answer(0, false);
 	assert.equal(game.invalid, false);
-	await check.answer(1, true);
-	assert.equal(game.invalid, false);
+	await check.answer(1, false);
+	assert.equal(game.invalid, true);
 });
 
 test('지우고 같은 자모로 다시 채우면 먼저 보낸 응답도 현재 입력과 같아 반영한다', async (t) => {
