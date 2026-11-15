@@ -127,6 +127,46 @@ test.describe('끊김과 재접속', () => {
 		await expect(mpToast(page)).toHaveText('접속이 끊겨 탈락했습니다', { timeout: 1500 });
 	});
 
+	// 끊김 탈락 말고도 끊긴 동안 판이 끝날 수 있다. 서버는 보드 마감이 탈락보다 이르면 시간 초과를 고른다.
+	test('끊긴 동안 제한 시간이 끝나면 시간 초과 토스트가 재접속 토스트에 덮이지 않는다', async ({ page, openRoom }) => {
+		const room = await openRoom({ host: true, others: ['철수', '영희'], answer: () => answerOf('바나나'), settings: { timer: true } });
+		await room.open();
+		room.startGame();
+		await expect(page.locator('.game-title')).toBeVisible();
+		await room.advance(130_000, 'jump');
+		room.refuse = 1006;
+		room.dropMe();
+		await expect(overlay(page)).toContainText('연결이 끊겼습니다');
+		await room.advance(55_000, 'jump');
+		room.refuse = null;
+		await overlay(page).getByRole('button', { name: '다시 연결' }).click();
+		await expect(mpToast(page)).toHaveText('시간이 다 됐습니다', { timeout: 1500 });
+	});
+
+	test('협동: 끊긴 동안 제한 시간이 끝나면 시간 초과 토스트가 재접속 토스트에 덮이지 않는다', async ({ page, openRoom }) => {
+		const room = await openRoom({ host: true, others: ['철수', '영희'], answer: () => answerOf('바나나'), settings: { kind: 'coop', timer: true } });
+		await room.open();
+		room.startGame();
+		await expect(page.locator('.game-title')).toBeVisible();
+		await room.advance(170_000, 'jump');
+		room.refuse = 1006;
+		room.dropMe();
+		await expect(overlay(page)).toContainText('연결이 끊겼습니다');
+		await room.advance(15_000, 'jump');
+		room.refuse = null;
+		await overlay(page).getByRole('button', { name: '다시 연결' }).click();
+		await expect(mpToast(page)).toHaveText('시간이 다 됐습니다', { timeout: 1500 });
+	});
+
+	test('게임 중 짧게 끊겼다 돌아와 판이 계속되면 재접속을 알린다', async ({ page, openRoom }) => {
+		const room = await openRoom({ host: true, others: ['철수', '영희'], answer: () => answerOf('바나나') });
+		await room.open();
+		room.startGame();
+		await expect(page.locator('.game-title')).toBeVisible();
+		room.dropMe();
+		await expect(mpToast(page)).toHaveText('다시 연결되었습니다');
+	});
+
 	test('끊긴 동안에는 오버레이가 키 입력을 가로채 보드에 글자가 들어가지 않는다', async ({ page, openRoom }) => {
 		const room = await openRoom({ host: true, others: ['철수', '영희'], answer: () => answerOf('바나나') });
 		await room.open();
