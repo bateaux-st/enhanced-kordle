@@ -145,3 +145,44 @@ test('끝난 daily 저장본(answer·hints 포함)은 그대로 복원된다', a
 	assert.equal(game.answer, '정답');
 	assert.deepEqual(game.hints, { 1: 'ㄴ' });
 });
+
+const win = () => Response.json({ ok: true, marks: Array(6).fill('c') });
+
+async function winEndless(t, raw) {
+	const { values } = setup(t, { '/api/guess': win });
+	values.set('nkordle:config', JSON.stringify({ mode: 'endless', length: { kind: 'fixed', n: 6 } }));
+	if (raw !== undefined) values.set('nkordle:stats:endless', raw);
+	const game = new Game();
+	const initial = JSON.parse(JSON.stringify(game.stats));
+	await game.newGame();
+	game.current = 'ㄱ'.repeat(6);
+	await game.submit();
+	return { game, initial, values };
+}
+
+const emptyStats = { played: 0, won: 0, streak: 0, maxStreak: 0, dist: [] };
+const brokenStats = {
+	'빈 객체': '{}',
+	숫자: '5',
+	'dist 없음': '{"played":3,"won":2,"streak":1,"maxStreak":2}',
+	'dist가 배열이 아님': '{"played":3,"won":2,"streak":1,"maxStreak":2,"dist":"x"}',
+	'숫자 필드가 문자열': '{"played":"3","won":2,"streak":1,"maxStreak":2,"dist":[]}'
+};
+
+for (const [name, raw] of Object.entries(brokenStats)) {
+	test(`stats 저장본이 ${name}이면 빈 통계로 시작해 판이 끝나도 던지지 않는다`, async (t) => {
+		const { game, initial, values } = await winEndless(t, raw);
+		assert.deepEqual(initial, emptyStats);
+		assert.notEqual(game.toast, '서버에 연결할 수 없습니다');
+		assert.equal(game.status, 'won');
+		assert.deepEqual(game.stats, { played: 1, won: 1, streak: 1, maxStreak: 1, dist: [1] });
+		assert.deepEqual(JSON.parse(values.get('nkordle:stats:endless')), game.stats);
+	});
+}
+
+test('정상 stats 저장본은 그대로 복원되고 이어서 쌓인다', async (t) => {
+	const saved = { played: 3, won: 2, streak: 1, maxStreak: 2, dist: [0, 1, 1] };
+	const { game, initial } = await winEndless(t, JSON.stringify(saved));
+	assert.deepEqual(initial, saved);
+	assert.deepEqual(game.stats, { played: 4, won: 3, streak: 2, maxStreak: 2, dist: [1, 1, 1] });
+});

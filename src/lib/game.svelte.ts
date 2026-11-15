@@ -95,7 +95,10 @@ function loadConfig(): ModeConfig {
 const validClimbSave = (s: DailyClimbSave | null): s is DailyClimbSave =>
 	typeof s?.stage === 'number' && typeof s.n === 'number' && Array.isArray(s.climbWords);
 
-const validDailySave = (s: DailySave | null): s is DailySave =>
+const validStats = (s: Stats | null): s is Stats =>
+	[s?.played, s?.won, s?.streak, s?.maxStreak].every((v) => typeof v === 'number') && Array.isArray(s?.dist);
+
+const validDailySave =(s: DailySave | null): s is DailySave =>
 	Array.isArray(s?.rows) &&
 	Array.isArray(s.marks) &&
 	s.marks.length === s.rows.length &&
@@ -181,7 +184,8 @@ export class Game {
 	}
 
 	private loadRecords() {
-		this.stats = load(`stats:${this.config.mode}`, emptyStats());
+		const stats = load<Stats | null>(`stats:${this.config.mode}`, null);
+		this.stats = validStats(stats) ? stats : emptyStats();
 		this.bestStage = load(`best:${configKey(this.config)}`, 0);
 		this.climbTime = load(`climbtime:${configKey(this.config)}`, emptyClimbTime());
 	}
