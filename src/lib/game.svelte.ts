@@ -91,6 +91,17 @@ function loadConfig(): ModeConfig {
 	return ok ? (c as ModeConfig) : { mode: 'daily', length: { kind: 'fixed', n: 6 } };
 }
 
+// 복원 코드가 배열 메서드·스프레드를 바로 부르는 필수 필드만 본다. 어긋나면 저장본이 없는 것으로 읽는다.
+const validClimbSave = (s: DailyClimbSave | null): s is DailyClimbSave =>
+	typeof s?.stage === 'number' && typeof s.n === 'number' && Array.isArray(s.climbWords);
+
+const validDailySave = (s: DailySave | null): s is DailySave =>
+	Array.isArray(s?.rows) &&
+	Array.isArray(s.marks) &&
+	s.marks.length === s.rows.length &&
+	s.marks.every(Array.isArray) &&
+	(s.status === 'playing' || s.status === 'won' || s.status === 'lost');
+
 async function post<T>(url: string, body: unknown): Promise<T> {
 	const res = await fetch(url, {
 		method: 'POST',
@@ -239,13 +250,14 @@ export class Game {
 		this.runBest = false;
 		if (this.config.mode === 'daily-climb') {
 			// 코스는 항상 5자에서 시작해 12자까지 — 모두 같은 코스여야 데일리다.
-			const saved = load<DailyClimbSave | null>(`dclimb:${this.dailyDay}`, null);
+			const raw = load<DailyClimbSave | null>(`dclimb:${this.dailyDay}`, null);
+			const saved = validClimbSave(raw) ? raw : null;
 			if (saved) {
 				this.stage = saved.stage;
 				this.climbWords = saved.climbWords;
-				this.stageTimes = saved.stageTimes ?? saved.climbWords.map(() => null);
+				this.stageTimes = Array.isArray(saved.stageTimes) ? saved.stageTimes : saved.climbWords.map(() => null);
 				this.lostMs = saved.lostMs ?? null;
-				this.stageBests = saved.stageBests ?? [];
+				this.stageBests = Array.isArray(saved.stageBests) ? saved.stageBests : [];
 				this.runBest = saved.runBest ?? false;
 			}
 			const ok = await this.begin(saved?.n ?? MIN_N, saved ? (saved.stageStartAt ?? null) : undefined);
@@ -296,7 +308,8 @@ export class Game {
 
 		if (isDaily(mode)) {
 			// 토큰이 n·풀·정답을 함축하므로 날짜와 묶어 키로 쓰면 "오늘 이 판" 진행만 정확히 복원된다.
-			const saved = load<DailySave | null>(this.dailyKey(), null);
+			const raw = load<DailySave | null>(this.dailyKey(), null);
+			const saved = validDailySave(raw) ? raw : null;
 			if (saved) {
 				this.rows = saved.rows;
 				this.marks = saved.marks;
