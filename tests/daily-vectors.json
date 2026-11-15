@@ -32,5 +32,9 @@
   {"day": "2027-03-15", "n": 7, "climb": true, "count": 7, "idx": 1},
   {"day": "2027-03-15", "n": 7, "climb": true, "count": 3701, "idx": 328},
   {"day": "2026-10-04", "n": 6, "climb": false, "count": 1, "idx": 0},
-  {"day": "2026-09-01", "n": 6, "climb": true, "count": 1, "idx": 0}
+  {"day": "2026-09-01", "n": 6, "climb": true, "count": 1, "idx": 0},
+  {"day": "2026-10-10", "n": 5, "climb": false, "count": 174, "idx": 85},
+  {"day": "2026-10-10", "n": 6, "climb": true, "count": 174, "idx": 60},
+  {"day": "2026-11-01", "n": 8, "climb": false, "count": 1461, "idx": 800},
+  {"day": "2026-10-10", "n": 5, "climb": false, "count": 2, "idx": 1}
 ]
