@@ -19,11 +19,11 @@ test('시도를 모두 쓴 판에서 reveal이 실패하면 토스트로 알리�
 test('포기 중 reveal이 실패해도 busy는 풀린다', async (t) => {
 	setup(t, { '/api/reveal': serverError });
 	const game = await start();
-	await game.giveUp().catch(() => {});
+	await game.giveUp();
 	assert.equal(game.busy, false);
 });
 
-test('포기 중 reveal이 실패하면 예외를 던지지 않고 토스트로 알린다', { todo: '앱 버그: giveUp에 catch가 없어 +page.svelte의 void game.giveUp()에서 처리되지 않은 거부가 된다' }, async (t) => {
+test('포기 중 reveal이 실패하면 예외를 던지지 않고 토스트로 알린다', async (t) => {
 	setup(t, { '/api/reveal': serverError });
 	const game = await start();
 	await game.giveUp();

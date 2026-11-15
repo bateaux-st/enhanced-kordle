@@ -62,6 +62,29 @@ test.describe('솔로 서버 실패', () => {
 		expect(await boardMarks(page)).toEqual(Array(4).fill('......'));
 	});
 
+	test('포기 중 정답 확인(reveal)이 실패하면 토스트로 알리고 패배 상태로 남아 다음 단어로 넘어갈 수 있다', async ({ page, solo }) => {
+		await seed(page, { config: { mode: 'endless', length: { kind: 'fixed', n: 6 } } });
+		const api = await solo({ answers: ['토마토', '바나나'], valid: ['고구마'] });
+		await startSolo(page);
+		await typeJamo(page, 고구마);
+		await page.keyboard.press('Enter');
+		await expectRowMarks(page, 0, 'acaapp');
+
+		api.failing.reveal = true;
+		const giveUp = page.getByRole('button', { name: '포기' });
+		await giveUp.click();
+		await page.getByRole('button', { name: '정말 포기?' }).click();
+		await expect(toast(page)).toHaveText(CONNECT_FAIL);
+		expect(api.calls.reveal).toHaveLength(1);
+		await expect(giveUp).toHaveCount(0);
+		expect((await boardText(page))[0]).toBe(고구마);
+
+		await page.getByRole('button', { name: '다음 단어' }).click();
+		await expect.poll(() => api.calls.game.length).toBe(2);
+		await expect(giveUp).toBeVisible();
+		expect(await boardMarks(page)).toEqual(Array(6).fill('......'));
+	});
+
 	test('새 판 요청(game)이 실패하면 토스트로 알리고 빈 보드에 머물며 모드 바꾸기로 다시 시작할 수 있다', async ({ page, solo }) => {
 		await seed(page, { config: { mode: 'endless', length: { kind: 'fixed', n: 6 } } });
 		const api = await solo({ answers: ['토마토'], valid: ['고구마'] });

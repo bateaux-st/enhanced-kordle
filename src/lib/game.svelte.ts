@@ -359,6 +359,8 @@ export class Game {
 		this.busy = true;
 		try {
 			await this.finish(false);
+		} catch {
+			this.showToast('서버에 연결할 수 없습니다');
 		} finally {
 			this.busy = false;
 		}
