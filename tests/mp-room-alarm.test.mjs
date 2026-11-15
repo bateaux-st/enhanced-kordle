@@ -221,16 +221,16 @@ test('목록에서 지우는 호출이 실패하면 다음 동기화에서 다�
 	await r.settle();
 	assert.deepEqual(r.lobby.removes(), ['ABC234']);
 
-	// 두 번째 close 이벤트가 같은 자리에 다시 와도 run을 지나 동기화한다.
-	await r.room.webSocketClose(guest.ws, 1000).catch(() => {});
-	await r.settle();
+	// 접속자가 없어도 알람이 reap·run을 지나 syncLobby가 실패한 remove를 다시 부른다.
+	const seq = r.state().seq;
+	await r.fireAlarm({ stay: true });
 	assert.equal(r.lobby.removes().length, 2);
 	delete r.lobby.fail.remove;
-	await r.room.webSocketClose(guest.ws, 1000).catch(() => {});
-	await r.settle();
+	await r.fireAlarm({ stay: true });
 	assert.equal(r.lobby.removes().length, 3);
-	await r.room.webSocketClose(guest.ws, 1000).catch(() => {});
+	await r.fireAlarm({ stay: true });
 	assert.equal(r.lobby.removes().length, 3, '지운 뒤에는 더 부르지 않는다');
+	assert.equal(r.state().seq, seq, '재시도는 상태를 다시 쓰지 않는다');
 });
 
 test('상수: 소켓 무응답 한도는 점검 주기와 같은 45초다', () => {
