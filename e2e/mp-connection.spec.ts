@@ -111,10 +111,8 @@ test.describe('끊김과 재접속', () => {
 		await expect(page.getByRole('region', { name: '철수', exact: true })).toBeVisible();
 	});
 
-	// MpGame은 '접속이 끊겨 탈락했습니다'를, MultiApp은 같은 스냅샷에서 '다시 연결되었습니다'를 띄운다. 토스트는 하나뿐이라
-	// 부모 효과가 나중에 돌아 탈락 토스트가 덮인다. 고쳐지면 이 테스트가 통과로 바뀌어 expected-fail 표시가 실패로 알려 준다.
-	test('끊김 탈락 토스트가 재접속 토스트에 덮이지 않는다 (알려진 문제)', async ({ page, openRoom }) => {
-		test.fail(true, '재접속 토스트가 끊김 탈락 토스트를 덮는다');
+	// MpGame은 '접속이 끊겨 탈락했습니다'를 띄우고, MultiApp은 같은 스냅샷에서 탈락이 확인되면 '다시 연결되었습니다'를 건너뛴다.
+	test('끊김 탈락 토스트가 재접속 토스트에 덮이지 않는다', async ({ page, openRoom }) => {
 		const room = await openRoom({ host: true, others: ['철수', '영희'], answer: () => answerOf('바나나') });
 		await room.open();
 		room.startGame();

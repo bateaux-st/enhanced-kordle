@@ -196,13 +196,19 @@
 		return null;
 	});
 
+	// 끊김 탈락은 재접속이 열린 스냅샷에 함께 온다. 토스트는 하나뿐이라 그때는 MpGame의 탈락 토스트를 덮지 않는다.
+	const myCompStatus = () => (client.snap?.game?.kind === 'comp' ? client.snap.game.me?.status : undefined);
 	let wasReconnecting = false;
+	let statusAtDrop: ReturnType<typeof myCompStatus>;
 	$effect(() => {
 		const s = client.status;
 		untrack(() => {
-			if (s === 'reconnecting') wasReconnecting = true;
-			else if (s === 'open' && wasReconnecting) {
+			if (s === 'reconnecting') {
+				if (!wasReconnecting) statusAtDrop = myCompStatus();
+				wasReconnecting = true;
+			} else if (s === 'open' && wasReconnecting) {
 				wasReconnecting = false;
+				if (statusAtDrop === 'playing' && myCompStatus() === 'eliminated') return;
 				showToast('다시 연결되었습니다');
 			}
 		});
