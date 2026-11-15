@@ -164,3 +164,51 @@ test('요청이 오가는 동안 다음 판 버튼을 다시 눌러도 요청은
 	assert.equal(gameCalls(), climb + 1);
 	assert.equal(game.stage, 2);
 });
+
+test('불러오기 실패 뒤 다시 시도: 요청 중에는 busy로 막히고, 또 실패하면 안내가 남고 성공하면 판이 열린다', async (t) => {
+	const { state, gameCalls } = rounds(t);
+	state.fail = true;
+	const game = new Game();
+	game.config = { mode: 'endless', length: { kind: 'fixed', n: 6 } };
+	await game.newGame();
+	assert.equal(game.loadFailed, true);
+
+	await game.newGame();
+	assert.equal(game.loadFailed, true);
+	assert.equal(game.toast, null);
+	assert.equal(game.busy, false);
+
+	state.fail = false;
+	const pending = game.newGame();
+	assert.equal(game.busy, true);
+	assert.equal(game.loadFailed, true);
+	await game.newGame();
+	await pending;
+	assert.equal(gameCalls(), 3);
+	assert.equal(game.loadFailed, false);
+	assert.equal(game.status, 'playing');
+});
+
+test('모드를 바꿔 시작하다 실패하면 이전 판을 지우고 토스트 없이 불러오기 실패로 남으며, 다음 시작이 성공하면 풀린다', async (t) => {
+	const { state, values } = rounds(t);
+	const game = new Game();
+	game.config = { mode: 'endless', length: { kind: 'fixed', n: 6 } };
+	await game.newGame();
+	await clear(game);
+
+	state.fail = true;
+	game.setConfig({ mode: 'climb-streak', length: { kind: 'fixed', n: 6 } });
+	await new Promise((r) => setImmediate(r));
+	assert.equal(game.loadFailed, true);
+	assert.equal(game.status, 'loading');
+	assert.deepEqual(game.rows, []);
+	assert.equal(game.stage, 1);
+	assert.notEqual(game.toast, CONNECT_FAIL);
+	assert.equal(values.has('nkordle:dclimb:' + game.dailyDay), false);
+
+	state.fail = false;
+	game.setConfig({ mode: 'climb-streak', length: { kind: 'fixed', n: 6 } });
+	await new Promise((r) => setImmediate(r));
+	assert.equal(game.loadFailed, false);
+	assert.equal(game.status, 'playing');
+});
