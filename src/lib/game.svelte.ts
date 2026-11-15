@@ -237,9 +237,9 @@ export class Game {
 				this.stageBests = saved.stageBests ?? [];
 				this.runBest = saved.runBest ?? false;
 			}
-			await this.begin(saved?.n ?? MIN_N, saved ? (saved.stageStartAt ?? null) : undefined);
+			const ok = await this.begin(saved?.n ?? MIN_N, saved ? (saved.stageStartAt ?? null) : undefined);
 			// 첫 스테이지도 시작 시각을 저장해 두어야 첫 판 도중 새로고침해도 시간이 이어진다.
-			if (!saved) this.saveDailyClimb();
+			if (ok && !saved) this.saveDailyClimb();
 			return;
 		}
 		await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
@@ -249,13 +249,18 @@ export class Game {
 	async nextStage() {
 		this.stage += 1;
 		this.lostMs = null;
-		if (this.config.mode === 'climb-length' || this.config.mode === 'daily-climb') await this.begin(this.n + 1);
-		else await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
-		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
+		let ok: boolean;
+		if (this.config.mode === 'climb-length' || this.config.mode === 'daily-climb') ok = await this.begin(this.n + 1);
+		else ok = await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
+		// 실패한 판의 n·스테이지를 저장하면 새로고침 뒤 복원이 어긋난다.
+		if (ok && this.config.mode === 'daily-climb') this.saveDailyClimb();
 	}
 
-	/** resumeAt: 저장된 스테이지 시작 시각(모르면 null). 생략하면 보드가 뜨는 지금부터 잰다. */
-	private async begin(n?: number, resumeAt?: number | null) {
+	/**
+	 * resumeAt: 저장된 스테이지 시작 시각(모르면 null). 생략하면 보드가 뜨는 지금부터 잰다.
+	 * 새 판을 받지 못하면 토스트로 알리고 false. status는 loading에 남고, 모드 바꾸기로 다시 시작할 수 있다.
+	 */
+	private async begin(n?: number, resumeAt?: number | null): Promise<boolean> {
 		this.status = 'loading';
 		this.stageStartAt = null;
 		this.rows = [];
@@ -266,9 +271,15 @@ export class Game {
 		this.hints = {};
 
 		const mode = this.config.mode;
-		const res = await post<NewGameResponse>('/api/game', {
-			mode, n, ...(isDaily(mode) ? { day: this.dailyDay } : {})
-		} satisfies NewGameRequest);
+		let res: NewGameResponse;
+		try {
+			res = await post<NewGameResponse>('/api/game', {
+				mode, n, ...(isDaily(mode) ? { day: this.dailyDay } : {})
+			} satisfies NewGameRequest);
+		} catch {
+			this.showToast('서버에 연결할 수 없습니다');
+			return false;
+		}
 		this.token = res.token;
 		this.n = res.n;
 
@@ -282,11 +293,12 @@ export class Game {
 				this.answer = saved.answer;
 				this.hints = saved.hints ?? {};
 				if (saved.status === 'playing') this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
-				return;
+				return true;
 			}
 		}
 		this.status = 'playing';
 		this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
+		return true;
 	}
 
 	type(j: string) {

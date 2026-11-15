@@ -30,7 +30,7 @@ test('포기 중 reveal이 실패하면 예외를 던지지 않고 토스트로 
 	assert.equal(game.toast, CONNECT_FAIL);
 });
 
-test('새 판을 받아 오지 못하면 예외를 던지지 않고 토스트로 알린다', { todo: '앱 버그: begin에 catch가 없어 /api/game이 실패하면 처리되지 않은 거부가 되고 status는 loading에 멈춘다' }, async (t) => {
+test('새 판을 받아 오지 못하면 예외를 던지지 않고 토스트로 알린다', async (t) => {
 	setup(t, { '/api/game': serverError });
 	const game = new Game();
 	game.config = { mode: 'endless', length: { kind: 'fixed', n: 6 } };
