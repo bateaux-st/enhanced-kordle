@@ -314,6 +314,8 @@ export class Room extends DurableObject<RoomEnv> {
 		const { pid } = attOf(ws);
 		if (!pid || !this.state) return;
 		if (this.socketsOf(pid).some((w) => w !== ws)) return;
+		// 같은 소켓의 close와 error가 모두 올 수 있다. 이미 끊김으로 처리했으면 seq·저장·방송을 한 번 더 하지 않는다.
+		if (members.findPlayer(this.state, pid)?.connected === false) return;
 		await this.run((s, now) => {
 			members.disconnect(s, pid, now);
 			// 끊긴 사람이 마지막 미제안·미투표자였다면 기다리지 않고 진행한다.

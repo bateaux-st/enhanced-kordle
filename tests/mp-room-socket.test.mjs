@@ -210,6 +210,21 @@ test('error 이벤트도 끊김으로 처리한다', async (t) => {
 	assert.equal(ofType(host.ws.take(), 'snap').length, 1);
 });
 
+test('같은 소켓의 close·error가 겹쳐 와도 끊김은 한 번만 저장·방송한다', async (t) => {
+	const r = await rig(t);
+	const [host, a] = await r.players();
+	await r.drop(a.ws);
+	const seq = r.state().seq;
+	const puts = r.ctx.storage.puts('state');
+	host.ws.take();
+
+	await r.room.webSocketError(a.ws);
+	await r.room.webSocketClose(a.ws, 1006);
+	assert.equal(r.state().seq, seq);
+	assert.equal(r.ctx.storage.puts('state'), puts);
+	assert.deepEqual(host.ws.take(), []);
+});
+
 test('같은 자리에 열린 다른 소켓이 남아 있으면 close 이벤트는 끊김이 아니다', async (t) => {
 	const r = await rig(t);
 	const [, a] = await r.players();
