@@ -9,7 +9,6 @@ import { T0 } from './mp-helpers.mjs';
 export { T0 };
 
 const OPEN = 1;
-const CLOSING = 2;
 const CLOSED = 3;
 // workerd의 close()는 예약 코드를 던진다. Room이 1005/1006을 1000으로 돌려 닫는지 보려면 같은 제약이 있어야 한다.
 const RESERVED_CLOSE = new Set([1004, 1005, 1006, 1015]);
@@ -29,7 +28,8 @@ export class FakeSocket {
 
 	close(code, reason) {
 		if (code !== undefined && (RESERVED_CLOSE.has(code) || code < 1000 || code > 4999)) throw new TypeError(`Invalid close code ${code}`);
-		if (this.readyState === CLOSED) throw new TypeError('이미 닫힌 소켓');
+		// compat 2026-04-07 이후 close 이벤트 안의 close()는 조용히 무시된다.
+		if (this.readyState !== OPEN) return;
 		this.closes.push({ code, reason });
 		this.readyState = CLOSED;
 	}
@@ -340,10 +340,10 @@ export async function rig(t, { secret = 'test-secret', pool = {}, valid = [], lo
 		return [host, ...guests];
 	};
 
-	/** 클라이언트가 소켓을 닫은 것으로 본다: 상대가 닫아 CLOSING인 소켓에 close 이벤트가 온다. */
+	/** 클라이언트가 소켓을 닫은 것으로 본다. web_socket_auto_reply_to_close 아래서는 런타임이 답장 Close를 이미 보내 close 이벤트 시점에 CLOSED다. */
 	r.drop = async (ws, code = 1001) => {
 		await ready();
-		ws.readyState = CLOSING;
+		ws.readyState = CLOSED;
 		await r.room.webSocketClose(ws, code);
 		ctx.release(ws);
 	};
@@ -390,7 +390,7 @@ export async function lobbyRig(t, { now = T0 } = {}) {
 		return ctx.sockets.at(-1);
 	};
 	r.drop = async (ws, code = 1001) => {
-		ws.readyState = CLOSING;
+		ws.readyState = CLOSED;
 		await r.lobby.webSocketClose(ws, code);
 		ctx.release(ws);
 	};

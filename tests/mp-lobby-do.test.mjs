@@ -155,7 +155,7 @@ test('마지막 구독자가 나가면 알람을 지우고, 남은 구독자가 
 	assert.ok(r.ctx.storage.ops.some((o) => o.op === 'deleteAlarm'));
 });
 
-test('close 이벤트: 예약 코드 1005·1006은 1000으로 돌려 닫는다', async (t) => {
+test('close 이벤트: 어떤 코드든 서버는 답장 close를 보내지 않는다(런타임이 한다)', async (t) => {
 	const r = await lobbyRig(t);
 	const a = await r.subscribe();
 	const b = await r.subscribe();
@@ -163,7 +163,7 @@ test('close 이벤트: 예약 코드 1005·1006은 1000으로 돌려 닫는다',
 	await r.drop(a, 1005);
 	await r.drop(b, 1006);
 	await r.drop(c, 1001);
-	assert.deepEqual([a.closed, b.closed, c.closed], [{ code: 1000, reason: 'closed' }, { code: 1000, reason: 'closed' }, { code: 1001, reason: 'closed' }]);
+	assert.deepEqual([a.closed, b.closed, c.closed], [null, null, null]);
 });
 
 test('이미 닫힌 소켓의 close 이벤트도 던지지 않고 처리한다', async (t) => {
