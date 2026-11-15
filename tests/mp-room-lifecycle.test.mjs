@@ -198,8 +198,7 @@ test('유예가 끝나 소멸하면 알람·저장소를 지우고 목록에서 
 	assert.equal(r.state(), undefined);
 	assert.equal(r.ctx.storage.data.size, 0);
 	assert.equal(r.alarmAt(), null);
-	const tail = r.ctx.storage.ops.slice(opsBefore).map((o) => o.op);
-	assert.ok(tail.indexOf('deleteAlarm') < tail.indexOf('deleteAll'), 'deleteAlarm 뒤에 deleteAll');
+	assert.ok(r.ctx.storage.ops.slice(opsBefore).some((o) => o.op === 'deleteAll'));
 	assert.ok(r.lobby.removes().includes('ABC234'));
 	assert.equal(await r.room.info(), null);
 

@@ -104,10 +104,11 @@ export class FakeStorage {
 		this.data.set(key, structuredClone(value));
 	}
 
-	// 실제 deleteAll은 알람을 지우지 않는다. 소멸 경로가 deleteAlarm을 따로 부르는지 보려는 제약이다.
+	// compat 2026-02-24부터 delete_all_deletes_alarm이 기본이라 deleteAll이 알람도 지운다(SQLite DO 포함).
 	async deleteAll() {
 		this.ops.push({ op: 'deleteAll' });
 		this.data.clear();
+		this.alarm = null;
 	}
 
 	async getAlarm() {
