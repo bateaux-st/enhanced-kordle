@@ -114,16 +114,49 @@ test('WebSocket을 만들 수 없는 망에서는 폴링하고 재시도 간격�
 	assert.ok(fallbacks > 0);
 });
 
-test('정리 함수: 소켓을 1000으로 닫고 리스너와 타이머를 모두 거둔다', (t) => {
+// mock.timers가 갈아 끼운 setInterval/clearInterval을 감싸 살아 있는 주기 타이머를 센다. 반환 함수로 반드시 원복한다.
+function trackIntervals() {
+	const live = new Set();
+	const { setInterval: set, clearInterval: clear } = globalThis;
+	globalThis.setInterval = (...args) => { const id = set(...args); live.add(id); return id; };
+	globalThis.clearInterval = (id) => { live.delete(id); clear(id); };
+	return { live, restore: () => Object.assign(globalThis, { setInterval: set, clearInterval: clear }) };
+}
+
+test('정리 함수: 소켓을 1000으로 닫고 리스너와 하트비트를 거둔다', (t) => {
 	const s = setup(t);
-	const sock = s.last();
-	sock.open();
-	assert.equal(s.listeners.size, 1);
-	s.stop();
-	assert.equal(sock.closeCode, 1000);
-	assert.equal(s.listeners.size, 0);
-	s.tick(DEAD_MS * 5);
-	s.setVisibility('visible');
-	assert.equal(s.fallback.count, 0);
-	assert.equal(s.sockets.length, 1);
+	const timers = trackIntervals();
+	try {
+		const sock = s.last();
+		sock.open();
+		assert.equal(s.listeners.size, 1);
+		assert.equal(timers.live.size, 1);
+		s.stop();
+		assert.equal(sock.closeCode, 1000);
+		assert.equal(s.listeners.size, 0);
+		assert.equal(timers.live.size, 0);
+		s.tick(DEAD_MS * 5);
+		s.setVisibility('visible');
+		assert.equal(s.fallback.count, 0);
+		assert.equal(s.sockets.length, 1);
+	} finally {
+		timers.restore();
+	}
+});
+
+test('정리 함수: 끊긴 동안 불러도 폴링과 재연결 타이머를 거둔다', (t) => {
+	const s = setup(t);
+	const timers = trackIntervals();
+	try {
+		s.last().open();
+		s.last().drop();
+		assert.equal(timers.live.size, 1, '끊기면 폴링이 시작된다');
+		s.stop();
+		assert.equal(timers.live.size, 0);
+		s.tick(LOBBY_FALLBACK_POLL_MS * 8);
+		assert.equal(s.fallback.count, 0);
+		assert.equal(s.sockets.length, 1);
+	} finally {
+		timers.restore();
+	}
 });
