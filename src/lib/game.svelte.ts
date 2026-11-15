@@ -11,6 +11,7 @@ import type {
 	NewGameResponse,
 	RevealResponse
 } from './types';
+import { MODE_LABEL } from './types';
 import { MAX_N, MIN_N } from './jamo';
 import { hardViolation } from './hard';
 import { pickHint } from './hint';
@@ -80,6 +81,16 @@ interface StoredSettings {
 	theme?: Theme;
 }
 
+/** 저장된 config가 부팅에 필요한 모양(mode, length)이 아니면 기본값. 손으로 고친 값이 부팅을 막지 않게 한다. */
+function loadConfig(): ModeConfig {
+	const c = load<ModeConfig | null>('config', null);
+	const l = c?.length;
+	const ok =
+		Object.hasOwn(MODE_LABEL, c?.mode as string) &&
+		(l?.kind === 'random' || (l?.kind === 'fixed' && typeof l.n === 'number'));
+	return ok ? (c as ModeConfig) : { mode: 'daily', length: { kind: 'fixed', n: 6 } };
+}
+
 async function post<T>(url: string, body: unknown): Promise<T> {
 	const res = await fetch(url, {
 		method: 'POST',
@@ -93,7 +104,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 export class Game {
 	// 자정 뒤에도 같은 코스·저장 날짜를 쓴다. 새로고침으로 Game을 다시 만들 때만 날짜를 바꾼다.
 	readonly dailyDay = todayKST();
-	config = $state<ModeConfig>(load('config', { mode: 'daily', length: { kind: 'fixed', n: 6 } }));
+	config = $state<ModeConfig>(loadConfig());
 	// settings 키 하나에 maxTries·hard·theme이 같이 들어간다. 쓰기는 반드시 saveSettings()로 —
 	// 한쪽만 save하면 다른 쪽이 지워진다.
 	settingTries = $state<number>(load<StoredSettings>('settings', {}).maxTries ?? DEFAULT_TRIES);
