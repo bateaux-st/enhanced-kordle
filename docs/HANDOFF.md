@@ -32,7 +32,7 @@
 
 - **배포**: 별도 Worker가 없다. adapter-cloudflare는 빌드마다 `_worker.js`를 템플릿으로 다시 쓰므로 `pnpm build`(`vite build && node scripts/postbuild-do.mjs`)가 끝에 `export { Room, Lobby } ...` 한 줄을 붙인다(멱등). `pnpm run deploy`와 CI 모두 이 `build`를 거친다.
 - **마이그레이션**: `wrangler.jsonc`의 `migrations` v1 `new_sqlite_classes: ["Room", "Lobby"]`는 첫 배포에서 적용되고 되돌릴 수 없다. 이후에는 항목을 추가만 하고, 태그를 지우거나 고치지 않는다.
-- **검증**: 멀티는 `pnpm build && pnpm preview`(wrangler dev, :8787)로만 본다. `pnpm dev`(Vite)는 WS가 안 되고 WS 클라이언트가 끊기면 `ECONNRESET`으로 죽는다. preview는 로컬 D1이 픽스처라 smoke의 사전 항목은 실패해도 정상이고, 멀티 항목(`/api/room`, `/api/rooms`, `/ws-lobby`)만 통과하면 된다.
+- **검증**: 멀티 화면·DO 규칙은 `pnpm e2e`·`pnpm test`(mock)로 보고, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`(wrangler dev, :8787)로 본다. `pnpm dev`(Vite)는 WS가 안 되고 WS 클라이언트가 끊기면 `ECONNRESET`으로 죽는다. preview는 로컬 D1이 픽스처라 smoke의 사전 항목은 실패해도 정상이고, 멀티 항목(`/api/room`, `/api/rooms`, `/ws-lobby`)만 통과하면 된다.
 - 상세(프로토콜·타이머·결정): [`MULTIPLAYER.md`](MULTIPLAYER.md), [`MULTIPLAYER_TASKS.md`](MULTIPLAYER_TASKS.md).
 
 **정답 좌표의 뜻**: `t`는 정답 풀 임계값(§5), `n`은 자모 수, `idx`는 그 (t, n) 풀 안에서의 순번. D1 `pool` 테이블이 `(t, n, idx) → word, jamo`를 미리 펼쳐 두고 있어 조회가 PK 한 행이다.

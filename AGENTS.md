@@ -21,7 +21,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 ## 반드시
 
-- 멀티 DO 코드(`src/lib/server/mp/**`)는 `$lib` 값 import를 쓰지 않고 `.ts` 확장자가 붙은 상대 import만 쓴다(`tests/mp-imports.test.mjs`가 검사). 멀티는 `pnpm build && pnpm preview`로만 검증한다 — `pnpm dev`는 WS 불가.
+- 멀티 DO 코드(`src/lib/server/mp/**`)는 `$lib` 값 import를 쓰지 않고 `.ts` 확장자가 붙은 상대 import만 쓴다(`tests/mp-imports.test.mjs`가 검사). 멀티 화면과 DO 규칙은 `pnpm e2e`·`pnpm test`(서버·D1 mock)로 검증하고, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`로 확인한다 — `pnpm dev`는 WS 불가.
 - 정답 풀 조건(`familiar` 임계값, 후보 SQL)을 바꾸면 **`src/lib/server/dict.ts`의 `POOL_THRESHOLD`와 `export_d1.py`의 `POOL`/`THRESHOLDS`를 함께** 고친다. `THRESHOLDS`는 값을 **추가**한다(빼면 그 t를 쓰는 다른 모드가 `pool miss` 500). 런북: HANDOFF §6.6.
 - 새 게임 모드는 HANDOFF §6.7 체크리스트대로 — `types.ts`, `dict.ts`(`POOL_THRESHOLD`가 곧 서버 allowlist), `game.svelte.ts`(`isClimb`/`isDaily`, 통계), `api/game`, `ModeModal.svelte`, `+page.svelte` 버튼 분기, `smoke.py EXPECTED_T`.
 - `scripts/smoke.py`의 기대값 셋(`EXPECTED_T`, `POOL_SIZE`, `MODE_FOR_T`)은 코드·사전과 짝이다. 사전이나 임계값을 바꾸면 같은 커밋에서 갱신한다. `POOL_SIZE`는 `export_d1.py`가 마지막에 출력하는 블록을 붙인다.
@@ -46,7 +46,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 ```bash
 pnpm check                                                    # 타입·svelte 검사
-pnpm test                                                     # 판정·토큰 단위 테스트
+pnpm test                                                     # 단위 테스트 (판정·토큰·DO·API 라우트)
 pnpm e2e                                                      # UI e2e (서버·D1 mock, 로컬 전용)
 pnpm dev                                                      # 로컬 (D1은 .wrangler/state, d1/import.sh --local 필요)
 python3 scripts/smoke.py http://localhost:5173                # 로컬 smoke
@@ -55,7 +55,7 @@ python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
 npx wrangler deployments list && npx wrangler rollback <id>   # 코드 롤백 (D1 데이터는 되돌리지 않음 — HANDOFF §6.2)
 ```
 
-smoke는 **API만** 검증한다. 힌트 횟수·통계·모달 같은 UI 동작은 `pnpm dev`로 브라우저에서 직접 본다.
+smoke는 **API만** 검증한다. 힌트 횟수·통계·모달 같은 UI 동작은 `pnpm e2e`가 보고, 새 화면은 `pnpm dev`로 브라우저에서 직접 본다.
 
 ## 코드 스타일
 
