@@ -196,13 +196,28 @@
 		return null;
 	});
 
+	// 끊긴 동안 끝난 판은 재접속이 열린 스냅샷에 함께 온다(끊김 탈락, 시간 초과). 토스트는 하나뿐이라 그때는 MpGame의 종료 토스트를 덮지 않는다.
+	const playStatus = () => {
+		const g = client.snap?.game;
+		return g?.kind === 'comp' ? g.me?.status : g?.kind === 'coop' ? g.status : undefined;
+	};
+	// 협동은 MpGame이 시간 초과 패배만 알린다. 승리나 다른 사유의 패배는 토스트가 없으니 재접속을 알린다.
+	const endedWhileAway = () => {
+		const g = client.snap?.game;
+		if (g?.kind === 'comp') return g.me?.status !== undefined && g.me.status !== 'playing';
+		return g?.kind === 'coop' && g.status === 'lost' && g.endReason === 'timeout';
+	};
 	let wasReconnecting = false;
+	let statusAtDrop: ReturnType<typeof playStatus>;
 	$effect(() => {
 		const s = client.status;
 		untrack(() => {
-			if (s === 'reconnecting') wasReconnecting = true;
-			else if (s === 'open' && wasReconnecting) {
+			if (s === 'reconnecting') {
+				if (!wasReconnecting) statusAtDrop = playStatus();
+				wasReconnecting = true;
+			} else if (s === 'open' && wasReconnecting) {
 				wasReconnecting = false;
+				if (statusAtDrop === 'playing' && endedWhileAway()) return;
 				showToast('다시 연결되었습니다');
 			}
 		});

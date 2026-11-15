@@ -10,10 +10,12 @@
 		"preview": "wrangler dev",
 		"deploy": "pnpm run build && wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p e2e/tsconfig.json",
+		"e2e": "playwright test"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^5.20260908.1",
+		"@playwright/test": "1.60.0",
 		"@sveltejs/adapter-cloudflare": "^7.2.9",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",

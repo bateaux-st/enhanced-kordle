@@ -34,7 +34,7 @@
 		<div>
 			<div class="name">시도 횟수</div>
 			<div class="desc">
-				{MIN_TRIES}~{MAX_TRIES}회. 다음 게임부터 적용됩니다. 하루 1개 모드는 {DAILY_TRIES}회로 고정.
+				{MIN_TRIES}~{MAX_TRIES}회. 바꾸는 즉시 적용됩니다. 하루 1개 모드는 {DAILY_TRIES}회로 고정.
 			</div>
 		</div>
 		<div class="stepper">

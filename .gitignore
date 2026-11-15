@@ -22,3 +22,7 @@ __pycache__/
 # Playwright MCP 산출물(페이지 스냅샷·콘솔 로그)
 .playwright-mcp/
 d1/*.sql
+# Playwright 산출물
+test-results/
+playwright-report/
+e2e/.svelte-kit/

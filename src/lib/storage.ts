@@ -6,7 +6,9 @@ const store = () => (typeof localStorage === 'undefined' ? null : localStorage);
 export function load<T>(key: string, fallback: T): T {
 	try {
 		const raw = store()?.getItem(PREFIX + key);
-		return raw ? (JSON.parse(raw) as T) : fallback;
+		const value = raw ? (JSON.parse(raw) as T | null) : null;
+		// 저장값이 JSON null이면 호출부가 null을 받아 속성 접근에서 터진다.
+		return value ?? fallback;
 	} catch {
 		return fallback;
 	}
