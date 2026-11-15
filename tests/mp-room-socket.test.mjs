@@ -190,6 +190,17 @@ test('close 이벤트의 정상 코드도 서버는 답장 close를 보내지 �
 	assert.equal(r.state().players[1].connected, false);
 });
 
+test('close 이벤트 안에서는 어떤 코드로도 close()를 부르지 않는다(런타임이 이미 답장을 보냈다)', async (t) => {
+	const r = await rig(t);
+	const [, a, b, c] = await r.players([NAMES[1], NAMES[2], NAMES[3]]);
+	for (const [p, code] of [[a, 1005], [b, 1006], [c, 1001]]) {
+		const calls = [];
+		p.ws.close = (...args) => calls.push(args);
+		await r.drop(p.ws, code);
+		assert.deepEqual(calls, [], `코드 ${code}`);
+	}
+});
+
 test('error 이벤트도 끊김으로 처리한다', async (t) => {
 	const r = await rig(t);
 	const [host, a] = await r.players();

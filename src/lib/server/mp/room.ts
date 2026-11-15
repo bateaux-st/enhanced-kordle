@@ -152,10 +152,9 @@ export class Room extends DurableObject<RoomEnv> {
 		return this.act(ws, att.pid, msg);
 	}
 
-	async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+	// close 이벤트 시점에 런타임(web_socket_auto_reply_to_close, compat 2026-04-07~)이 이미 답장해 소켓이 닫혀 있어 close()는 하지 않는다.
+	async webSocketClose(ws: WebSocket): Promise<void> {
 		await this.gone(ws);
-		// 1005/1006은 close()에 쓸 수 없는 예약 코드라 정상 종료로 돌려 닫는다.
-		closeQuietly(ws, code === 1005 || code === 1006 ? 1000 : code, 'closed');
 	}
 
 	async webSocketError(ws: WebSocket): Promise<void> {

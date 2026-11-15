@@ -10,7 +10,7 @@ export { T0 };
 
 const OPEN = 1;
 const CLOSED = 3;
-// workerd의 close()는 예약 코드를 던진다. Room이 1005/1006을 1000으로 돌려 닫는지 보려면 같은 제약이 있어야 한다.
+// workerd의 close()는 예약 코드를 던진다.
 const RESERVED_CLOSE = new Set([1004, 1005, 1006, 1015]);
 
 export class FakeSocket {
