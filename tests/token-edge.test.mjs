@@ -31,8 +31,9 @@ test('정답 토큰: 서명 길이를 줄이거나 늘려도 거절한다', asyn
 	const token = await encodeToken({ n: 6, t: 3, idx: 4 }, SECRET);
 	const sig = token.split('.')[3];
 	const head = token.split('.').slice(0, 3).join('.');
-	assert.equal(await decodeToken(`${head}.${sig.slice(0, -2)}`, SECRET), null);
-	assert.equal(await decodeToken(`${head}.${sig}AA`, SECRET), null);
+	// 42자(31바이트)·44자(33바이트)는 디코딩되어 subtle.verify까지 간다. 41·45자는 atob에서 걸린다.
+	assert.equal(await decodeToken(`${head}.${sig.slice(0, -1)}`, SECRET), null);
+	assert.equal(await decodeToken(`${head}.${sig}A`, SECRET), null);
 });
 
 test('randomIndex: 난수를 max로 나눈 나머지이고 max가 1이면 항상 0', (t) => {
