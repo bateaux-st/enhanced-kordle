@@ -129,12 +129,11 @@ test('다시 연결하지 않는 종료 코드는 이유를 매기고 방 주소
 	}
 });
 
-test('leave: 소켓을 1000으로 닫고 left로 멈추며 늦게 온 close 이벤트는 상태를 바꾸지 않는다', (t) => {
+test('leave: 소켓을 1000으로 닫고 left로 멈춘다', (t) => {
 	const s = setup(t);
 	const sock = s.last();
 	sock.open();
 	sock.message(snap(1));
-	const lateClose = sock.onclose;
 	s.client.leave();
 	assert.equal(sock.closeCode, 1000);
 	assert.deepEqual(JSON.parse(sock.sent.at(-1)), { type: 'leave' });
@@ -142,9 +141,19 @@ test('leave: 소켓을 1000으로 닫고 left로 멈추며 늦게 온 close 이�
 	assert.equal(s.client.closeReason, 'left');
 	assert.equal(s.client.snap, null);
 	assert.equal(roomParam(s), null);
-	lateClose?.({ code: 1006 });
-	assert.equal(s.client.closeReason, 'left');
-	assert.equal(s.sockets.length, 1);
+});
+
+test('다시 connect한 뒤 이전 소켓의 늦은 close는 재접속을 일으키지 않는다', (t) => {
+	const s = setup(t);
+	const old = s.last();
+	old.open();
+	const staleClose = old.onclose;
+	s.client.connect(ROOM, NAME);
+	assert.equal(s.sockets.length, 2);
+	assert.equal(s.client.status, 'connecting');
+	staleClose({ code: 1006 });
+	assert.equal(s.sockets.length, 2);
+	assert.equal(s.client.status, 'connecting');
 });
 
 test('dispose: 탭 복귀 리스너를 거둬 lost 이후에도 다시 붙지 않는다', (t) => {
