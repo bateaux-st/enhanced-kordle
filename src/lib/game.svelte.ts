@@ -134,6 +134,8 @@ export class Game {
 	/** n자를 다 채웠는데 사전에 없는 열이면 true — 제출 전에 빨간 글자로 알려준다. */
 	invalid = $state(false);
 	status = $state<Status>('loading');
+	/** 보여 줄 이전 판 없이 새 판 요청이 실패했을 때 true. status는 'loading'에 남고 화면은 안내와 '다시 시도'를 띄운다. */
+	loadFailed = $state(false);
 	answer = $state<string | null>(null);
 	/** 힌트로 밝혀진 칸: 위치 → 자모. 입력 행에 흐리게 미리 보여준다. */
 	hints = $state<Record<number, string>>({});
@@ -200,7 +202,8 @@ export class Game {
 		this.config = c;
 		save('config', c);
 		this.loadRecords();
-		void this.newGame();
+		this.loadFailed = false;
+		void this.startRound(false);
 	}
 
 	setTries(t: number) {
@@ -244,50 +247,77 @@ export class Game {
 		} satisfies StoredSettings);
 	}
 
-	/** 스테이지 1부터(등반) 또는 새 단어로 시작. 일일 등반은 오늘 진행이 있으면 그 스테이지부터. */
+	/**
+	 * 스테이지 1부터(등반) 또는 새 단어로 시작. 일일 등반은 오늘 진행이 있으면 그 스테이지부터.
+	 * 끝난 판에서 부르면 응답을 받을 때까지 그 판을 그대로 둔다. 요청 중에는 다시 불러도 무시한다.
+	 */
 	async newGame() {
+		if (this.busy) return;
+		await this.startRound(this.status === 'won' || this.status === 'lost');
+	}
+
+	/** keep: 끝난 판 화면을 돌아갈 곳으로 남긴다. 모드를 바꿔 시작할 때는 이전 판이 다른 모드라 false. */
+	private async startRound(keep: boolean) {
+		const daily = this.config.mode === 'daily-climb';
+		// 코스는 항상 5자에서 시작해 12자까지 — 모두 같은 코스여야 데일리다.
+		const raw = daily ? load<DailyClimbSave | null>(`dclimb:${this.dailyDay}`, null) : null;
+		const saved = validClimbSave(raw) ? raw : null;
+		if (!keep) {
+			this.resetRun(saved);
+			this.clearBoard();
+		}
+		const res = await this.fetchRound(daily ? (saved?.n ?? MIN_N) : this.fixedN());
+		if (!res) {
+			// 돌아갈 판이 있으면 토스트로 충분하고, 없으면 빈 보드 자리의 안내가 대신 알린다.
+			if (keep) this.showToast('서버에 연결할 수 없습니다');
+			else this.loadFailed = true;
+			return;
+		}
+		if (keep) this.resetRun(saved);
+		this.loadFailed = false;
+		this.enterRound(res, saved ? (saved.stageStartAt ?? null) : undefined);
+		// 첫 스테이지도 시작 시각을 저장해 두어야 첫 판 도중 새로고침해도 시간이 이어진다.
+		if (daily && !saved) this.saveDailyClimb();
+	}
+
+	/** 등반 모드에서 클리어 후 다음 스테이지. 길이 상승은 n+1, 연속 클리어는 같은 규칙으로 재추첨. */
+	async nextStage() {
+		if (this.busy) return;
+		const climbsLength = this.config.mode === 'climb-length' || this.config.mode === 'daily-climb';
+		const res = await this.fetchRound(climbsLength ? this.n + 1 : this.fixedN());
+		// 실패하면 클리어한 판의 보드·스테이지·시간을 그대로 두고, 같은 버튼으로 다시 시도한다.
+		if (!res) {
+			this.showToast('서버에 연결할 수 없습니다');
+			return;
+		}
+		this.stage += 1;
+		this.lostMs = null;
+		this.enterRound(res);
+		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
+	}
+
+	private fixedN() {
+		return this.config.length.kind === 'fixed' ? this.config.length.n : undefined;
+	}
+
+	/** 등반 진행을 처음(또는 일일 등반 저장본) 상태로 돌린다. */
+	private resetRun(saved: DailyClimbSave | null) {
 		this.stage = 1;
 		this.climbWords = [];
 		this.stageTimes = [];
 		this.lostMs = null;
 		this.stageBests = [];
 		this.runBest = false;
-		if (this.config.mode === 'daily-climb') {
-			// 코스는 항상 5자에서 시작해 12자까지 — 모두 같은 코스여야 데일리다.
-			const raw = load<DailyClimbSave | null>(`dclimb:${this.dailyDay}`, null);
-			const saved = validClimbSave(raw) ? raw : null;
-			if (saved) {
-				this.stage = saved.stage;
-				this.climbWords = saved.climbWords;
-				this.stageTimes = Array.isArray(saved.stageTimes) ? saved.stageTimes : saved.climbWords.map(() => null);
-				this.lostMs = saved.lostMs ?? null;
-				this.stageBests = Array.isArray(saved.stageBests) ? saved.stageBests : [];
-				this.runBest = saved.runBest ?? false;
-			}
-			const ok = await this.begin(saved?.n ?? MIN_N, saved ? (saved.stageStartAt ?? null) : undefined);
-			// 첫 스테이지도 시작 시각을 저장해 두어야 첫 판 도중 새로고침해도 시간이 이어진다.
-			if (ok && !saved) this.saveDailyClimb();
-			return;
-		}
-		await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
+		if (!saved) return;
+		this.stage = saved.stage;
+		this.climbWords = saved.climbWords;
+		this.stageTimes = Array.isArray(saved.stageTimes) ? saved.stageTimes : saved.climbWords.map(() => null);
+		this.lostMs = saved.lostMs ?? null;
+		this.stageBests = Array.isArray(saved.stageBests) ? saved.stageBests : [];
+		this.runBest = saved.runBest ?? false;
 	}
 
-	/** 등반 모드에서 클리어 후 다음 스테이지. 길이 상승은 n+1, 연속 클리어는 같은 규칙으로 재추첨. */
-	async nextStage() {
-		this.stage += 1;
-		this.lostMs = null;
-		let ok: boolean;
-		if (this.config.mode === 'climb-length' || this.config.mode === 'daily-climb') ok = await this.begin(this.n + 1);
-		else ok = await this.begin(this.config.length.kind === 'fixed' ? this.config.length.n : undefined);
-		// 실패한 판의 n·스테이지를 저장하면 새로고침 뒤 복원이 어긋난다.
-		if (ok && this.config.mode === 'daily-climb') this.saveDailyClimb();
-	}
-
-	/**
-	 * resumeAt: 저장된 스테이지 시작 시각(모르면 null). 생략하면 보드가 뜨는 지금부터 잰다.
-	 * 새 판을 받지 못하면 토스트로 알리고 false. status는 loading에 남고, 모드 바꾸기로 다시 시작할 수 있다.
-	 */
-	private async begin(n?: number, resumeAt?: number | null): Promise<boolean> {
+	private clearBoard() {
 		this.status = 'loading';
 		this.stageStartAt = null;
 		this.rows = [];
@@ -296,21 +326,33 @@ export class Game {
 		this.invalid = false;
 		this.answer = null;
 		this.hints = {};
+	}
 
+	/** 새 판을 요청한다. 실패하면 null이고 상태는 건드리지 않는다. busy는 요청 중 중복 호출을 막는다. */
+	private async fetchRound(n?: number): Promise<NewGameResponse | null> {
 		const mode = this.config.mode;
-		let res: NewGameResponse;
+		this.busy = true;
 		try {
-			res = await post<NewGameResponse>('/api/game', {
+			return await post<NewGameResponse>('/api/game', {
 				mode, n, ...(isDaily(mode) ? { day: this.dailyDay } : {})
 			} satisfies NewGameRequest);
 		} catch {
-			this.showToast('서버에 연결할 수 없습니다');
-			return false;
+			return null;
+		} finally {
+			this.busy = false;
 		}
+	}
+
+	/**
+	 * 받은 판으로 보드를 연다.
+	 * resumeAt: 저장된 스테이지 시작 시각(모르면 null). 생략하면 보드가 뜨는 지금부터 잰다.
+	 */
+	private enterRound(res: NewGameResponse, resumeAt?: number | null) {
+		this.clearBoard();
 		this.token = res.token;
 		this.n = res.n;
 
-		if (isDaily(mode)) {
+		if (isDaily(this.config.mode)) {
 			// 토큰이 n·풀·정답을 함축하므로 날짜와 묶어 키로 쓰면 "오늘 이 판" 진행만 정확히 복원된다.
 			const raw = load<DailySave | null>(this.dailyKey(), null);
 			const saved = validDailySave(raw) ? raw : null;
@@ -321,12 +363,11 @@ export class Game {
 				this.answer = saved.answer;
 				this.hints = saved.hints ?? {};
 				if (saved.status === 'playing') this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
-				return true;
+				return;
 			}
 		}
 		this.status = 'playing';
 		this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
-		return true;
 	}
 
 	type(j: string) {

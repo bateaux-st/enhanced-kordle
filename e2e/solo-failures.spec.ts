@@ -85,15 +85,15 @@ test.describe('솔로 서버 실패', () => {
 		expect(await boardMarks(page)).toEqual(Array(6).fill('......'));
 	});
 
-	test('새 판 요청(game)이 실패하면 토스트로 알리고 빈 보드에 머물며 모드 바꾸기로 다시 시작할 수 있다', async ({ page, solo }) => {
+	test('새 판 요청(game)이 실패하면 토스트 없이 빈 보드에 머물며 모드 바꾸기로 다시 시작할 수 있다', async ({ page, solo }) => {
 		await seed(page, { config: { mode: 'endless', length: { kind: 'fixed', n: 6 } } });
 		const api = await solo({ answers: ['토마토'], valid: ['고구마'] });
 		api.failing.game = true;
 		await page.goto('/');
 		await page.getByRole('button', { name: /혼자 하기/ }).click();
 
-		await expect(toast(page)).toHaveText(CONNECT_FAIL);
-		expect(api.calls.game).toHaveLength(1);
+		await expect.poll(() => api.calls.game.length).toBe(1);
+		await expect(toast(page)).toHaveCount(0);
 		expect(await boardMarks(page)).toEqual(Array(6).fill('......'));
 		await expect(page.getByRole('button', { name: '포기' })).toHaveCount(0);
 
