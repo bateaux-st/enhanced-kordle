@@ -83,6 +83,7 @@ test.describe('설정 모달', () => {
 		await expect(dialog.getByRole('button', { name: '+' })).toBeDisabled();
 		expect(await stored(page, 'settings')).toMatchObject({ maxTries: 10 });
 		await expect(rows(page)).toHaveCount(10);
+		await expect(dialog.getByText('바꾸는 즉시 적용됩니다.')).toBeVisible();
 
 		for (let i = 0; i < 6; i++) await dialog.getByRole('button', { name: '−' }).click();
 		await expect(dialog.getByRole('button', { name: '−' })).toBeDisabled();
