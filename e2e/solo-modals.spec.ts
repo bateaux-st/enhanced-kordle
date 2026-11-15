@@ -52,6 +52,15 @@ test.describe('모드 모달', () => {
 		await expect(dialog.getByText('시작 길이', { exact: true })).toBeVisible();
 	});
 
+	test('length가 없는 손상된 config로도 페이지가 뜨고 기본 모드로 시작한다', async ({ page, solo }) => {
+		await seed(page, { config: { mode: 'daily' } });
+		const api = await solo({ answers: ['토마토'] });
+		await startSolo(page);
+
+		expect(api.calls.game.at(-1)).toMatchObject({ mode: 'daily', n: 6 });
+		await expect(page.getByRole('heading', { name: '꼬들 - 6자' })).toBeVisible();
+	});
+
 	test('Esc나 닫기 버튼으로 모드를 바꾸지 않고 닫는다', async ({ page, solo }) => {
 		const api = await solo({ answers: ['토마토'] });
 		await startSolo(page);

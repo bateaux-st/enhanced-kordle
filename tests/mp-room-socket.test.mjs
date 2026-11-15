@@ -166,15 +166,15 @@ test('나가기로 떠난 참가자는 그 판이 끝나기 전에는 돌아올 
 	assert.equal(host.ws.closed, null);
 });
 
-test('close 이벤트: 소켓이 끊긴 자리는 끊김으로 저장·방송한다(답장 close는 런타임이 보내므로 서버는 닫지 않는다)', async (t) => {
+test('close 이벤트: 끊긴 자리는 끊김으로 저장·방송하고, 서버는 예약 코드 1005/1006을 1000으로 바꿔 답장 close를 보낸다', async (t) => {
 	const r = await rig(t);
 	const [host, a, b] = await r.players([NAMES[1], NAMES[2]]);
 	const seq = r.state().seq;
 
 	await r.drop(a.ws, 1005);
-	assert.equal(a.ws.closed, null);
+	assert.deepEqual(a.ws.closed, { code: 1000, reason: 'closed' });
 	await r.drop(b.ws, 1006);
-	assert.equal(b.ws.closed, null);
+	assert.deepEqual(b.ws.closed, { code: 1000, reason: 'closed' });
 	assert.equal(r.state().seq, seq + 2);
 	assert.deepEqual(r.state().players.map((p) => p.connected), [true, false, false]);
 	const snaps = ofType(host.ws.take(), 'snap');
@@ -182,11 +182,11 @@ test('close 이벤트: 소켓이 끊긴 자리는 끊김으로 저장·방송한
 	assert.deepEqual(snaps[1].snap.players.map((p) => p.connected), [true, false, false]);
 });
 
-test('close 이벤트의 정상 코드도 서버는 답장 close를 보내지 않고 끊김만 저장한다', async (t) => {
+test('close 이벤트의 정상 코드는 그대로 답장 close로 보내고 끊김을 저장한다', async (t) => {
 	const r = await rig(t);
 	const [, a] = await r.players();
 	await r.drop(a.ws, 1001);
-	assert.equal(a.ws.closed, null);
+	assert.deepEqual(a.ws.closed, { code: 1001, reason: 'closed' });
 	assert.equal(r.state().players[1].connected, false);
 });
 
@@ -197,6 +197,21 @@ test('error 이벤트도 끊김으로 처리한다', async (t) => {
 	await r.room.webSocketError(a.ws);
 	assert.equal(r.state().players.find((p) => p.pid === a.pid).connected, false);
 	assert.equal(ofType(host.ws.take(), 'snap').length, 1);
+});
+
+test('같은 소켓의 close·error가 겹쳐 와도 끊김은 한 번만 저장·방송한다', async (t) => {
+	const r = await rig(t);
+	const [host, a] = await r.players();
+	await r.drop(a.ws);
+	const seq = r.state().seq;
+	const puts = r.ctx.storage.puts('state');
+	host.ws.take();
+
+	await r.room.webSocketError(a.ws);
+	await r.room.webSocketClose(a.ws, 1006);
+	assert.equal(r.state().seq, seq);
+	assert.equal(r.ctx.storage.puts('state'), puts);
+	assert.deepEqual(host.ws.take(), []);
 });
 
 test('같은 자리에 열린 다른 소켓이 남아 있으면 close 이벤트는 끊김이 아니다', async (t) => {

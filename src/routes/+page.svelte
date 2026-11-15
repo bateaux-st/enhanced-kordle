@@ -120,7 +120,16 @@
 			<ClimbClock {game} />
 		{/if}
 
-		<Board {game} />
+		{#if game.loadFailed}
+			<div class="load-failed">
+				<p role="alert">게임을 불러오지 못했습니다.</p>
+				<div class="actions">
+					<button class="primary" onclick={() => game.newGame()} disabled={game.busy}>다시 시도</button>
+				</div>
+			</div>
+		{:else}
+			<Board {game} />
+		{/if}
 		<Keyboard states={game.keyStates} {onkey} />
 
 		<div class="actions">
@@ -193,6 +202,17 @@
 	}
 	.mode-line .hard {
 		color: var(--btn-text);
+	}
+	.load-failed {
+		text-align: center;
+		padding: 2rem 0.5rem 1.5rem;
+	}
+	.load-failed p {
+		margin: 0;
+		font-size: 0.875rem;
+	}
+	.load-failed .actions {
+		margin-top: 1rem;
 	}
 	.actions {
 		display: flex;
