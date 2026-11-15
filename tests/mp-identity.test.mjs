@@ -62,7 +62,7 @@ test('writeSession: 서버가 준 세션으로 통째로 덮어쓴다', (t) => {
 });
 
 test('clearSession: 세션 키만 지우고 다른 nkordle: 키와 접두사 없는 키는 둔다', (t) => {
-	const values = installLocalStorage(t, { [KEY]: '{}', 'nkordle:config': '{}', 'mp-session': 'x' });
+	const values = installLocalStorage(t, { [KEY]: '{}', 'nkordle:config': '{}', 'mp-session': 'x', 'zzzzzzz:mp-session': 'x' });
 	clearSession();
-	assert.deepEqual([...values.keys()].sort(), ['mp-session', 'nkordle:config']);
+	assert.deepEqual([...values.keys()].sort(), ['mp-session', 'nkordle:config', 'zzzzzzz:mp-session']);
 });
