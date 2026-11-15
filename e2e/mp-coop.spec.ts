@@ -30,6 +30,13 @@ const propose = async (page: Page, jamo: string) => {
 	await page.keyboard.press('Enter');
 };
 const vote = (page: Page) => page.getByRole('dialog', { name: '투표' });
+// 하네스 rng가 seeded라 서버가 고른 단어는 매번 같다. 화면이 그 단어를 보였는지 이 값과 맞춘다.
+const pickedWord = (room: FakeRoom) => {
+	const game = room.state.game;
+	if (game?.kind !== 'coop' || !game.lastPick) throw new Error('서버가 아직 단어를 고르지 않았다');
+	return game.lastPick.candidates[game.lastPick.chosen];
+};
+const marksOf = (word: string) => (word === 아바나 ? 'acpccc' : 'aaccaa');
 
 test.describe('협동: 제안', () => {
 	test('시작하면 공유 보드와 사람별 카드가 뜨고 마감은 제안이 생길 때까지 막힌다', async ({ page, openRoom }) => {
@@ -237,10 +244,16 @@ test.describe('협동: 투표', () => {
 		// 연출이 끝나기 전에는 방금 고른 행이 보드에 없다.
 		expect((await boardMarks(page))[0]).toBe('......');
 
-		await clock.run(4_000);
+		const word = pickedWord(room);
+		await clock.run(2_000);
+		await expect(wheel.locator('.cand.fin')).toHaveCount(1);
+		await expect(wheel.locator('.cand.fin')).toContainText(word);
+		await expect(wheel.locator('.res')).toHaveText(`정한 단어: ${word}`);
+
+		await clock.run(2_000);
 		await expect(wheel).toHaveCount(0);
-		await expect(mpToast(page)).toContainText('정한 단어:');
-		expect((await boardMarks(page))[0]).not.toBe('......');
+		await expect(mpToast(page)).toHaveText(`정한 단어: ${word}`);
+		await expectRowMarks(page, 0, marksOf(word));
 	});
 
 	test('돌림판 방식은 마감 즉시 서버가 고르고 연출 뒤에 행이 보인다', async ({ page, openRoom, clock }) => {
@@ -250,12 +263,18 @@ test.describe('협동: 투표', () => {
 		room.as('철수').send({ type: 'propose', jamo: 소나기 });
 		await page.getByRole('button', { name: '마감' }).click();
 
-		await expect(page.locator('section.sel')).toBeVisible();
+		const wheel = page.locator('section.sel');
+		await expect(wheel).toBeVisible();
 		expect((await boardMarks(page))[0]).toBe('......');
-		await clock.run(3_000);
-		await expect(page.locator('section.sel')).toHaveCount(0);
-		await expect(mpToast(page)).toContainText('정한 단어:');
-		expect((await boardMarks(page))[0]).not.toBe('......');
+		const word = pickedWord(room);
+		await clock.run(1_500);
+		await expect(wheel.locator('.cand.fin')).toContainText(word);
+		await expect(wheel.locator('.res')).toHaveText(`정한 단어: ${word}`);
+
+		await clock.run(1_500);
+		await expect(wheel).toHaveCount(0);
+		await expect(mpToast(page)).toHaveText(`정한 단어: ${word}`);
+		await expectRowMarks(page, 0, marksOf(word));
 	});
 
 	test('투표 시트가 뜬 동안에도 채팅을 시트 위에 열고 닫으면 투표 시트로 돌아온다', async ({ page, openRoom }) => {
