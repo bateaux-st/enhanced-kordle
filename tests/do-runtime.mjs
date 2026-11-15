@@ -83,7 +83,12 @@ class FakeAutoResponsePair {
 }
 
 // Response는 rig·lobbyRig를 쓸 때만 바꾼다. dict·라우트 시험은 진짜 Response(json())가 필요하다.
-const installResponse = () => Object.defineProperty(globalThis, 'Response', { value: FakeResponse, configurable: true, writable: true });
+// 시험이 끝나면 되돌려, 같은 파일에서 뒤에 오는 rig 없는 시험이 진짜 Response를 쓰게 한다.
+const installResponse = (t) => {
+	const previous = Object.getOwnPropertyDescriptor(globalThis, 'Response');
+	Object.defineProperty(globalThis, 'Response', { value: FakeResponse, configurable: true, writable: true });
+	t.after(() => Object.defineProperty(globalThis, 'Response', previous));
+};
 globalThis.WebSocketPair = FakeWebSocketPair;
 globalThis.WebSocketRequestResponsePair = FakeAutoResponsePair;
 
@@ -266,7 +271,7 @@ export const NAMES = ['가나다라마', '바사아자차', '카타파하거', '
  * pool·valid는 FakeD1에 그대로 넘어간다.
  */
 export async function rig(t, { secret = 'test-secret', pool = {}, valid = [], lobbyTarget, now = T0 } = {}) {
-	installResponse();
+	installResponse(t);
 	t.mock.timers.enable({ apis: ['Date'], now });
 	const { Room } = await import('../src/lib/server/mp/room.ts');
 	const ctx = new FakeCtx();
@@ -369,7 +374,7 @@ export const ofType = (msgs, type) => msgs.filter((m) => m.type === type);
 
 /** Lobby 하나를 가짜 런타임에 올린다. 구독 소켓의 받은 목록은 ws.take()로 읽는다. */
 export async function lobbyRig(t, { now = T0 } = {}) {
-	installResponse();
+	installResponse(t);
 	t.mock.timers.enable({ apis: ['Date'], now });
 	const { Lobby } = await import('../src/lib/server/mp/lobby.ts');
 	const ctx = new FakeCtx();
