@@ -24,7 +24,7 @@ test('load: getItem이 던져도 fallback', (t) => {
 });
 
 // 값이 JSON null이면 fallback이 아니라 null이 나가 Game의 settings 읽기(.maxTries)가 TypeError로 부팅을 막는다.
-test('load: JSON null은 fallback으로 처리한다', { todo: '앱 버그: 손으로 고친 null이 그대로 나간다' }, (t) => {
+test('load: JSON null은 fallback으로 처리한다', (t) => {
 	installLocalStorage(t, { 'nkordle:settings': 'null' });
 	assert.deepEqual(load('settings', {}), {});
 });
