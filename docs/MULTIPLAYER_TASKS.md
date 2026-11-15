@@ -695,7 +695,7 @@ alarm():
 
 **main 반영 시 자동 배포되므로 각 단계는 운영에 그대로 노출된다**(Q16).
 
-**검증 환경 공통(수용 기준 전체에 적용)**: 멀티 검증은 `pnpm build && pnpm preview`(wrangler dev)에서 한다 [설계 §7]. 참가자마다 **다른 브라우저 프로필 또는 시크릿 창**을 쓴다(같은 브라우저의 탭끼리는 localStorage의 `nkordle:mp-session`을 공유해 같은 `uid`가 된다 — R2). "브라우저 A/B/C"는 서로 다른 프로필, A가 먼저 들어온 방장이다. smoke는 API만 보므로 아래 절차는 브라우저에서 직접 본다.
+**검증 환경 공통(수용 기준 전체에 적용)**: 멀티 화면·DO 규칙은 `pnpm e2e`·`pnpm test`(mock)로, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`(wrangler dev)에서 본다 [설계 §7]. 참가자마다 **다른 브라우저 프로필 또는 시크릿 창**을 쓴다(같은 브라우저의 탭끼리는 localStorage의 `nkordle:mp-session`을 공유해 같은 `uid`가 된다 — R2). "브라우저 A/B/C"는 서로 다른 프로필, A가 먼저 들어온 방장이다. smoke는 API만 보므로 아래 절차는 브라우저에서 직접 본다.
 
 **각 PR 공통 완료 조건**: `pnpm check` · `pnpm test` · `python3 -m unittest discover -s tests -p 'test_*.py'` · `pnpm run build`(CI와 동일) → preview 수동 시나리오 → PR → CI → main → Actions 배포·smoke. 문서 갱신 포함(설계 §8). 개인 플레이 불변 검증(§13)이 하나라도 실패하면 그 단계는 완료가 아니다.
 

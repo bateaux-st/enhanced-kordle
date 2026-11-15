@@ -315,7 +315,7 @@ sessionStorage·BroadcastChannel·쿠키는 쓰지 않는다. 새로고침·재�
 
 - `vite dev`의 `getPlatformProxy`는 같은 워커의 DO를 못 띄울 가능성이 높다. **`pnpm dev`가 깨지면 안 된다.**
 - `getPlatformProxy`는 빌드의 프리렌더에서도 돈다(kit `prerender.js`가 어댑터 `emulate()`를 호출). DO 바인딩이 이를 깨뜨리면 `pnpm dev`뿐 아니라 **`pnpm build`와 CI도 깨진다.** wrangler 4.129.1은 같은 워커의 DO 바인딩에 '로컬에서는 동작하지 않는다'는 경고만 찍고 진행하는 것을 코드로 확인했고, workerd도 기동을 거부하지 않았다(2026-11-05 스파이크: build·dev 정상, 경고만 "internal Durable Objects"·"no such Durable Object class is exported").
-- 멀티 개발·검증은 `pnpm build && pnpm preview`(wrangler dev)로 한다. 2026-11-05 스파이크: 바인딩이 있어도 dev·build 정상이라 환경 분리는 필요 없다. dev는 WS 불가이고 WS 클라이언트가 붙었다 끊기면 Vite가 `ECONNRESET`으로 죽으므로(DO 무관) 멀티는 preview로만 검증한다.
+- 멀티 화면·DO 규칙은 `pnpm e2e`·`pnpm test`(mock)로 보고, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`(wrangler dev)로 본다. 2026-11-05 스파이크: 바인딩이 있어도 dev·build 정상이라 환경 분리는 필요 없다. dev는 WS 불가이고 WS 클라이언트가 붙었다 끊기면 Vite가 `ECONNRESET`으로 죽으므로(DO 무관) 실제 소켓은 preview로 본다.
 - DO export는 빌드 후처리가 붙인다. `pnpm build` = `vite build && node scripts/postbuild-do.mjs`가 `_worker.js` 끝에 한 줄(멱등)을 더한다: `export { Room, Lobby } from "../../src/lib/server/mp/index.ts";`. 경로는 barrel `index.ts`(Room·Lobby 재export)를 거치고 `.ts` 확장자를 포함한다. `wrangler deploy --dry-run` 종료 0, 번들 `$lib/` 0 (2026-11-05 스파이크).
 
 ## 8. 구현 단계 (PR 하나씩)
