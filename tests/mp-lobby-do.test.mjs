@@ -166,17 +166,6 @@ test('close 이벤트: 어떤 코드든 서버는 답장 close를 보내지 않�
 	assert.deepEqual([a.closed, b.closed, c.closed], [null, null, null]);
 });
 
-test('close 이벤트 안에서는 어떤 코드로도 close()를 부르지 않는다(런타임이 이미 답장을 보냈다)', async (t) => {
-	const r = await lobbyRig(t);
-	for (const code of [1005, 1006, 1001]) {
-		const ws = await r.subscribe();
-		const calls = [];
-		ws.close = (...args) => calls.push(args);
-		await r.drop(ws, code);
-		assert.deepEqual(calls, [], `코드 ${code}`);
-	}
-});
-
 test('이미 닫힌 소켓의 close 이벤트도 던지지 않고 처리한다', async (t) => {
 	const r = await lobbyRig(t);
 	const ws = await r.subscribe();

@@ -7,6 +7,14 @@ const KEY = 'rooms';
 const SHOWN_KEY = 'shown';
 const OPEN = 1;
 
+function closeQuietly(ws: WebSocket, code: number, reason: string): void {
+	try {
+		ws.close(code, reason);
+	} catch {
+		/* 이미 닫힌 소켓 */
+	}
+}
+
 /**
  * 공개 방 목록 싱글턴. Room의 호출은 DO RPC, 목록 화면은 WebSocket 구독이다.
  * 항목 하나가 바뀔 때마다 저장 키 하나를 통째로 쓴다. 구독자가 없으면 푸시·알람 비용은 0이다.
@@ -67,8 +75,9 @@ export class Lobby extends DurableObject<object> {
 		// 클라이언트가 보낼 것은 'ping'뿐이고 그건 자동 응답이 처리한다.
 	}
 
-	// close 이벤트 시점에 런타임(web_socket_auto_reply_to_close, compat 2026-04-07~)이 이미 답장해 소켓이 닫혀 있어 close()는 하지 않는다.
-	async webSocketClose(ws: WebSocket): Promise<void> {
+	async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+		// 1005/1006은 close()에 쓸 수 없는 예약 코드라 정상 종료로 돌려 닫는다.
+		closeQuietly(ws, code === 1005 || code === 1006 ? 1000 : code, 'closed');
 		await this.idleCheck(ws);
 	}
 
