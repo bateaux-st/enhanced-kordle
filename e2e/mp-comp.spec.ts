@@ -280,9 +280,11 @@ test.describe('경쟁 단판: 결과', () => {
 		await expect(rows.nth(1)).toContainText('나');
 		await expect(rows.nth(1)).toContainText('1번째 정답');
 		await expect(rows.nth(1)).toContainText('1회');
-		await expect(result).toContainText('포기');
 		await expect(rows.nth(2)).toContainText('철수');
 		await expect(rows.nth(2)).toContainText('1회');
+		await expect(rows.nth(2)).toContainText('포기');
+		await expect(rows.nth(3)).toContainText('영희');
+		await expect(rows.nth(3)).toContainText('포기');
 	});
 
 	test('방장은 같은 설정으로 한 판 더를 눌러 대기실로 돌아간다', async ({ page, openRoom, clock }) => {
