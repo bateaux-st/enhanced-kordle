@@ -154,7 +154,7 @@ test('복원 때 열린 소켓이 없는 접속자는 끊김으로 바꿔 저장
 	assert.equal(r.state(), undefined);
 });
 
-test('복원 때 소켓이 모두 끊긴 방이 소멸 시한을 넘겼으면 다음 alarm()에서 소멸한다', async (t) => {
+test('복원 때 소켓이 모두 끊긴 방은 깨어난 시각부터 빈 방 유예를 다시 센다(축출 중 지난 시간은 세지 않는다)', async (t) => {
 	const r = await rig(t);
 	await r.players();
 	await r.settle();
@@ -162,6 +162,11 @@ test('복원 때 소켓이 모두 끊긴 방이 소멸 시한을 넘겼으면 �
 	r.ctx.sockets = [];
 	await r.revive();
 	assert.ok(r.state(), '생성자는 지우지 않는다');
+	const woke = T0 + EMPTY_ROOM_MS + 1000;
+	assert.equal(r.state().emptySince, woke);
+	assert.equal(r.alarmAt(), woke + EMPTY_ROOM_MS);
+	await r.fireAlarm({ stay: true });
+	assert.ok(r.state(), '깨어난 직후에는 소멸하지 않는다');
 	await r.fireAlarm();
 	assert.equal(r.state(), undefined);
 	assert.equal(r.ctx.storage.data.size, 0);
