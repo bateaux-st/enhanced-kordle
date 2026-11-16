@@ -1,6 +1,7 @@
 # AGENTS.md — enhanced-kordle
 
 에이전트가 이 레포에서 작업할 때의 규칙. 배경·절차·수치는 [`docs/HANDOFF.md`](docs/HANDOFF.md)를 **먼저 읽는다**. 사용자용 소개는 `README.md`.
+게임 규칙의 기준은 [`docs/RULES.md`](docs/RULES.md).
 
 ## 이 프로젝트는
 
@@ -21,6 +22,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 ## 반드시
 
+- 게임 규칙(판정·모드·멀티 방·협동·경쟁·시간·채팅)을 바꾸는 변경은 같은 PR에서 [`docs/RULES.md`](docs/RULES.md)를 먼저 고치고 구현·테스트가 따른다. 문서와 코드가 다르면 버그이고 어느 쪽을 고칠지는 사용자가 정한다. `미결·모순` 절은 사용자 결정 전에 한쪽으로 고치지 않는다.
 - 멀티 DO 코드(`src/lib/server/mp/**`)는 `$lib` 값 import를 쓰지 않고 `.ts` 확장자가 붙은 상대 import만 쓴다(`tests/mp-imports.test.mjs`가 검사). 멀티 화면과 DO 규칙은 `pnpm e2e`·`pnpm test`(서버·D1 mock)로 검증하고, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`로 확인한다 — `pnpm dev`는 WS 불가.
 - 정답 풀 조건(`familiar` 임계값, 후보 SQL)을 바꾸면 **`src/lib/server/dict.ts`의 `POOL_THRESHOLD`와 `export_d1.py`의 `POOL`/`THRESHOLDS`를 함께** 고친다. `THRESHOLDS`는 값을 **추가**한다(빼면 그 t를 쓰는 다른 모드가 `pool miss` 500). 런북: HANDOFF §6.6.
 - 새 게임 모드는 HANDOFF §6.7 체크리스트대로 — `types.ts`, `dict.ts`(`POOL_THRESHOLD`가 곧 서버 allowlist), `game.svelte.ts`(`isClimb`/`isDaily`, 통계), `api/game`, `ModeModal.svelte`, `+page.svelte` 버튼 분기, `smoke.py EXPECTED_T`.
