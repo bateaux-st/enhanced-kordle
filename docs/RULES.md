@@ -35,7 +35,7 @@
 | C-JAMO-3 | 쌍자음은 같은 자모 둘이다: ㄲ=ㄱㄱ, ㄸ=ㄷㄷ, ㅃ=ㅂㅂ, ㅆ=ㅅㅅ, ㅉ=ㅈㅈ. | `SPLIT` | t:test_decompose(py) |
 | C-JAMO-4 | 겹받침은 자음 둘이다: ㄳ=ㄱㅅ, ㄵ=ㄴㅈ, ㄶ=ㄴㅎ, ㄺ=ㄹㄱ, ㄻ=ㄹㅁ, ㄼ=ㄹㅂ, ㄽ=ㄹㅅ, ㄾ=ㄹㅌ, ㄿ=ㄹㅍ, ㅀ=ㄹㅎ, ㅄ=ㅂㅅ. | `SPLIT` | t:test_decompose(py) |
 | C-JAMO-5 | 합성 모음·ㅐㅔ류는 기본 모음으로 푼다: ㅐ=ㅏㅣ, ㅒ=ㅑㅣ, ㅔ=ㅓㅣ, ㅖ=ㅕㅣ, ㅘ=ㅗㅏ, ㅙ=ㅗㅏㅣ, ㅚ=ㅗㅣ, ㅝ=ㅜㅓ, ㅞ=ㅜㅓㅣ, ㅟ=ㅜㅣ, ㅢ=ㅡㅣ. ㅑㅕㅛㅠ는 풀지 않는다. | `SPLIT` | t:test_decompose(py) |
-| C-JAMO-6 | 예: 까=ㄱㄱㅏ, 닭=ㄷㅏㄹㄱ, 개=ㄱㅏㅣ, 왜=ㅇㅗㅏㅣ, 꽃=ㄱㄱㅗㅊ, 값=ㄱㅏㅂㅅ, 의=ㅇㅡㅣ, 얘=ㅇㅑㅣ, 바나나=ㅂㅏㄴㅏㄴㅏ. | `tests/test_decompose.py` | t:test_decompose(py) |
+| C-JAMO-6 | 예: 까=ㄱㄱㅏ, 닭=ㄷㅏㄹㄱ, 개=ㄱㅏㅣ, 왜=ㅇㅗㅏㅣ, 꽃=ㄱㄱㅗㅊ, 값=ㄱㅏㅂㅅ, 의=ㅇㅡㅣ, 얘=ㅇㅑㅣ, 바나나=ㅂㅏㄴㅏㄴㅏ. | `tests/test_decompose.py` | t:test_decompose(py) (바나나·꽃·값·왜·의·얘만, 까·닭·개는 코드로 계산해 확인) |
 | C-JAMO-7 | 자모열이 같은 서로 다른 단어(도끼/독기)는 게임에서 구분하지 않는다. | `HANDOFF.md` §4.1 | 코드만 |
 
 ### C-LEN 단어 길이
@@ -54,7 +54,7 @@
 | C-JUDGE-1 | 추측의 칸마다 `c`(자모와 자리가 맞음), `p`(자모는 있으나 자리가 다름), `a`(정답에 없음) 중 하나를 받는다. | `types.ts` `Mark` | t:api-guess |
 | C-JUDGE-2 | 1차: 같은 자리의 자모가 정답과 같으면 `c`로 확정한다. 정답에서 `c`로 쓰이지 않은 자리의 자모를 개수 표에 센다. | `server/judge.ts` `judge` | t:api-guess |
 | C-JUDGE-3 | 2차: `c`가 아닌 칸을 왼쪽부터 보며, 그 자모의 남은 개수가 1 이상이면 `p`로 하고 1 줄인다. 0이면 `a`다. | `judge` | t:api-guess |
-| C-JUDGE-4 | 예: 정답 ㅂㅏㄴㅏㄴㅏ, 추측 ㄴㅏㄴㅂㅏㅇ → `p c c p p a`. | `judge` | 코드만 |
+| C-JUDGE-4 | 예: 정답 ㅂㅏㄴㅏㄴㅏ, 추측 ㄴㅏㄴㅂㅏㅇ → `p c c p p a`. | `judge` | t:server, t:api-guess |
 | C-JUDGE-5 | 모든 칸이 `c`이면 정답이다. | `judge.ts` `guessResponse` | t:api-guess |
 | C-JUDGE-6 | 칸의 색은 자모 위치에 붙는다. 한 자모가 한 줄에 여러 번 나와도 정답 속 개수만큼만 `c`·`p`를 받는다(C-JUDGE-2, 3의 결과). | `judge` | t:api-guess |
 
@@ -81,7 +81,7 @@
 | C-HARD-2 | 초록 제약: 어느 행에서든 `c`를 받은 자리는 그 자모를 같은 자리에 다시 써야 한다. | `hardViolation` | t:hard |
 | C-HARD-3 | 노랑 제약: 어느 행에서든 `p`를 받은 자모는 추측 안 어딘가에 들어 있어야 한다. 자모 종류만 보고 개수는 세지 않는다. | `hardViolation` | t:hard |
 | C-HARD-4 | 회색(`a`)과 힌트로 밝힌 칸은 제약이 아니다. 첫 추측에는 제약이 없다. | `hardViolation` | t:hard |
-| C-HARD-5 | 위반이 여럿이면 하나만 돌려준다. 초록 자리 위반을 왼쪽 칸부터 먼저 보고, 없으면 노랑 자모를 "행 순서, 같은 행 안에서는 왼쪽 순서"로 처음 나온 것부터 본다. | `hardViolation` | t:hard |
+| C-HARD-5 | 위반이 여럿이면 하나만 돌려준다. 초록 자리 위반을 왼쪽 칸부터 먼저 보고, 없으면 노랑 자모를 "행 순서, 같은 행 안에서는 왼쪽 순서"로 처음 나온 것부터 본다. | `hardViolation` | t:hard (초록이 노랑보다 먼저인 것만, 노랑 여럿의 순서는 코드만) |
 | C-HARD-6 | 위반 문구: 초록은 `{자리+1}번째 칸은 {자모}입니다`, 노랑은 `{자모}을(를) 포함해야 합니다`. 솔로 토스트와 멀티 오류 메시지가 같은 문구다. | `game.svelte.ts` `submit`, `server/mp/comp.ts` `checkGuess` | t:mp-comp, e:solo-rules |
 
 ### C-HINT 힌트 고르기 (솔로·멀티 공통)
@@ -112,7 +112,7 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-MODE-1 | 모드 설명 문구(모드 선택 창): daily `하루에 한 단어. 모두 같은 문제, 6회 고정.` / daily-climb `하루에 한 코스. 5자에서 12자까지 모두 같은 순서, 6회 고정.` / endless `끝없이 새 단어. 통계만 쌓입니다.` / climb-streak `연속으로 맞힌 스테이지 수를 올립니다. 실패하면 1로.` / climb-length `맞힐 때마다 한 자모씩 길어져 12자까지. 실패하면 처음으로.` | `components/ModeModal.svelte` | e:solo-modals |
+| S-MODE-1 | 모드 설명 문구(모드 선택 창): daily `하루에 한 단어. 모두 같은 문제, 6회 고정.` / daily-climb `하루에 한 코스. 5자에서 12자까지 모두 같은 순서, 6회 고정.` / endless `끝없이 새 단어. 통계만 쌓입니다.` / climb-streak `연속으로 맞힌 스테이지 수를 올립니다. 실패하면 1로.` / climb-length `맞힐 때마다 한 자모씩 길어져 12자까지. 실패하면 처음으로.` | `components/ModeModal.svelte` | 코드만 |
 | S-MODE-2 | 모드 선택 창은 모드 하나와 길이(`랜덤` 또는 5~12)를 고르고 `시작`을 누르면 그 설정으로 **즉시 새 판을 요청**한다. 비데일리 모드에서 풀던 판은 이어지지 않는다. 데일리·일일 등반은 같은 날짜·토큰의 저장본이 있으면 그 상태가 복원된다(S-DAILY-9, S-DCLIMB-2). 일일 등반은 길이 칸이 없고 설정에는 고정 길이 5로 저장된다. 길이 칸의 제목은 climb-length에서 `시작 길이`, 나머지는 `자모 수`다. | `ModeModal.svelte`, `game.svelte.ts` `setConfig` | e:solo-modals |
 | S-MODE-3 | 마지막으로 시작한 모드와 길이(`config`)를 저장하고 다음 방문의 첫 판에 쓴다. 저장값이 없거나 모드가 알려진 값이 아니거나 길이가 `random`·`fixed(숫자)`가 아니면 `daily`와 고정 6을 쓴다. 숫자가 5~12인지는 보지 않는다([U-18](#u-18)). | `game.svelte.ts` `loadConfig` | t:game-stored-shape, e:solo-modals |
 | S-MODE-4 | 앱은 방문할 때마다 개인/멀티 선택 화면에서 시작한다(기억하지 않는다). 주소에 `?room=` 이 있으면 선택 화면을 건너뛰고 멀티로 간다. | `routes/+page.svelte` | 코드만 |
@@ -154,9 +154,9 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-DCLIMB-1 | 코스는 항상 5자에서 시작해 한 스테이지에 한 자모씩 늘어 12자에서 끝난다. 모두 같은 순서다. | `game.svelte.ts` `startRound`, `nextStage` | e:solo-climb |
+| S-DCLIMB-1 | 코스는 항상 5자에서 시작해 한 스테이지에 한 자모씩 늘어 12자에서 끝난다. 모두 같은 순서다. | `game.svelte.ts` `startRound`, `nextStage` | 코드만 |
 | S-DCLIMB-2 | 코스 진행(`stage`, `n`, `climbWords`와 시간 필드)은 `dclimb:<날짜>`에 저장한다. 앱을 다시 열면 저장된 스테이지·길이에서 이어 간다. 저장본이 없거나 형식이 틀리면 1스테이지 5자 새 코스로 시작한다. | `startRound`, `validClimbSave` | t:game-stored-shape |
-| S-DCLIMB-3 | 스테이지를 맞히면 "다음 스테이지"로 길이를 +1 해 이어 가고 `dclimb`를 저장한다. 12자를 맞히면 완주(S-CLIMB-4)다. 한 스테이지라도 틀리거나 포기하면 그 날의 코스는 끝나고 "결과"만 열 수 있다. 오늘 다시 시작하는 버튼은 없다. | `routes/+page.svelte` | e:solo-climb |
+| S-DCLIMB-3 | 스테이지를 맞히면 "다음 스테이지"로 길이를 +1 해 이어 가고 `dclimb`를 저장한다. 12자를 맞히면 완주(S-CLIMB-4)다. 한 스테이지라도 틀리거나 포기하면 그 날의 코스는 끝나고 "결과"만 열 수 있다. 오늘 다시 시작하는 버튼은 없다. | `routes/+page.svelte` | 코드만 |
 | S-DCLIMB-4 | 스테이지별 판은 daily와 같은 저장(S-DAILY-8, 9)을 쓰므로, 맞힌 스테이지와 실패한 스테이지 모두 새로고침 뒤 같은 상태로 복원된다. | `enterRound` | e:solo-daily |
 | S-DCLIMB-5 | 일일 등반의 결과 창은 "다시 등반" 대신 다음 코스까지의 카운트다운(S-DAILY-11)을 보인다. | `components/ClimbModal.svelte` | 코드만 |
 
@@ -167,9 +167,9 @@
 | S-CLIMB-1 | 스테이지 번호는 1에서 시작하고, 다음 스테이지 요청이 성공했을 때만 1 늘어난다. | `game.svelte.ts` `nextStage` | t:game-failures |
 | S-CLIMB-2 | 스테이지를 맞히면(`won`) `다음 스테이지` 버튼이 열린다. 단 12자 스테이지를 맞혀 완주하면(S-CLIMB-4) `다음 스테이지`는 없고, climb-length는 `다시 등반`, daily-climb은 `결과`가 열린다(S-ROUND-3). | `routes/+page.svelte` | e:solo-climb (daily-climb의 `결과`는 코드만) |
 | S-CLIMB-3 | 스테이지에서 시도를 모두 쓰거나 포기하면(`lost`) 등반이 끝난다. 스테이지 번호는 끝난 그대로 남고, `처음부터`를 누르면 스테이지 1·빈 기록으로 새로 시작한다(일일 등반 제외, S-DCLIMB-3). | `routes/+page.svelte`, `resetRun` | e:solo-climb |
-| S-CLIMB-4 | climb-length와 daily-climb에서 길이 12의 스테이지를 맞히면 등반 완주다(결과 창 제목 `12자 완주!`). climb-streak에는 끝이 없다. | `game.svelte.ts` `finish` | e:solo-climb |
+| S-CLIMB-4 | climb-length와 daily-climb에서 길이 12의 스테이지를 맞히면 등반 완주다(결과 창 제목 `12자 완주!`). climb-streak에는 끝이 없다. | `game.svelte.ts` `finish` | e:solo-climb (climb-length만, daily-climb은 코드만) |
 | S-CLIMB-5 | 스테이지 클리어 토스트는 `스테이지 {번호} 클리어`(2000ms)다. 판이 `lost`로 끝났을 때의 토스트는 S-ROUND-4, 12자 완주 토스트는 S-CLIMB-11이다. | `finish` | 코드만 |
-| S-CLIMB-6 | 등반 모드에서 등반이 끝나거나(실패 또는 완주) 이미 끝난 일일 등반 판이 복원되면 1200ms 뒤 등반 결과 창이 자동으로 열린다. 그 사이에 다른 창이 열려 있으면 덮지 않는다. | `routes/+page.svelte` | e:solo-climb |
+| S-CLIMB-6 | 등반 모드에서 등반이 끝나거나(실패 또는 완주) 이미 끝난 일일 등반 판이 복원되면 1200ms 뒤 등반 결과 창이 자동으로 열린다. 그 사이에 다른 창이 열려 있으면 덮지 않는다. | `routes/+page.svelte` | e:solo-climb (climb-length만) |
 | S-CLIMB-7 | 등반 결과의 피라미드는 맞힌 스테이지의 정답을 맞힌 순서대로 쌓는다. 실패한 스테이지의 정답은 쌓지 않고 `멈춘 곳의 정답: {단어}`로 따로 보인다. 제목은 완주 `12자 완주!`, 한 개 이상 클리어 `스테이지 {클리어 수}까지 올랐습니다`, 0개 `첫 스테이지에서 멈췄습니다`다. | `ClimbModal.svelte` | e:solo-climb |
 | S-CLIMB-8 | 등반 최고 스테이지(`best:<모드>:<길이키>`)는 클리어한 스테이지 번호가 지금 최고보다 클 때만 올라간다. | `game.svelte.ts` `finish` | 코드만 |
 | S-CLIMB-9 | 등반의 힌트는 스테이지(판)마다 한 번이다(S-HINT-1). 멀티 등반은 등반 전체에서 한 번이다([U-2](#u-2)). | `game.svelte.ts` `clearBoard` | 코드만 |
@@ -204,9 +204,9 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-ROUND-1 | 글자 입력·삭제·제출·힌트·포기는 상태가 `playing`이고 요청이 진행 중(`busy`)이 아닐 때만 받는다. 그 밖에는 조용히 무시한다. | `game.svelte.ts` `type`, `back`, `submit`, `hint`, `giveUp` | e:solo-modals |
+| S-ROUND-1 | 글자 입력·삭제·제출·힌트·포기는 상태가 `playing`이고 요청이 진행 중(`busy`)이 아닐 때만 받는다. 그 밖에는 조용히 무시한다. | `game.svelte.ts` `type`, `back`, `submit`, `hint`, `giveUp` | e:solo-modals (모달 중 입력만, `playing` 아님·`busy` 무시는 코드만) |
 | S-ROUND-2 | 새 판·다음 스테이지 요청 중에 같은 버튼을 다시 눌러도 요청은 한 번만 나간다. | `newGame`, `nextStage` | t:game-failures |
-| S-ROUND-3 | 한 판이 끝난 뒤 버튼(우선순위 순서): daily `통계` / endless `다음 단어` / 클리어했고 완주가 아님 `다음 스테이지` / daily-climb(실패 또는 완주) `결과` / 그 밖(등반 실패·완주) `처음부터`(완주는 `다시 등반`). | `routes/+page.svelte` | e:solo-climb, e:solo-play |
+| S-ROUND-3 | 한 판이 끝난 뒤 버튼(우선순위 순서): daily `통계` / endless `다음 단어` / 클리어했고 완주가 아님 `다음 스테이지` / daily-climb(실패 또는 완주) `결과` / 그 밖(등반 실패·완주) `처음부터`(완주는 `다시 등반`). | `routes/+page.svelte` | e:solo-climb, e:solo-play (daily-climb의 `결과`는 코드만) |
 | S-ROUND-4 | 판이 `lost`로 끝나면(시도 소진·포기, 모든 모드) 정답을 받은 뒤 토스트 `정답: {단어}`(3000ms)를 띄운다. | `game.svelte.ts` `finish` | e:solo-play |
 | S-ROUND-5 | 등반이 아닌 모드(daily, endless)에서 이기면 토스트 `정답입니다`(2000ms)를 띄운다. 등반 모드는 S-CLIMB-5·S-CLIMB-10·S-CLIMB-11이다. | `finish` | 코드만 |
 
@@ -224,7 +224,7 @@
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
 | S-INPUT-1 | 입력은 자모 24종만 받는다. 물리 키보드는 `KeyboardEvent.code`로 두벌식 자리를 자모로 바꾼다(한/영 상태와 무관): Q=ㅂ W=ㅈ E=ㄷ R=ㄱ T=ㅅ Y=ㅛ U=ㅕ I=ㅑ / A=ㅁ S=ㄴ D=ㅇ F=ㄹ G=ㅎ H=ㅗ J=ㅓ K=ㅏ L=ㅣ / Z=ㅋ X=ㅌ C=ㅊ V=ㅍ B=ㅠ N=ㅜ M=ㅡ. Enter는 제출, Backspace는 삭제다. | `jamo.ts` `CODE_TO_JAMO`, `routes/+page.svelte` | e:solo-play |
-| S-INPUT-2 | Ctrl·Meta·Alt가 눌린 키 입력은 무시한다. 창(모달)이 열려 있는 동안 글자 입력은 보드에 들어가지 않고 Esc는 창을 닫는다. | `routes/+page.svelte` `onkeydown` | e:solo-modals |
+| S-INPUT-2 | Ctrl·Meta·Alt가 눌린 키 입력은 무시한다. 창(모달)이 열려 있는 동안 글자 입력은 보드에 들어가지 않고 Esc는 창을 닫는다. | `routes/+page.svelte` `onkeydown` | e:solo-modals (모달 부분만, 수식키는 코드만) |
 | S-INPUT-3 | 화면 키보드의 배열: 윗줄 ㅂㅈㄷㄱㅅㅛㅕㅑ, 가운뎃줄 ㅁㄴㅇㄹㅎㅗㅓㅏㅣ, 아랫줄 `입력`(Enter) ㅋㅌㅊㅍㅠㅜㅡ `삭제`(Backspace). | `jamo.ts` `KEY_ROWS`, `components/Keyboard.svelte` | 코드만 |
 | S-INPUT-4 | 입력 중인 행은 판의 길이 n까지만 채워진다. n자가 되는 순간 `/api/check`를 한 번 불러 사전 여부를 알아본다. 응답이 올 때 현재 입력이 요청한 입력과 같을 때만 반영한다. 응답이 `valid:false`이면 행을 빨간 글자로 표시한다. 확인 요청이 실패하면 아무 표시도 하지 않는다(제출 때 서버가 다시 거른다). | `game.svelte.ts` `type`, `checkCurrent` | t:game-check-race, e:solo-play, e:solo-failures |
 | S-INPUT-5 | Backspace는 마지막 자모를 지우고 빨간 표시도 푼다. | `back` | e:solo-play |
@@ -251,7 +251,7 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-HINT-1 | 힌트는 한 판에 한 번이다. 판은 보드 하나이므로 등반에서는 스테이지마다 새로 한 번 쓸 수 있다. 쓴 판에서는 버튼이 `힌트 사용함`으로 잠기고, 쓴 판에서 다시 요청하면(버튼 우회 포함) 토스트 `힌트는 한 판에 한 번입니다`. | `game.svelte.ts` `hint`, `hintUsed` | e:solo-rules |
+| S-HINT-1 | 힌트는 한 판에 한 번이다. 판은 보드 하나이므로 등반에서는 스테이지마다 새로 한 번 쓸 수 있다. 쓴 판에서는 버튼이 `힌트 사용함`으로 잠기고, 쓴 판에서 다시 요청하면(버튼 우회 포함) 토스트 `힌트는 한 판에 한 번입니다`. | `game.svelte.ts` `hint`, `hintUsed` | e:solo-rules (`힌트 사용함` 잠금만, 토스트는 코드만) |
 | S-HINT-2 | 힌트를 쓴 판인지는 보드에 밝혀진 칸이 하나라도 있는지(`hints`가 비어 있지 않은지)로 안다. 데일리 계열은 `hints`를 저장하므로 새로고침 뒤에도 쓴 것으로 이어진다. | `game.svelte.ts` `hintUsed`, `DailySave` | e:solo-daily |
 | S-HINT-3 | C-HINT-4로 줄 힌트 후보가 없으면(노란 칸이 없는 경우, 노란 자모를 이미 모두 초록으로 찾은 경우) 힌트 요청을 서버에 보내지 않고 토스트 `힌트를 줄 노란 자모가 없습니다`. | `hint` | e:solo-rules |
 | S-HINT-4 | 요청은 `/api/hint`로 `{token, jamo, known}`을 보낸다. 서버는 ① 토큰 검증(실패 400 `bad token`) ② `jamo`가 자모 24종 중 하나인지(아니면 400 `bad jamo`) ③ 그 자모가 정답에 있는지(없으면 400 `jamo not in answer`) ④ `known`을 정수 배열로 읽고(아니면 빈 목록) 정답에서 `known`에 없는 첫 자리를 찾는다(없으면 400 `no unknown position`) 순서로 보고, 성공하면 `{pos}`(0부터)를 준다. | `routes/api/hint/+server.ts`, `hint.ts` `parseKnown` | t:api-hint |
@@ -717,7 +717,22 @@
 | `MAX_TRIES` | `10` | 솔로 시도 횟수 설정 상한 | `src/lib/game.svelte.ts` |
 | `DAILY_DEDUP_START` | `'2026-10-04'` | 이 날짜 이상의 데일리부터 같은 (모드, n)에서 정답 반복 방지. 바꾸면 그날 정답이 바뀐다 | `src/lib/server/token.ts` |
 | `MP_POOL_T` | `3` | 멀티플레이 정답 풀 임계값 | `src/lib/server/mp/room.ts` |
+| `MAX_ATTEMPTS` | `5` | 방 코드를 뽑는 최대 횟수(처음 포함) | `src/routes/api/room/+server.ts` |
 | `POOL_THRESHOLD` | `{ daily: 3, 'daily-climb': 3, 'climb-length': 3, endless: 1, 'climb-streak': 1 }` | 솔로 모드별 정답 풀 임계값 | `src/lib/server/dict.ts` |
+
+### 이름 없는 리터럴 (솔로)
+
+코드에 이름이 없는 값이다. 마지막 열의 코드 조각이 그 파일에 그대로 있어야 한다.
+
+| 값 | 뜻 | 위치 | 확인 조각 |
+|---|---|---|---|
+| `1500` | 토스트 기본 지속 시간(ms) | `src/lib/game.svelte.ts` | `ms = 1500` |
+| `2000` | 정답·스테이지 클리어 토스트 지속 시간(ms) | `src/lib/game.svelte.ts` | `'정답입니다', 2000` |
+| `2500` | 힌트 위치 알림·하드 모드 위반 토스트·완주 토스트 지속 시간(ms) | `src/lib/game.svelte.ts` | `번째 칸`, 2500` |
+| `3000` | 판이 `lost`로 끝났을 때 `정답: {단어}` 토스트 지속 시간(ms) | `src/lib/game.svelte.ts` | `정답: ${word}`, 3000` |
+| `400` | 거절 흔들림 시간(ms) | `src/lib/game.svelte.ts` | `this.shake = false), 400` |
+| `1200` | 데일리·등반 결과 창 자동 열기 지연(ms) | `src/routes/+page.svelte` | `(panel ??= next), 1200` |
+| `3000` | 포기 확인 대기(ms) | `src/routes/+page.svelte` | `(confirmGiveUp = false), 3000` |
 
 ### 멀티플레이 인원·방·이름
 
