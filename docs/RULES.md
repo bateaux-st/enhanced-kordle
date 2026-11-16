@@ -87,10 +87,10 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| C-HINT-1 | 힌트는 노란 칸(`p`)이 있어야 줄 수 있다. 후보는 보드의 칸을 행 순서, 같은 행 안에서는 왼쪽 순서로 훑어 처음 만난 `p` 칸의 자모 중, 아래 C-HINT-2의 조건을 만족하는 것이다. | `hint.ts` `pickHint` | t:hint |
+| C-HINT-1 | 힌트는 노란 칸(`p`)이 있어야 줄 수 있다. 후보 자모는 보드의 `p` 칸을 행 순서, 같은 행 안에서는 왼쪽 순서로 훑으며 아래 C-HINT-2의 조건을 처음 만족하는 칸의 자모다. 조건을 못 지키는 `p` 칸은 건너뛰고 다음 `p` 칸을 본다. | `hint.ts` `pickHint` | t:hint |
 | C-HINT-2 | 자모 J가 후보가 되려면, 한 행에서 J가 `c` 또는 `p`를 받은 칸 수의 최댓값(모든 행에 걸쳐)이 J가 지금까지 `c`를 받은 서로 다른 자리 수보다 커야 한다(아직 못 찾은 자리가 있다). | `pickHint` | t:hint |
 | C-HINT-3 | 힌트가 알려 주는 것은 정답에서 J가 나오는 자리 중 이미 초록으로 확인된 자리(`known`)를 뺀 첫 자리(0부터)다. 모든 자리를 알면 힌트가 없다. | `hint.ts` `hintPos` | t:hint |
-| C-HINT-4 | 후보가 없거나 줄 자리가 없으면 힌트를 쓸 수 없다. 키보드 색(자모별 최고 판정)이 아니라 보드 칸으로 고른다. | `pickHint` | t:hint |
+| C-HINT-4 | 후보가 없으면(노란 칸이 없거나, 노란 자모를 이미 모두 초록으로 찾았거나) 또는 줄 자리가 없으면 힌트를 쓸 수 없다. 키보드 색(자모별 최고 판정)이 아니라 보드 칸으로 고른다. | `pickHint` | t:hint |
 | C-HINT-5 | 힌트는 시도 횟수를 쓰지 않고, 정답 자체를 알려 주지 않으며, 입력 행의 그 칸에 자모를 흐리게(점선) 미리 보여 줄 뿐이다. | `components/Board.svelte`, `game.svelte.ts` `hints` | e:solo-rules |
 
 ---
@@ -112,7 +112,7 @@
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
 | S-MODE-1 | 모드 설명 문구(모드 선택 창): daily `하루에 한 단어. 모두 같은 문제, 6회 고정.` / daily-climb `하루에 한 코스. 5자에서 12자까지 모두 같은 순서, 6회 고정.` / endless `끝없이 새 단어. 통계만 쌓입니다.` / climb-streak `연속으로 맞힌 스테이지 수를 올립니다. 실패하면 1로.` / climb-length `맞힐 때마다 한 자모씩 길어져 12자까지. 실패하면 처음으로.` | `components/ModeModal.svelte` | e:solo-modals |
-| S-MODE-2 | 모드 선택 창은 모드 하나와 길이(`랜덤` 또는 5~12)를 고르고 `시작`을 누르면 그 설정으로 **즉시 새 판을 시작**한다. 진행 중이던 판은 이어지지 않는다. 일일 등반은 길이 칸이 없고 설정에는 고정 길이 5로 저장된다. 길이 칸의 제목은 climb-length에서 `시작 길이`, 나머지는 `자모 수`다. | `ModeModal.svelte`, `game.svelte.ts` `setConfig` | e:solo-modals |
+| S-MODE-2 | 모드 선택 창은 모드 하나와 길이(`랜덤` 또는 5~12)를 고르고 `시작`을 누르면 그 설정으로 **즉시 새 판을 요청**한다. 비데일리 모드에서 풀던 판은 이어지지 않는다. 데일리·일일 등반은 같은 날짜·토큰의 저장본이 있으면 그 상태가 복원된다(S-DAILY-9, S-DCLIMB-2). 일일 등반은 길이 칸이 없고 설정에는 고정 길이 5로 저장된다. 길이 칸의 제목은 climb-length에서 `시작 길이`, 나머지는 `자모 수`다. | `ModeModal.svelte`, `game.svelte.ts` `setConfig` | e:solo-modals |
 | S-MODE-3 | 마지막으로 시작한 모드와 길이(`config`)를 저장하고 다음 방문의 첫 판에 쓴다. 저장값이 없거나 모드가 알려진 값이 아니거나 길이가 `random`·`fixed(숫자)`가 아니면 `daily`와 고정 6을 쓴다. 숫자가 5~12인지는 보지 않는다([U-18](#u-18)). | `game.svelte.ts` `loadConfig` | t:game-stored-shape, e:solo-modals |
 | S-MODE-4 | 앱은 방문할 때마다 개인/멀티 선택 화면에서 시작한다(기억하지 않는다). 주소에 `?room=` 이 있으면 선택 화면을 건너뛰고 멀티로 간다. | `routes/+page.svelte` | 코드만 |
 | S-MODE-5 | 모드나 설정이 바뀌면 통계(`stats:<모드>`), 최고 스테이지(`best:<모드>:<길이키>`), 등반 시간 기록(`climbtime:<모드>:<길이키>`)을 새 설정 것으로 다시 읽는다. 길이키는 `fixed-<n>` 또는 `random`이다. | `game.svelte.ts` `loadRecords`, `lengthKey`, `configKey` | 코드만 |
@@ -136,16 +136,16 @@
 |---|---|---|---|
 | S-DAILY-1 | 데일리의 날짜는 한국 시간(`Asia/Seoul`)의 `YYYY-MM-DD`이고 날짜는 한국 자정(00:00)에 바뀐다. | `day.ts` `todayKST` | t:day |
 | S-DAILY-2 | 같은 날짜·같은 모드·같은 길이는 모든 사람에게 같은 단어이고, 서버는 같은 요청에 같은 토큰을 준다. 길이가 다르면 다른 단어다. | `api/game/+server.ts`, `token.ts` `dailyIndex` | t:api-game, t:daily-parity |
-| S-DAILY-3 | 일일 등반은 같은 날짜·같은 길이라도 daily와 다른 단어다(시드에 `:climb`가 붙는다). | `dailyIndex` | t:api-game |
+| S-DAILY-3 | 같은 날짜·같은 길이에서 일일 등반은 daily와 다른 순열(시드에 `:climb`가 붙는다)을 쓴다. 두 모드가 같은 단어를 내는 것을 막지는 않는다([U-23](#u-23)). | `dailyIndex` | t:api-game (한 조합의 idx만 비교) |
 | S-DAILY-4 | 클라이언트의 `dailyDay`는 페이지를 연 시점의 한국 날짜로 고정된다. 자정이 지나도 같은 탭은 그 날짜로 요청·저장한다. 새로고침으로 앱을 다시 만들 때만 날짜가 바뀐다. | `game.svelte.ts` `dailyDay` | t:daily, e:solo-daily |
 | S-DAILY-5 | 데일리 요청은 `day`를 싣는다. 서버는 `day`가 `YYYY-MM-DD` 형식이고 달력에 있는 날짜이고 서버의 오늘(한국) 이하이면 받는다. 어긴 값은 400 `invalid daily day`다. 과거 날짜는 얼마나 오래됐든 받는다(하한 없음, [U-5](#u-5)). `day`를 생략하면 서버의 오늘이다. | `day.ts` `validDailyDay`, `api/game/+server.ts` | t:day, t:api-game |
 | S-DAILY-6 | 서버는 비데일리 모드 요청의 `day`를 읽지 않는다. | `api/game/+server.ts` | t:daily, t:api-game |
 | S-DAILY-7 | 데일리 계열의 시도 횟수는 6으로 고정이고 설정의 시도 횟수는 무시한다. | `game.svelte.ts` `DAILY_TRIES`, `maxTries` | 코드만 |
-| S-DAILY-8 | 데일리 계열의 한 판은 `(날짜, 토큰)`으로 식별한다. 추측을 받아들일 때마다, 힌트를 쓸 때마다, 판이 끝날 때마다 `rows`, `marks`, `status`, `answer`, `hints`를 저장한다. 판을 시작만 하고 아직 아무것도 하지 않은 보드는 저장하지 않는다. | `game.svelte.ts` `saveDaily`, `dailyKey` | e:solo-daily |
+| S-DAILY-8 | 데일리 계열의 한 판은 `(날짜, 토큰)`으로 식별한다. `rows`, `marks`, `status`, `answer`, `hints`를 판이 끝나지 않는 추측을 수락한 직후, 힌트를 쓴 직후, 판이 끝나 정답을 받은 뒤(승리는 추측 응답의 단어로, 패배·포기는 `reveal` 응답으로)에 저장한다. 판을 시작만 하고 아직 아무것도 하지 않은 보드는 저장하지 않는다. | `game.svelte.ts` `saveDaily`, `dailyKey` | e:solo-daily |
 | S-DAILY-9 | 데일리 판을 다시 열면(새로고침·다른 탭) 저장된 `rows`, `marks`, `status`, `answer`, `hints`를 복원한다. 끝난 판(`won`·`lost`)은 끝난 채로 복원되고 다시 풀 수 없다. 저장본이 형식에 맞지 않으면 없는 것으로 보고 새 판으로 시작한다. | `enterRound`, `validDailySave` | t:game-stored-shape, e:solo-daily |
-| S-DAILY-10 | 오래된 날짜의 저장본은 오늘 진행을 저장할 때 지운다. 키의 날짜가 `dailyDay`보다 작은 `daily:`·`dclimb:` 키만 지우고, 같거나 큰 날짜의 키는 남긴다. | `saveDaily`, `saveDailyClimb` | e:solo-daily |
+| S-DAILY-10 | 오래된 날짜의 저장본은 오늘 진행을 저장할 때 지운다. `daily:` 진행을 저장할 때는 키의 날짜가 `dailyDay`보다 작은 `daily:` 키만, 코스 진행(`dclimb:`)을 저장할 때는 날짜가 작은 `dclimb:` 키만 지운다. 두 종류는 서로 지우지 않는다. 날짜가 같거나 큰 키는 남긴다. 일일 등반 중 추측·힌트 저장은 `daily:`만 정리하므로 `dclimb:` 정리는 코스 진행을 저장할 때(코스 시작, 다음 스테이지, 판 종료)에만 일어난다. | `game.svelte.ts` `saveDaily`, `saveDailyClimb` | e:solo-daily |
 | S-DAILY-11 | 다음 코스까지의 남은 시간은 `ceil((문제 날짜의 다음 한국 자정 − 지금) / 1000)`초이고 0 아래로 내려가지 않는다. 0이 되면 `새 일일 문제가 준비되었습니다. 새로고침하면 풀 수 있습니다.`를, 아니면 `다음 단어까지 HH:MM:SS`를 보인다. 날짜 기준은 "지금"이 아니라 문제 날짜다. | `day.ts` `dailySecondsLeft`, `components/Countdown.svelte` | t:day, e:solo-daily |
-| S-DAILY-12 | 데일리가 끝나면 1200ms 뒤 통계 창이 자동으로 열린다. 그 사이에 사용자가 다른 창을 열었으면 덮지 않는다. | `routes/+page.svelte` | e:solo-daily |
+| S-DAILY-12 | `daily` 모드의 판이 끝나거나 이미 끝난 판이 복원되면 1200ms 뒤 통계 창이 자동으로 열린다. 그 사이에 사용자가 다른 창을 열었으면 덮지 않는다. 일일 등반은 S-CLIMB-6이다. | `routes/+page.svelte` | e:solo-daily |
 
 ### S-DCLIMB 일일 등반 (daily-climb)
 
@@ -162,14 +162,16 @@
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
 | S-CLIMB-1 | 스테이지 번호는 1에서 시작하고, 다음 스테이지 요청이 성공했을 때만 1 늘어난다. | `game.svelte.ts` `nextStage` | t:game-failures |
-| S-CLIMB-2 | 스테이지를 맞히면(`won`) 다음 스테이지로 가는 버튼 `다음 스테이지`가 열린다. 완주(S-CLIMB-4) 때는 `다시 등반`이 열린다. | `routes/+page.svelte` | e:solo-climb |
+| S-CLIMB-2 | 스테이지를 맞히면(`won`) `다음 스테이지` 버튼이 열린다. 단 12자 스테이지를 맞혀 완주하면(S-CLIMB-4) `다음 스테이지`는 없고, climb-length는 `다시 등반`, daily-climb은 `결과`가 열린다(S-ROUND-3). | `routes/+page.svelte` | e:solo-climb (daily-climb의 `결과`는 코드만) |
 | S-CLIMB-3 | 스테이지에서 시도를 모두 쓰거나 포기하면(`lost`) 등반이 끝난다. 스테이지 번호는 끝난 그대로 남고, `처음부터`를 누르면 스테이지 1·빈 기록으로 새로 시작한다(일일 등반 제외, S-DCLIMB-3). | `routes/+page.svelte`, `resetRun` | e:solo-climb |
-| S-CLIMB-4 | climb-length와 daily-climb에서 길이 12의 스테이지를 맞히면 완주다. 완주 토스트는 `12자까지 완주!`(2500ms)다. climb-streak에는 끝이 없다. | `game.svelte.ts` `finish` | e:solo-climb |
-| S-CLIMB-5 | 스테이지 클리어 토스트는 `스테이지 {번호} 클리어`(2000ms), 실패·포기 토스트는 `정답: {단어}`(3000ms)다. | `finish` | 코드만 |
-| S-CLIMB-6 | 등반이 끝나면(실패 또는 완주) 1200ms 뒤 등반 결과 창이 자동으로 열린다. 그 사이에 다른 창이 열려 있으면 덮지 않는다. | `routes/+page.svelte` | e:solo-climb |
+| S-CLIMB-4 | climb-length와 daily-climb에서 길이 12의 스테이지를 맞히면 등반 완주다(결과 창 제목 `12자 완주!`). climb-streak에는 끝이 없다. | `game.svelte.ts` `finish` | e:solo-climb |
+| S-CLIMB-5 | 스테이지 클리어 토스트는 `스테이지 {번호} 클리어`(2000ms)다. 판이 `lost`로 끝났을 때의 토스트는 S-ROUND-4, 12자 완주 토스트는 S-CLIMB-11이다. | `finish` | 코드만 |
+| S-CLIMB-6 | 등반 모드에서 등반이 끝나거나(실패 또는 완주) 이미 끝난 일일 등반 판이 복원되면 1200ms 뒤 등반 결과 창이 자동으로 열린다. 그 사이에 다른 창이 열려 있으면 덮지 않는다. | `routes/+page.svelte` | e:solo-climb |
 | S-CLIMB-7 | 등반 결과의 피라미드는 맞힌 스테이지의 정답을 맞힌 순서대로 쌓는다. 실패한 스테이지의 정답은 쌓지 않고 `멈춘 곳의 정답: {단어}`로 따로 보인다. 제목은 완주 `12자 완주!`, 한 개 이상 클리어 `스테이지 {클리어 수}까지 올랐습니다`, 0개 `첫 스테이지에서 멈췄습니다`다. | `ClimbModal.svelte` | e:solo-climb |
 | S-CLIMB-8 | 등반 최고 스테이지(`best:<모드>:<길이키>`)는 클리어한 스테이지 번호가 지금 최고보다 클 때만 올라간다. | `game.svelte.ts` `finish` | 코드만 |
 | S-CLIMB-9 | 등반의 힌트는 스테이지(판)마다 한 번이다(S-HINT-1). 멀티 등반은 등반 전체에서 한 번이다([U-2](#u-2)). | `game.svelte.ts` `clearBoard` | 코드만 |
+| S-CLIMB-10 | climb-length에서 길이 12의 스테이지를 맞히면 `스테이지 {번호} 클리어` 대신 토스트 `12자까지 완주!`(2500ms)를 띄운다. | `game.svelte.ts` `finish` | e:solo-climb |
+| S-CLIMB-11 | daily-climb에서 길이 12의 스테이지를 맞혀 완주해도 토스트는 `스테이지 {번호} 클리어`(2000ms)이고 `12자까지 완주!`는 뜨지 않는다([U-21](#u-21)). | `finish` | 코드만 |
 
 ### S-ENDLESS 랜덤 무한
 
@@ -196,12 +198,14 @@
 | S-ROUND-1 | 글자 입력·삭제·제출·힌트·포기는 상태가 `playing`이고 요청이 진행 중(`busy`)이 아닐 때만 받는다. 그 밖에는 조용히 무시한다. | `game.svelte.ts` `type`, `back`, `submit`, `hint`, `giveUp` | e:solo-modals |
 | S-ROUND-2 | 새 판·다음 스테이지 요청 중에 같은 버튼을 다시 눌러도 요청은 한 번만 나간다. | `newGame`, `nextStage` | t:game-failures |
 | S-ROUND-3 | 한 판이 끝난 뒤 버튼(우선순위 순서): daily `통계` / endless `다음 단어` / 클리어했고 완주가 아님 `다음 스테이지` / daily-climb(실패 또는 완주) `결과` / 그 밖(등반 실패·완주) `처음부터`(완주는 `다시 등반`). | `routes/+page.svelte` | e:solo-climb, e:solo-play |
+| S-ROUND-4 | 판이 `lost`로 끝나면(시도 소진·포기, 모든 모드) 정답을 받은 뒤 토스트 `정답: {단어}`(3000ms)를 띄운다. | `game.svelte.ts` `finish` | e:solo-play |
+| S-ROUND-5 | 등반이 아닌 모드(daily, endless)에서 이기면 토스트 `정답입니다`(2000ms)를 띄운다. 등반 모드는 S-CLIMB-5·S-CLIMB-10·S-CLIMB-11이다. | `finish` | 코드만 |
 
 ### S-TRY 시도 횟수
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-TRY-1 | 설정의 시도 횟수는 4 이상 10 이하(양끝 포함)이고 기본값은 6이다. 설정 창은 1씩 늘리고 줄이며, 4에서 줄이기·10에서 늘리기는 비활성이다. 설정 창 문구: `4~10회. 바꾸는 즉시 적용됩니다. 하루 1개 모드는 6회로 고정.` | `game.svelte.ts` `MIN_TRIES`, `MAX_TRIES`, `DEFAULT_TRIES`, `components/SettingsModal.svelte` | e:solo-modals |
+| S-TRY-1 | 설정의 시도 횟수는 4 이상 10 이하(양끝 포함)이고 기본값은 6이다. 설정 창은 1씩 늘리고 줄이며, 4에서 줄이기·10에서 늘리기는 비활성이다. 설정 창 문구: `4~10회. 바꾸는 즉시 적용됩니다. 하루 1개 모드는 6회로 고정.` 문구는 daily만 적지만 daily-climb도 6 고정이다(S-DAILY-7). | `game.svelte.ts` `MIN_TRIES`, `MAX_TRIES`, `DEFAULT_TRIES`, `components/SettingsModal.svelte` | e:solo-modals |
 | S-TRY-2 | 설정을 바꾸면 진행 중인 판에도 즉시 적용된다. 판의 끝은 "추측을 하나 수락한 뒤 행 수가 시도 횟수 이상인지"로 정하므로, 이미 쌓인 행 수 이상으로 낮추면 다음 추측을 수락한 직후 판이 끝난다([U-1](#u-1)). | `game.svelte.ts` `maxTries`, `submit` | 코드만 |
 | S-TRY-3 | 시도 횟수는 추측이 수락되어 행이 늘 때만 쓴다. 길이 부족, 사전에 없는 단어, 하드 모드 위반, 서버 오류로 거절된 제출은 쓰지 않는다. | `submit` | e:solo-rules, e:solo-play |
 
@@ -211,12 +215,12 @@
 |---|---|---|---|
 | S-INPUT-1 | 입력은 자모 24종만 받는다. 물리 키보드는 `KeyboardEvent.code`로 두벌식 자리를 자모로 바꾼다(한/영 상태와 무관): Q=ㅂ W=ㅈ E=ㄷ R=ㄱ T=ㅅ Y=ㅛ U=ㅕ I=ㅑ / A=ㅁ S=ㄴ D=ㅇ F=ㄹ G=ㅎ H=ㅗ J=ㅓ K=ㅏ L=ㅣ / Z=ㅋ X=ㅌ C=ㅊ V=ㅍ B=ㅠ N=ㅜ M=ㅡ. Enter는 제출, Backspace는 삭제다. | `jamo.ts` `CODE_TO_JAMO`, `routes/+page.svelte` | e:solo-play |
 | S-INPUT-2 | Ctrl·Meta·Alt가 눌린 키 입력은 무시한다. 창(모달)이 열려 있는 동안 글자 입력은 보드에 들어가지 않고 Esc는 창을 닫는다. | `routes/+page.svelte` `onkeydown` | e:solo-modals |
-| S-INPUT-3 | 화면 키보드의 배열: 윗줄 ㅂㅈㄷㄱㅅㅛㅕㅑ, 가운뎃줄 ㅁㄴㅇㄹㅎㅗㅓㅏㅣ, 아랫줄 Enter ㅋㅌㅊㅍㅠㅜㅡ Backspace. | `jamo.ts` `KEY_ROWS` | 코드만 |
+| S-INPUT-3 | 화면 키보드의 배열: 윗줄 ㅂㅈㄷㄱㅅㅛㅕㅑ, 가운뎃줄 ㅁㄴㅇㄹㅎㅗㅓㅏㅣ, 아랫줄 `입력`(Enter) ㅋㅌㅊㅍㅠㅜㅡ `삭제`(Backspace). | `jamo.ts` `KEY_ROWS`, `components/Keyboard.svelte` | 코드만 |
 | S-INPUT-4 | 입력 중인 행은 판의 길이 n까지만 채워진다. n자가 되는 순간 `/api/check`를 한 번 불러 사전 여부를 알아본다. 응답이 올 때 현재 입력이 요청한 입력과 같을 때만 반영한다. 응답이 `valid:false`이면 행을 빨간 글자로 표시한다. 확인 요청이 실패하면 아무 표시도 하지 않는다(제출 때 서버가 다시 거른다). | `game.svelte.ts` `type`, `checkCurrent` | t:game-check-race, e:solo-play, e:solo-failures |
 | S-INPUT-5 | Backspace는 마지막 자모를 지우고 빨간 표시도 푼다. | `back` | e:solo-play |
 | S-INPUT-6 | 제출(Enter)의 평가 순서와 거절: ① 입력 길이 < n이면 토스트 `자모가 부족합니다` + 흔들림, 요청 없음. ② 빨간 표시(사전에 없음)가 켜져 있으면 `사전에 없는 단어입니다` + 흔들림, 요청 없음. ③ 하드 모드이고 위반이면 C-HARD-6 문구(2500ms) + 흔들림, 요청 없음. ④ `/api/guess` 요청. 서버가 `ok:false`(사전에 없음)이면 행을 빨갛게 표시하고 ②와 같은 토스트·흔들림. ⑤ 수락되면 행·판정을 보드에 더하고 입력과 빨간 표시를 비운다. | `game.svelte.ts` `submit` | e:solo-play, e:solo-rules, e:solo-guess-rejected |
 | S-INPUT-7 | 키보드 키의 색은 그 자모가 지금까지 받은 최고 판정이다(`c` > `p` > `a`). | `game.svelte.ts` `keyStates` | e:solo-play |
-| S-INPUT-8 | 토스트 지속 시간은 기본 1500ms다. 하드 모드 위반과 힌트 위치 알림은 2500ms, 승리 토스트 `정답입니다`는 2000ms다. | `showToast` 호출부 | 코드만 |
+| S-INPUT-8 | 토스트 지속 시간은 기본 1500ms다. 하드 모드 위반과 힌트 위치 알림은 2500ms다. 정답·실패·클리어 토스트는 S-ROUND-4, S-ROUND-5, S-CLIMB-5, S-CLIMB-10, S-CLIMB-11이다. | `showToast` 호출부 | 코드만 |
 
 ### S-HARD 하드 모드 (솔로)
 
@@ -236,7 +240,7 @@
 |---|---|---|---|
 | S-HINT-1 | 힌트는 한 판에 한 번이다. 판은 보드 하나이므로 등반에서는 스테이지마다 새로 한 번 쓸 수 있다. 쓴 판에서는 버튼이 `힌트 사용함`으로 잠기고, 쓴 판에서 다시 요청하면(버튼 우회 포함) 토스트 `힌트는 한 판에 한 번입니다`. | `game.svelte.ts` `hint`, `hintUsed` | e:solo-rules |
 | S-HINT-2 | 힌트를 쓴 판인지는 보드에 밝혀진 칸이 하나라도 있는지(`hints`가 비어 있지 않은지)로 안다. 데일리 계열은 `hints`를 저장하므로 새로고침 뒤에도 쓴 것으로 이어진다. | `game.svelte.ts` `hintUsed`, `DailySave` | e:solo-daily |
-| S-HINT-3 | 판정에 노란 칸이 없으면 힌트 요청을 서버에 보내지 않고 토스트 `힌트를 줄 노란 자모가 없습니다`. | `hint` | e:solo-rules |
+| S-HINT-3 | C-HINT-4로 줄 힌트 후보가 없으면(노란 칸이 없는 경우, 노란 자모를 이미 모두 초록으로 찾은 경우) 힌트 요청을 서버에 보내지 않고 토스트 `힌트를 줄 노란 자모가 없습니다`. | `hint` | e:solo-rules |
 | S-HINT-4 | 요청은 `/api/hint`로 `{token, jamo, known}`을 보낸다. 서버는 ① 토큰 검증(실패 400 `bad token`) ② `jamo`가 자모 24종 중 하나인지(아니면 400 `bad jamo`) ③ 그 자모가 정답에 있는지(없으면 400 `jamo not in answer`) ④ `known`을 정수 배열로 읽고(아니면 빈 목록) 정답에서 `known`에 없는 첫 자리를 찾는다(없으면 400 `no unknown position`) 순서로 보고, 성공하면 `{pos}`(0부터)를 준다. | `routes/api/hint/+server.ts`, `hint.ts` `parseKnown` | t:api-hint |
 | S-HINT-5 | 성공하면 입력 행의 `pos` 칸에 그 자모를 흐리게 보이고(그 칸이 비어 있는 동안) 토스트 `{자모}은(는) {pos+1}번째 칸`(2500ms)을 띄운다. 힌트는 시도·하드 모드 제약·통계에 영향이 없다. | `hint`, `Board.svelte` | e:solo-rules |
 | S-HINT-6 | 힌트 요청이 실패하면 토스트 `서버에 연결할 수 없습니다`를 띄우고 힌트는 쓰지 않은 것으로 남는다. | `hint` | e:solo-failures |
@@ -246,8 +250,8 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-GIVE-1 | `포기` 버튼은 판이 `playing`일 때만 보인다. 첫 클릭은 라벨을 `정말 포기?`로 바꾸고, 3000ms 안에 다시 눌러야 확정한다. 3000ms가 지나면 첫 클릭 이전 상태로 돌아간다. | `routes/+page.svelte` `giveUp` | e:solo-play |
-| S-GIVE-2 | 확정하면 판은 `lost`가 되고 정답을 서버에서 받아 공개한다(`정답: {단어}`, 3000ms). 등반에서는 그 스테이지 시간을 실패 시간으로 잰다(S-TIME-4). | `game.svelte.ts` `giveUp`, `finish` | e:solo-play |
+| S-GIVE-1 | `포기` 버튼은 판이 `playing`일 때만 보인다. 첫 클릭은 라벨을 `정말 포기?`로 바꾸고, 첫 클릭 뒤 3000ms가 지나기 전에 다시 눌러야 확정한다. 3000ms가 지나면 첫 클릭 이전 상태로 돌아간다. | `routes/+page.svelte` `giveUp` | e:solo-play |
+| S-GIVE-2 | 확정하면 판은 `lost`가 되고 정답을 서버에서 받아 공개한다(토스트는 S-ROUND-4). 등반에서는 그 스테이지 시간을 실패 시간으로 잰다(S-TIME-4). | `game.svelte.ts` `giveUp`, `finish` | e:solo-play |
 | S-GIVE-3 | 정답 확인(`/api/reveal`)이 실패하면 판은 `lost`로 남고 정답은 공개되지 않으며 토스트 `서버에 연결할 수 없습니다`를 띄운다. 이때 통계와 데일리 저장은 갱신되지 않는다([U-4](#u-4)). | `finish` | t:game-failures (상태·토스트만), e:solo-failures |
 
 ### S-STAT 통계
@@ -268,9 +272,9 @@
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
 | S-TIME-1 | 스테이지 시간의 시작은 그 스테이지의 보드가 뜬 시각(새 판 응답을 받아 `playing`이 된 순간)이다. 탭이 숨겨져도 흐른다. | `game.svelte.ts` `enterRound` | e:solo-climb |
-| S-TIME-2 | 스테이지 시간의 끝은 판이 끝나는 추측(또는 포기)을 처리하기 시작한 순간이다. 정답 확인(`reveal`) 응답을 기다리는 시간은 넣지 않는다. 시간은 `max(0, 끝 − 시작)`ms다. | `finish` | 코드만 |
+| S-TIME-2 | 스테이지 시간의 끝은 판을 끝내는 추측의 판정 응답을 받은 순간(포기는 확정한 순간)이다. 추측 요청의 왕복 시간은 스테이지 시간에 들어가고, 이어지는 정답 확인(`reveal`) 응답 대기는 넣지 않는다. 시간은 `max(0, 끝 − 시작)`ms다. | `finish` | 코드만 |
 | S-TIME-3 | 클리어한 스테이지의 시간은 스테이지 번호 순서로 기록한다. 총 시간은 클리어한 스테이지 시간의 합이고, 하나라도 시간을 모르면 총 시간도 모른다(`-`). 진행 중 화면의 총 시간은 클리어한 합 + 지금 스테이지의 흐른 시간이다. | `climbtime.ts` `totalOf`, `components/ClimbClock.svelte` | t:climbtime, e:solo-climb |
-| S-TIME-4 | 실패·포기로 끝난 스테이지의 시간은 총 시간에 넣지 않는다. 그 시간은 `멈춘 스테이지 {번호} · {시간}`으로만 보인다. | `finish`, `ClimbModal.svelte` | e:solo-climb |
+| S-TIME-4 | 실패·포기로 끝난 스테이지의 시간은 총 시간에 넣지 않는다. 그 시간은 진행 시계의 `이번 스테이지`에 확정값으로 보이고, 결과 창에서는 `멈춘 스테이지 {번호} · {시간}`(시간을 모르면 번호만)으로 보인다. | `finish`, `ClimbModal.svelte` | e:solo-climb |
 | S-TIME-5 | 시간 표기: 소수 초는 버리고 `m:ss`, 1시간 이상이면 `h:mm:ss`, 시간을 모르면 `-`. | `climbtime.ts` `formatTime` | t:climbtime |
 | S-TIME-6 | 스테이지 최고 시간(`stages[스테이지]`)은 그 스테이지의 이전 기록이 있고 이번 시간이 그보다 **엄격하게 짧을 때** 갱신되고 `최고` 표시를 받는다. 첫 클리어는 기록만 만들고 표시가 없다. 같은 시간은 갱신이 아니다. | `climbtime.ts` `applyClear` | t:climbtime |
 | S-TIME-7 | 최고 기록(`best`)은 `{스테이지, 총 시간}`이다. 클리어 스테이지가 더 높으면 갱신하고, 같으면 총 시간이 엄격하게 짧을 때 갱신한다. 총 시간을 모르는 클리어는 비교에서 빠진다. 갱신하면 그 판의 결과에 `새 기록`을 표시한다. | `applyClear`, `isBetterBest` | t:climbtime |
@@ -287,7 +291,7 @@
 |---|---|---|---|
 | S-SAVE-1 | 브라우저에 두는 솔로 데이터: `config`, `settings`(시도 횟수·하드·테마), `stats:<모드>`, `best:<모드>:<길이키>`, `climbtime:<모드>:<길이키>`, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`. 멀티는 `mp-session` 하나뿐이다(M-ID-6). | `storage.ts`, `game.svelte.ts` | t:storage, t:game-stored-shape |
 | S-SAVE-2 | 새로고침 뒤 이어지는 것: 설정, 통계, 최고 기록, 마지막 모드. 데일리·일일 등반의 판과 코스 진행. 이어지지 않는 것: 비데일리 모드에서 풀던 판(추측·힌트·입력). | `game.svelte.ts` | 코드만 |
-| S-SAVE-3 | 저장값이 JSON이 아니거나 `null`이거나 형식이 틀리면 기본값을 쓰고 던지지 않는다. 저장 쓰기가 실패해도(용량 초과 등) 게임은 계속된다. | `storage.ts`, `validDailySave`, `validClimbSave`, `validStats` | t:storage, t:game-stored-shape |
+| S-SAVE-3 | 저장값이 JSON이 아니거나 `null`이면 모든 키가 기본값이다. 모양까지 검사하는 키는 `config`, `stats:<모드>`, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`뿐이고, 모양이 틀리면 기본값(없는 것)으로 읽는다. `best:`·`climbtime:`·`settings`는 모양을 검사하지 않는다([U-22](#u-22)). 저장 쓰기가 실패해도(용량 초과 등) 게임은 계속된다. | `storage.ts`, `game.svelte.ts` `loadConfig`, `validDailySave`, `validClimbSave`, `validStats` | t:storage, t:game-stored-shape |
 | S-SAVE-4 | 테마 설정: `system`(기기 설정 따름), `light`, `dark`. 설정 저장값에 `theme`가 없으면 `system`이다. | `game.svelte.ts` `Theme` | e:solo-modals |
 
 ### S-FAIL 서버 요청 실패
@@ -308,11 +312,11 @@
 |---|---|---|---|
 | S-API-1 | `/api/game {mode, n?, day?}` → `{token, n}`. 검사 순서: ① 본문이 JSON이고 `mode`가 문자열이며 `POOL_THRESHOLD`의 키 → 아니면 400 `bad request`. ② `n`이 있으면 5 이상 12 이하 정수 → 아니면 400 `n must be 5..12`. ③ 데일리 모드의 `day`(S-DAILY-5). ④ 풀 크기가 0이면 500(토큰을 내주지 않는다). 데일리는 날짜로, 그 밖은 난수로 `idx`를 정한다. | `routes/api/game/+server.ts` | t:api-game |
 | S-API-2 | `/api/check {jamo}` → `{valid}`. 길이가 5 이상 12 이하이고 모두 자모 24종일 때만 사전을 조회한다. 아니면 사전을 읽지 않고 400 `bad jamo`. 토큰이 필요 없다. | `routes/api/check/+server.ts` | t:api-check |
-| S-API-3 | `/api/guess {token, jamo}`. 검사 순서: ① 토큰 서명이 맞지 않으면 400 `bad token`. ② `jamo`가 문자열, 길이가 토큰의 `n`과 같음(요청이 아니라 토큰 기준), 모두 자모 24종 → 아니면 400 `bad guess`. ③ 사전에 없으면 `{ok:false, reason:'invalid'}`(정답 풀을 읽지 않는다). ④ 판정 `{ok:true, marks}`. 모든 칸이 `c`이면 `word`(정답 단어)를 함께 준다. | `routes/api/guess/+server.ts`, `server/judge.ts` | t:api-guess |
+| S-API-3 | `/api/guess {token, jamo}`. 검사 순서: ① 토큰이 없거나 문자열이 아니거나 서명이 맞지 않으면 400 `bad token`. ② `jamo`가 문자열, 길이가 토큰의 `n`과 같음(요청이 아니라 토큰 기준), 모두 자모 24종 → 아니면 400 `bad guess`. ③ 사전에 없으면 `{ok:false, reason:'invalid'}`(정답 풀을 읽지 않는다). ④ 판정 `{ok:true, marks}`. 모든 칸이 `c`이면 `word`(정답 단어)를 함께 준다. | `routes/api/guess/+server.ts`, `server/judge.ts` | t:api-guess |
 | S-API-4 | `/api/reveal {token}` → `{word}`. 토큰만 맞으면 정답을 준다. 승리 판에서는 클라이언트가 `guess` 응답의 `word`를 쓰고 `reveal`을 부르지 않는다. 서버는 그 토큰의 판이 끝났는지 모르므로 진행 중인 판의 정답도 준다([U-3](#u-3)). | `routes/api/reveal/+server.ts`, `game.svelte.ts` `finish` | t:api-reveal, t:reveal-fold |
 | S-API-5 | 토큰의 `idx`가 풀 밖이면(사전을 다시 만든 뒤의 낡은 토큰) 사전에 있는 추측·힌트·reveal은 500이다. | `dict.ts` `answerAt` | t:api-guess, t:api-hint, t:api-reveal |
 | S-API-6 | `KORDLE_SECRET`이 없으면 `dev-only-secret`으로 서명한다(개발용). 운영 시크릿은 사용자 지시 없이 바꾸지 않는다. | `server/env.ts` | t:api-game |
-| S-API-7 | 솔로 `/api/*`는 D1·시크릿 바인딩(`platform`)이 없으면 500이다(입력 검사보다 먼저). | `server/env.ts` `ctx` | t:api-check, t:api-game |
+| S-API-7 | 솔로 `/api/*`는 `platform.env.DB`가 없으면 500이다(입력 검사보다 먼저). `KORDLE_SECRET`이 없는 것은 오류가 아니다(S-API-6). | `server/env.ts` `ctx` | t:api-check, t:api-game (DB 없음만) |
 
 ---
 
