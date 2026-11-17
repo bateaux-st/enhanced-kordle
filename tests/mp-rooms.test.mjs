@@ -43,7 +43,7 @@ test('목록: 입장 가능한 방 먼저, 그 안에서 최신순', () => {
 	assert.equal(pruned, false);
 });
 
-test('150초 넘게 갱신 없는 방은 목록에서 빠지고 저장소에서도 지운다', () => {
+test('750초 넘게 갱신 없는 방은 목록에서 빠지고 저장소에서도 지운다', () => {
 	const rooms = { stale: room('stale', { updatedAt: T0 }), live: room('live', { updatedAt: T0 + LOBBY_STALE_MS }) };
 	assert.deepEqual(listRooms(rooms, T0 + LOBBY_STALE_MS).list.map((r) => r.code), ['live', 'stale'], '정확히 LOBBY_STALE_MS는 아직 유효');
 	const r = listRooms(rooms, T0 + LOBBY_STALE_MS + 1);

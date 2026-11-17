@@ -2,8 +2,8 @@ import type { GuessResponse, Mark } from '$lib/types';
 
 /**
  * 워들 판정. 같은 자모가 여러 번 나올 때 present는 정답에 남은 개수만큼만 준다.
- * 예) 정답 ㄱㅏㄱㅅㅣ, 추측 ㄱㄱㄱㅏㅏ → c a p p a  (ㄱ은 정답에 2개: 첫째 c, 둘째 a... 셋째 p 순이 아니라
- * correct를 먼저 확정하고 남은 ㄱ 1개를 왼쪽부터 present로 배분한다.)
+ * 예) 정답 ㄱㅏㄱㅅㅣ, 추측 ㄱㄱㄱㅏㅏ → c a c p a  (correct를 먼저 확정해 ㄱ 2개가 다 쓰이고,
+ * 남은 ㅏ 1개를 왼쪽부터 present로 배분한다.)
  */
 export function judge(answer: string, guess: string): Mark[] {
 	const marks: Mark[] = new Array(guess.length).fill('a');
