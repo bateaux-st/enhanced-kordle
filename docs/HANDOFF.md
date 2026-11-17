@@ -2,6 +2,8 @@
 
 이 문서는 **이 레포를 처음 받은 사람/에이전트가 다른 정보 없이 유지·개발할 수 있게** 쓴 것이다. 짧은 규칙은 [`AGENTS.md`](../AGENTS.md), 사용자용 소개는 [`README.md`](../README.md). 여기는 그 뒤에 있는 "왜"와 "어디를 만지면 무엇이 깨지는가", 그리고 검증에 쓰는 기준 수치를 담는다.
 
+게임 규칙(판정·모드·멀티·시간·채팅)의 기준은 [`RULES.md`](RULES.md)다.
+
 마지막 갱신: 2026-11-05. 이후 바뀐 것은 `git log`가 우선한다.
 
 ---
@@ -103,9 +105,9 @@
 ### 4.2 정답 풀 조건은 **두 곳**에 있다
 
 ```
-src/lib/server/dict.ts   POOL_THRESHOLD = { daily: 3, 'daily-climb': 3, 'climb-length': 3, endless: 2, 'climb-streak': 2 }
+src/lib/server/dict.ts   POOL_THRESHOLD = { daily: 3, 'daily-climb': 3, 'climb-length': 3, endless: 1, 'climb-streak': 1 }
 export_d1.py             POOL = "unit = '단어' AND pos = '명사' AND word NOT LIKE '% %' AND familiar >= ? AND jamo_len = ?"
-                         THRESHOLDS = (2, 3)
+                         THRESHOLDS = (1, 2, 3)
 ```
 
 서버는 `pool` 테이블에 미리 펼쳐진 것만 본다. 조건을 바꾸려면 `export_d1.py` 수정 → 실행 → `d1/import.sh --remote` → `scripts/smoke.py`의 `POOL_SIZE` 갱신. `dict.ts`만 바꾸면 **없는 t를 조회해 `pool miss` 500**이 난다.
@@ -298,7 +300,7 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 
 ### 6.6 정답 풀 임계값 변경 (예: 데일리 T 3→4)
 
-1. `export_d1.py`의 `THRESHOLDS`에 새 값을 **추가**한다 — `(2, 3)` → `(2, 3, 4)`. 기존 값을 빼면 그 t를 쓰는 다른 모드가 `pool miss` 500을 낸다. 쓰지 않게 된 t는 나중에 지워도 되지만 남겨둬도 비용은 D1 30MB에 몇 MB 더일 뿐이다.
+1. `export_d1.py`의 `THRESHOLDS`에 새 값을 **추가**한다 — `(1, 2, 3)` → `(1, 2, 3, 4)`. 기존 값을 빼면 그 t를 쓰는 다른 모드가 `pool miss` 500을 낸다. 쓰지 않게 된 t는 나중에 지워도 되지만 남겨둬도 비용은 D1 30MB에 몇 MB 더일 뿐이다.
 2. `python3 export_d1.py kordle.db d1/` → `d1/import.sh --remote` **먼저**. 새 t의 행이 D1에 있어야 새 코드가 안전하다. 옛 코드는 새 행을 안 보므로 순서상 무해. (이 작업은 `export_d1.py`를 고치므로 §3의 심링크 방식으로 워크트리 안에서 한다.)
 3. `src/lib/server/dict.ts POOL_THRESHOLD`에서 해당 모드만 바꾼다. `build_dict.py` 재실행은 필요 없다(사전은 그대로, 풀만 다시 펼침).
 4. `scripts/smoke.py`: `EXPECTED_T`(모드→t), `POOL_SIZE`(export 출력 블록으로 교체). `MODE_FOR_T`는 `EXPECTED_T`에서 자동 유도되지만 새 t를 쓰는 비데일리 모드가 하나도 없으면 `next()`가 실패한다 — 그 경우 데일리 모드로 매핑을 직접 넣는다. **갱신된 smoke는 코드 배포 전에 운영에 치면 `EXPECTED_T` 검사가 실패한다** — 정상. 배포 후에 친다.
@@ -313,7 +315,7 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | 위치 | 할 것 |
 |---|---|
 | `src/lib/types.ts` | `GameMode` 유니언에 id 추가(영문 kebab, 예 `practice`), `MODE_LABEL`에 표시명 |
-| `src/lib/server/dict.ts` | `POOL_THRESHOLD`에 값 — 이게 곧 서버 allowlist. 기존 t(2 또는 3)를 쓰면 D1 재임포트 불필요, 새 t면 §6.6 |
+| `src/lib/server/dict.ts` | `POOL_THRESHOLD`에 값 — 이게 곧 서버 allowlist. 기존 t(1, 2, 3)를 쓰면 D1 재임포트 불필요, 새 t면 §6.6 |
 | `src/lib/game.svelte.ts` | `isDaily`(날짜 시드·6회·저장복원 대상인가), `isClimb`(스테이지·피라미드 대상인가)에 넣을지 판단. 통계는 `recordStats()`(played/won/streak/dist), 등반 최고 기록은 `finish()` 안 `bestStage` — 제외하려면 여기서 모드로 분기 |
 | `src/routes/api/game/+server.ts` | `daily`·`daily-climb`만 날짜 시드, 나머지는 랜덤. 날짜 시드 모드를 추가하면 시드 문자열에 모드를 섞어 다른 데일리와 정답이 겹치지 않게(idx는 `token.ts` `dailyIndex`, §4.3) |
 | `src/lib/components/ModeModal.svelte` | `MODES` 배열에 설명. 길이 선택 UI를 숨길 모드면 `pickable` |
@@ -331,12 +333,13 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | 키 | 값 | 비고 |
 |---|---|---|
 | `config` | `{mode, length: {kind:'fixed', n} \| {kind:'random'}}` | 마지막 모드 |
-| `settings` | `{maxTries, hard}` | `maxTries` 4~10(데일리 계열은 무시, 6 고정). `hard` 하드모드 on/off, 모드와 무관하게 전역. 옛 저장값에는 `hard`가 없어 읽을 때 `false`로 메운다 |
+| `settings` | `{maxTries, hard, theme}` | `maxTries` 4~10(데일리 계열은 무시, 6 고정). `hard` 하드모드 on/off, 모드와 무관하게 전역. `theme`은 `'system'` \| `'light'` \| `'dark'`. 옛 저장값에는 `hard`·`theme`이 없어 읽을 때 `false`·`'system'`으로 메운다 |
 | `stats:<mode>` | `{played, won, streak, maxStreak, dist[]}` | 모드별 |
 | `best:<mode>:<lengthKey>` | number | 등반 최고 스테이지. `lengthKey` = `fixed-6` / `random` |
 | `daily:<YYYY-MM-DD>:<token>` | `{rows, marks, status, answer, hints}` | 데일리·일일 등반의 한 판. 저장할 때 `dailyDay`보다 오래된 날짜 키만 삭제 |
 | `dclimb:<YYYY-MM-DD>` | `{stage, n, climbWords, stageStartAt?, stageTimes?, lostMs?, stageBests?, runBest?}` | 일일 등반 코스 위치. `dailyDay`보다 오래된 날짜 키만 삭제. 뒤의 다섯은 소요 시간용 선택 필드(옛 저장본에는 없고, 없으면 그 스테이지 시간을 모르는 것으로 읽어 `-`로 표시·기록 비교에서 뺀다). `stageStartAt`은 보드가 뜬 시각(epoch ms)이라 새로고침 뒤에도 시간이 이어진다 |
 | `climbtime:<mode>:<lengthKey>` | `{best: {stage, ms} \| null, stages: {<스테이지>: ms}}` | 솔로 등반 3종의 소요 시간. `best` = 최고 스테이지와 그때까지 클리어한 스테이지 시간의 합(스테이지가 높을수록, 같으면 짧을수록 좋음), `stages` = 스테이지별 최단. `best:`와 같은 키 조합을 쓰고 함께 갱신하지만 `best:`의 형식은 그대로다. 시간 기록 이전에 `best:`만 있던 사용자는 그 스테이지 미만 클리어로 `best`가 덮이지 않는다. 순수 계산은 `src/lib/climbtime.ts` |
+| `mp-session` | `{token?, name, exp?}` | 멀티 임시 계정. `name`은 마지막 닉네임(접미사 전), `token`·`exp`(만료 ms)는 서버가 준 세션이고 닉네임만 저장한 상태에서는 없다. 형식이 틀리거나 만료되면 지운다. 코드는 `src/lib/mp/identity.ts` |
 
 키 형식을 바꾸면 기존 사용자의 진행·통계가 사라진다. 마이그레이션은 없다(토이).
 

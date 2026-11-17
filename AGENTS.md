@@ -1,6 +1,7 @@
 # AGENTS.md — enhanced-kordle
 
 에이전트가 이 레포에서 작업할 때의 규칙. 배경·절차·수치는 [`docs/HANDOFF.md`](docs/HANDOFF.md)를 **먼저 읽는다**. 사용자용 소개는 `README.md`.
+게임 규칙의 기준은 [`docs/RULES.md`](docs/RULES.md).
 
 ## 이 프로젝트는
 
@@ -21,6 +22,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 
 ## 반드시
 
+- 게임 규칙(판정·모드·멀티 방·협동·경쟁·시간·채팅)을 바꾸는 변경은 같은 PR에서 [`docs/RULES.md`](docs/RULES.md)를 먼저 고치고 구현·테스트가 따른다. 문서와 코드가 다르면 버그이고 어느 쪽을 고칠지는 사용자가 정한다. `미결·모순` 절은 사용자 결정 전에 한쪽으로 고치지 않는다.
 - 멀티 DO 코드(`src/lib/server/mp/**`)는 `$lib` 값 import를 쓰지 않고 `.ts` 확장자가 붙은 상대 import만 쓴다(`tests/mp-imports.test.mjs`가 검사). 멀티 화면과 DO 규칙은 `pnpm e2e`·`pnpm test`(서버·D1 mock)로 검증하고, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`로 확인한다 — `pnpm dev`는 WS 불가.
 - 정답 풀 조건(`familiar` 임계값, 후보 SQL)을 바꾸면 **`src/lib/server/dict.ts`의 `POOL_THRESHOLD`와 `export_d1.py`의 `POOL`/`THRESHOLDS`를 함께** 고친다. `THRESHOLDS`는 값을 **추가**한다(빼면 그 t를 쓰는 다른 모드가 `pool miss` 500). 런북: HANDOFF §6.6.
 - 새 게임 모드는 HANDOFF §6.7 체크리스트대로 — `types.ts`, `dict.ts`(`POOL_THRESHOLD`가 곧 서버 allowlist), `game.svelte.ts`(`isClimb`/`isDaily`, 통계), `api/game`, `ModeModal.svelte`, `+page.svelte` 버튼 분기, `smoke.py EXPECTED_T`.
@@ -37,7 +39,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 - 데일리 중복 방지의 `DAILY_DEDUP_START`(`token.ts`), `perm:${n}[:climb]` 키 문자열, 순열 공식 `(a*d + b) % count`(a 서로소 보정 포함)를 바꾸지 않는다. 바꾸면 그날 데일리 정답이 바뀐다. `smoke.py`의 같은 상수·함수와 짝이다(HANDOFF §4.3).
 - `wrangler.jsonc`의 `migrations`는 추가만 한다. 배포된 태그(`v1`)를 지우거나 고치지 않는다 — Durable Object 클래스 이력이 깨진다.
 - `KORDLE_SECRET`을 사용자 지시 없이 재생성하지 않는다. 모든 토큰이 무효가 된다.
-- localStorage 키 형식(`nkordle:` 접두, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`, `stats:<mode>`, `best:<mode>:<lengthKey>`, `config`, `settings`)을 바꾸지 않는다. 사용자 진행·통계가 사라진다.
+- localStorage 키 형식(`nkordle:` 접두, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`, `stats:<mode>`, `best:<mode>:<lengthKey>`, `climbtime:<key>`, `mp-session`, `config`, `settings`)을 바꾸지 않는다. 사용자 진행·통계가 사라진다.
 - `+page.ts`의 `ssr = false; prerender = true` 둘 중 하나를 빼지 않는다.
 - 서버 모듈 최상위에서 I/O(DB 열기 등)를 하지 않는다. SvelteKit이 빌드 중 서버 모듈을 로드한다.
 - 이미 기각된 제안을 다시 올리지 않는다: 위키백과 본문 빈도 분석, 정답 풀에 우리말샘/위키 포함, 위키 붙여 쓴 제목을 판정 사전에 추가, Docker/NAS 배포 복원, GitHub Pages 정적 전환 (근거는 HANDOFF §5.2, §11).
