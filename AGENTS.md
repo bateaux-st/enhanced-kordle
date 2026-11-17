@@ -39,7 +39,7 @@ smoke: `python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev`. �
 - 데일리 중복 방지의 `DAILY_DEDUP_START`(`token.ts`), `perm:${n}[:climb]` 키 문자열, 순열 공식 `(a*d + b) % count`(a 서로소 보정 포함)를 바꾸지 않는다. 바꾸면 그날 데일리 정답이 바뀐다. `smoke.py`의 같은 상수·함수와 짝이다(HANDOFF §4.3).
 - `wrangler.jsonc`의 `migrations`는 추가만 한다. 배포된 태그(`v1`)를 지우거나 고치지 않는다 — Durable Object 클래스 이력이 깨진다.
 - `KORDLE_SECRET`을 사용자 지시 없이 재생성하지 않는다. 모든 토큰이 무효가 된다.
-- localStorage 키 형식(`nkordle:` 접두, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`, `stats:<mode>`, `best:<mode>:<lengthKey>`, `config`, `settings`)을 바꾸지 않는다. 사용자 진행·통계가 사라진다.
+- localStorage 키 형식(`nkordle:` 접두, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`, `stats:<mode>`, `best:<mode>:<lengthKey>`, `climbtime:<key>`, `mp-session`, `config`, `settings`)을 바꾸지 않는다. 사용자 진행·통계가 사라진다.
 - `+page.ts`의 `ssr = false; prerender = true` 둘 중 하나를 빼지 않는다.
 - 서버 모듈 최상위에서 I/O(DB 열기 등)를 하지 않는다. SvelteKit이 빌드 중 서버 모듈을 로드한다.
 - 이미 기각된 제안을 다시 올리지 않는다: 위키백과 본문 빈도 분석, 정답 풀에 우리말샘/위키 포함, 위키 붙여 쓴 제목을 판정 사전에 추가, Docker/NAS 배포 복원, GitHub Pages 정적 전환 (근거는 HANDOFF §5.2, §11).
