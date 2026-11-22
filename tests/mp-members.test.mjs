@@ -171,7 +171,7 @@ test('재촉: 방장에게 이벤트, 1인당 30초 쿨다운, 다른 사람은 
 	assert.equal(errorOf(send(s, host, { type: 'nudge' }, T0)).code, 'forbidden');
 });
 
-test('끊긴 사람은 시작을 막지 않고, 내보내고 시작하면 방에서 빠지며, 아니면 자리를 지키고 참가한다', () => {
+test('끊긴 사람은 시작을 막지 않고, kickDisconnected 값과 무관하게 시작할 때 방에서 빠져 게임에 들어가지 않는다', () => {
 	const make = () => {
 		const s = lobby();
 		const [host, a, b] = joinAll(s, ['가', '나']);
@@ -189,8 +189,13 @@ test('끊긴 사람은 시작을 막지 않고, 내보내고 시작하면 방에
 
 	({ s, host, b } = make());
 	send(s, host, { type: 'start' }, T0, START_IO);
-	assert.equal(s.players.length, 3);
-	assert.ok(s.game.players[b], '끊긴 채 자리를 지킨 사람도 참가자');
+	assert.equal(s.phase, 'playing');
+	assert.equal(s.players.length, 2, 'kickDisconnected를 안 보내도 끊긴 자리는 빠진다');
+	assert.equal(s.game.players[b], undefined, '끊긴 사람은 참가자가 아니다');
+
+	({ s, host, b } = make());
+	send(s, host, { type: 'start', kickDisconnected: false }, T0, START_IO);
+	assert.equal(s.players.length, 2, 'false여도 같다');
 });
 
 test('접속 중인 사람이 방장 하나뿐이면 끊긴 사람이 있어도 시작 불가', () => {

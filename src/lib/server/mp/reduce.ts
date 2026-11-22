@@ -90,7 +90,7 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 			break;
 		}
 		case 'start':
-			apply(start(s, pid, msg.kickDisconnected === true, io, now));
+			apply(start(s, pid, io, now));
 			break;
 		case 'guess':
 			apply(isCoop(s) ? NOT_COMP : comp.applyGuess(s, pid, msg.jamo, io.valid, now));
@@ -158,12 +158,13 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 
 const isCoop = (s: RoomState): boolean => s.game?.kind === 'coop';
 
-function start(s: RoomState, pid: Pid, kickDisconnected: boolean, io: Io, now: number): Result {
+function start(s: RoomState, pid: Pid, io: Io, now: number): Result {
 	if (s.hostPid !== pid) return fail('forbidden', '방장만 시작할 수 있습니다');
 	const check = members.canStart(s);
 	if (!check.ok) return fail(check.reason === 'phase' ? 'phase' : 'forbidden', START_BLOCKED[check.reason!](check.waiting));
 	if (!io.start || (isClimb(s.settings) && !hasAllStages(io.start))) return fail('unavailable', '서버에 연결할 수 없습니다');
-	if (kickDisconnected) members.removeDisconnected(s);
+	// 끊긴 자리는 start의 kickDisconnected 값과 무관하게 뺀다(M-START-5). 그 필드는 옛 클라이언트 호환용으로 받기만 한다.
+	members.removeDisconnected(s);
 	(s.settings.kind === 'coop' ? coop : comp).startGame(s, io.start, now);
 	return { ok: true };
 }
