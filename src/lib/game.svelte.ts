@@ -81,14 +81,18 @@ interface StoredSettings {
 	theme?: Theme;
 }
 
-/** 저장된 config가 부팅에 필요한 모양(mode, length)이 아니면 기본값. 손으로 고친 값이 부팅을 막지 않게 한다. */
+/**
+ * 저장된 config가 부팅에 필요한 모양(mode, length)이 아니면 기본값. 손으로 고친 값이 부팅을 막지 않게 한다.
+ * 고정 길이가 정수면 범위 안으로 자른다. 첫 판 요청이 400으로 실패하지 않게 하되, 저장값은 고쳐 쓰지 않는다.
+ */
 function loadConfig(): ModeConfig {
+	const fallback: ModeConfig = { mode: 'daily', length: { kind: 'fixed', n: 6 } };
 	const c = load<ModeConfig | null>('config', null);
+	if (!Object.hasOwn(MODE_LABEL, c?.mode as string)) return fallback;
 	const l = c?.length;
-	const ok =
-		Object.hasOwn(MODE_LABEL, c?.mode as string) &&
-		(l?.kind === 'random' || (l?.kind === 'fixed' && typeof l.n === 'number'));
-	return ok ? (c as ModeConfig) : { mode: 'daily', length: { kind: 'fixed', n: 6 } };
+	if (l?.kind === 'random') return c as ModeConfig;
+	if (l?.kind !== 'fixed' || !Number.isInteger(l.n)) return fallback;
+	return { ...(c as ModeConfig), length: { kind: 'fixed', n: Math.min(MAX_N, Math.max(MIN_N, l.n)) } };
 }
 
 // 복원 코드가 배열 메서드·스프레드를 바로 부르는 필수 필드만 본다. 어긋나면 저장본이 없는 것으로 읽는다.

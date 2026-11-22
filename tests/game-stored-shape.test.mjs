@@ -25,6 +25,26 @@ for (const [name, raw] of Object.entries(brokenConfigs)) {
 	});
 }
 
+const nonIntegerLengths = { '5.5': '5.5', 문자열: "'6'", 무한대: '1e400' };
+for (const [name, n] of Object.entries(nonIntegerLengths)) {
+	test(`config의 fixed 길이가 정수가 아니면(${name}) 기본 설정으로 뜬다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', `{"mode":"endless","length":{"kind":"fixed","n":${n}}}`);
+		assert.deepEqual(new Game().config, DEFAULT_CONFIG);
+	});
+}
+
+// 범위 밖 정수는 끝값으로 자른다. 저장값은 그대로 둬서 다음에 고쳐 쓸 때까지 원래 값이 남는다.
+const clampedLengths = [[99, 12], [1, 5], [0, 5], [-3, 5], [5, 5], [12, 12]];
+for (const [n, want] of clampedLengths) {
+	test(`config의 fixed 길이 ${n}은 ${want}자로 읽고 저장값은 고치지 않는다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', JSON.stringify({ mode: 'endless', length: { kind: 'fixed', n } }));
+		assert.deepEqual(new Game().config, { mode: 'endless', length: { kind: 'fixed', n: want } });
+		assert.deepEqual(JSON.parse(values.get('nkordle:config')), { mode: 'endless', length: { kind: 'fixed', n } });
+	});
+}
+
 test('정상 config는 그대로 복원된다', (t) => {
 	const { values } = setup(t);
 	for (const config of [
