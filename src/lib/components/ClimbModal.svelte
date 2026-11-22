@@ -72,9 +72,7 @@
 
 	{#if game.status === 'lost'}
 		<div class="stopped">멈춘 스테이지 <b>{game.stage}</b>{#if game.lostMs !== null}{' · ' + formatTime(game.lostMs)}{/if}</div>
-		{#if game.answer}
-			<div class="answer">멈춘 곳의 정답: <b>{game.answer}</b></div>
-		{/if}
+		<div class="answer">멈춘 곳의 정답: <b>{game.answer ?? '…'}</b></div>
 	{/if}
 
 	{#if onrestart}

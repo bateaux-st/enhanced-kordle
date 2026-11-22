@@ -74,21 +74,55 @@ const emptyStats = (): Stats => ({ played: 0, won: 0, streak: 0, maxStreak: 0, d
 /** 'system'은 기기 설정(prefers-color-scheme)을 따른다. 화면에 실제로 박히는 값은 light/dark 둘뿐. */
 export type Theme = 'system' | 'light' | 'dark';
 
-/** localStorage 'settings'에 들어 있는 것. 예전 사용자에게는 theme이 없으므로 전부 optional로 읽는다. */
+/** localStorage 'settings'에 들어 있는 것. */
 interface StoredSettings {
-	maxTries?: number;
-	hard?: boolean;
-	theme?: Theme;
+	maxTries: number;
+	hard: boolean;
+	theme: Theme;
 }
 
-/** 저장된 config가 부팅에 필요한 모양(mode, length)이 아니면 기본값. 손으로 고친 값이 부팅을 막지 않게 한다. */
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * 필드마다 따로 보고 어긋난 것만 기본값으로 읽는다. 저장값은 고쳐 쓰지 않는다.
+ * 시도 횟수는 정수면 범위 끝값으로 자르고, 정수가 아니면 기본값이다.
+ */
+function loadSettings(): StoredSettings {
+	const raw = load<unknown>('settings', {});
+	const s = isPlainObject(raw) ? raw : {};
+	const t = s.maxTries;
+	return {
+		maxTries: typeof t === 'number' && Number.isInteger(t) ? Math.min(MAX_TRIES, Math.max(MIN_TRIES, t)) : DEFAULT_TRIES,
+		hard: s.hard === true,
+		theme: s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system'
+	};
+}
+
+const nonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const nonNegFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/** 받는 모양이 아니면 기록 전체를 없는 것으로 읽는다. 일부만 살리면 최고 기록과 스테이지 기록이 어긋난다. */
+function loadClimbTime(key: string): ClimbTimeRecord {
+	const raw = load<unknown>(key, null);
+	if (!isPlainObject(raw) || !isPlainObject(raw.stages)) return emptyClimbTime();
+	const b = raw.best;
+	const bestOk = b === null || (isPlainObject(b) && nonNegInt(b.stage) && b.stage >= 1 && nonNegFinite(b.ms));
+	return bestOk && Object.values(raw.stages).every(nonNegFinite) ? (raw as unknown as ClimbTimeRecord) : emptyClimbTime();
+}
+
+/**
+ * 저장된 config가 부팅에 필요한 모양(mode, length)이 아니면 기본값. 손으로 고친 값이 부팅을 막지 않게 한다.
+ * 고정 길이가 정수면 범위 안으로 자른다. 첫 판 요청이 400으로 실패하지 않게 하되, 저장값은 고쳐 쓰지 않는다.
+ */
 function loadConfig(): ModeConfig {
+	const fallback: ModeConfig = { mode: 'daily', length: { kind: 'fixed', n: 6 } };
 	const c = load<ModeConfig | null>('config', null);
+	if (!Object.hasOwn(MODE_LABEL, c?.mode as string)) return fallback;
 	const l = c?.length;
-	const ok =
-		Object.hasOwn(MODE_LABEL, c?.mode as string) &&
-		(l?.kind === 'random' || (l?.kind === 'fixed' && typeof l.n === 'number'));
-	return ok ? (c as ModeConfig) : { mode: 'daily', length: { kind: 'fixed', n: 6 } };
+	if (l?.kind === 'random') return c as ModeConfig;
+	if (l?.kind !== 'fixed' || !Number.isInteger(l.n)) return fallback;
+	return { ...(c as ModeConfig), length: { kind: 'fixed', n: Math.min(MAX_N, Math.max(MIN_N, l.n)) } };
 }
 
 // 복원 코드가 배열 메서드·스프레드를 바로 부르는 필수 필드만 본다. 어긋나면 저장본이 없는 것으로 읽는다.
@@ -121,10 +155,11 @@ export class Game {
 	config = $state<ModeConfig>(loadConfig());
 	// settings 키 하나에 maxTries·hard·theme이 같이 들어간다. 쓰기는 반드시 saveSettings()로 —
 	// 한쪽만 save하면 다른 쪽이 지워진다.
-	settingTries = $state<number>(load<StoredSettings>('settings', {}).maxTries ?? DEFAULT_TRIES);
+	private stored = loadSettings();
+	settingTries = $state<number>(this.stored.maxTries);
 	/** 하드모드 — 초록 자리와 노랑 자모를 다음 추측에 반드시 다시 쓴다. 기존 사용자의 저장값에는 이 키가 없다(마이그레이션 없음). */
-	hard = $state<boolean>(load<StoredSettings>('settings', {}).hard ?? false);
-	theme = $state<Theme>(load<StoredSettings>('settings', {}).theme ?? 'system');
+	hard = $state<boolean>(this.stored.hard);
+	theme = $state<Theme>(this.stored.theme);
 
 	n = $state(6);
 	token = $state('');
@@ -162,7 +197,8 @@ export class Game {
 	toast = $state<string | null>(null);
 	shake = $state(false);
 
-	maxTries = $derived(isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries);
+	/** 이 판의 시도 횟수. 판(등반은 등반 전체)이 시작될 때 resetRun이 정해 두고, 설정을 바꿔도 다음 판·다음 등반부터 쓴다. */
+	maxTries = $state(isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries);
 	/** 원작처럼 판 도중에는 켤 수 없다 — 이미 낸 추측이 제약을 어겨 있을 수 있다. 끄는 건 언제나 된다. */
 	canEnableHard = $derived(this.status !== 'playing' || this.rows.length === 0);
 
@@ -188,8 +224,9 @@ export class Game {
 	private loadRecords() {
 		const stats = load<Stats | null>(`stats:${this.config.mode}`, null);
 		this.stats = validStats(stats) ? stats : emptyStats();
-		this.bestStage = load(`best:${configKey(this.config)}`, 0);
-		this.climbTime = load(`climbtime:${configKey(this.config)}`, emptyClimbTime());
+		const best = load<unknown>(`best:${configKey(this.config)}`, 0);
+		this.bestStage = nonNegInt(best) ? best : 0;
+		this.climbTime = loadClimbTime(`climbtime:${configKey(this.config)}`);
 	}
 
 	showToast(msg: string, ms = 1500) {
@@ -302,6 +339,7 @@ export class Game {
 
 	/** 등반 진행을 처음(또는 일일 등반 저장본) 상태로 돌린다. */
 	private resetRun(saved: DailyClimbSave | null) {
+		this.maxTries = isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries;
 		this.stage = 1;
 		this.climbWords = [];
 		this.stageTimes = [];
@@ -363,6 +401,8 @@ export class Game {
 				this.answer = saved.answer;
 				this.hints = saved.hints ?? {};
 				if (saved.status === 'playing') this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
+				// 정답을 받기 전에 저장된 진 판이다. enterRound가 동기라 기다리지 않고 띄운다.
+				else if (saved.status === 'lost' && !saved.answer) void this.revealAnswer(false);
 				return;
 			}
 		}
@@ -428,8 +468,6 @@ export class Game {
 		this.busy = true;
 		try {
 			await this.finish(false);
-		} catch {
-			this.showToast('서버에 연결할 수 없습니다');
 		} finally {
 			this.busy = false;
 		}
@@ -497,11 +535,19 @@ export class Game {
 			if (won) this.recordClear(ms);
 			else this.lostMs = ms;
 		}
+		if (!won) {
+			// 졌다는 사실은 정답 확인(reveal)이 실패해도 남아야 한다. 저장을 먼저 하고 정답은 그 뒤에 받는다.
+			this.recordStats(false, this.rows.length);
+			if (isDaily(this.config.mode)) this.saveDaily();
+			if (this.config.mode === 'daily-climb') this.saveDailyClimb();
+			await this.revealAnswer(true);
+			return;
+		}
+
 		const word = revealed ?? (await post<RevealResponse>('/api/reveal', { token: this.token })).word;
 		this.answer = word;
-
-		this.recordStats(won, this.rows.length);
-		if (isClimb(this.config.mode) && won) {
+		this.recordStats(true, this.rows.length);
+		if (isClimb(this.config.mode)) {
 			this.climbWords = [...this.climbWords, word];
 			if (this.stage > this.bestStage) {
 				this.bestStage = this.stage;
@@ -511,13 +557,33 @@ export class Game {
 		if (isDaily(this.config.mode)) this.saveDaily();
 		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
 
-		if (won) {
-			if (this.config.mode === 'climb-length' && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
-			else if (isClimb(this.config.mode)) this.showToast(`스테이지 ${this.stage} 클리어`, 2000);
-			else this.showToast('정답입니다', 2000);
-		} else {
-			this.showToast(`정답: ${word}`, 3000);
+		const completes = this.config.mode === 'climb-length' || this.config.mode === 'daily-climb';
+		if (completes && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
+		else if (isClimb(this.config.mode)) this.showToast(`스테이지 ${this.stage} 클리어`, 2000);
+		else this.showToast('정답입니다', 2000);
+	}
+
+	/**
+	 * 진 판의 정답을 받아 채운다. 실패해도 던지지 않고 토스트만 띄운다(answer는 null로 남는다).
+	 * 복원 경로는 busy를 걸지 않아 응답을 기다리는 사이 다른 판이 열릴 수 있으므로,
+	 * 요청 때의 토큰과 같은 진 판에 아직 정답이 없을 때만 반영한다.
+	 */
+	private async revealAnswer(announce: boolean) {
+		const token = this.token;
+		let word: string | null;
+		try {
+			word = (await post<RevealResponse>('/api/reveal', { token })).word;
+		} catch {
+			word = null;
 		}
+		if (this.token !== token || this.status !== 'lost' || this.answer) return;
+		if (word === null) {
+			this.showToast('서버에 연결할 수 없습니다');
+			return;
+		}
+		this.answer = word;
+		if (isDaily(this.config.mode)) this.saveDaily();
+		if (announce) this.showToast(`정답: ${word}`, 3000);
 	}
 
 	/** 클리어한 스테이지 시간을 반영한다. bestStage 갱신보다 먼저 불러야 옛 최고 스테이지를 비교 기준으로 쓸 수 있다. */

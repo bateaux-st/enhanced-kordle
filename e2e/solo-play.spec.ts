@@ -141,7 +141,7 @@ test.describe('솔로 기본 플레이', () => {
 
 		await page.getByRole('button', { name: '다음 단어' }).click();
 		await expect.poll(() => api.calls.game.length).toBe(2);
-		expect(await boardText(page)).toEqual(Array(4).fill('......'));
+		await expect.poll(() => boardText(page)).toEqual(Array(4).fill('......'));
 		expect(await stored(page, 'stats:endless')).toEqual({ played: 1, won: 0, streak: 0, maxStreak: 0, dist: [] });
 	});
 

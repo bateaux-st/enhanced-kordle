@@ -25,6 +25,26 @@ for (const [name, raw] of Object.entries(brokenConfigs)) {
 	});
 }
 
+const nonIntegerLengths = { '5.5': '5.5', 문자열: "'6'", 무한대: '1e400' };
+for (const [name, n] of Object.entries(nonIntegerLengths)) {
+	test(`config의 fixed 길이가 정수가 아니면(${name}) 기본 설정으로 뜬다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', `{"mode":"endless","length":{"kind":"fixed","n":${n}}}`);
+		assert.deepEqual(new Game().config, DEFAULT_CONFIG);
+	});
+}
+
+// 범위 밖 정수는 끝값으로 자른다. 저장값은 그대로 둬서 다음에 고쳐 쓸 때까지 원래 값이 남는다.
+const clampedLengths = [[99, 12], [1, 5], [0, 5], [-3, 5], [5, 5], [12, 12]];
+for (const [n, want] of clampedLengths) {
+	test(`config의 fixed 길이 ${n}은 ${want}자로 읽고 저장값은 고치지 않는다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', JSON.stringify({ mode: 'endless', length: { kind: 'fixed', n } }));
+		assert.deepEqual(new Game().config, { mode: 'endless', length: { kind: 'fixed', n: want } });
+		assert.deepEqual(JSON.parse(values.get('nkordle:config')), { mode: 'endless', length: { kind: 'fixed', n } });
+	});
+}
+
 test('정상 config는 그대로 복원된다', (t) => {
 	const { values } = setup(t);
 	for (const config of [
@@ -147,6 +167,7 @@ test('끝난 daily 저장본(answer·hints 포함)은 그대로 복원된다', a
 });
 
 const win = () => Response.json({ ok: true, marks: Array(6).fill('c') });
+const win12 = () => Response.json({ ok: true, marks: Array(12).fill('c') });
 
 async function winEndless(t, raw) {
 	const { values } = setup(t, { '/api/guess': win });
@@ -186,3 +207,120 @@ test('정상 stats 저장본은 그대로 복원되고 이어서 쌓인다', asy
 	assert.deepEqual(initial, saved);
 	assert.deepEqual(game.stats, { played: 4, won: 3, streak: 2, maxStreak: 2, dist: [1, 1, 1] });
 });
+
+test('일일 등반에서 12자 스테이지를 맞히면 climb-length와 같은 완주 토스트를 띄운다', async (t) => {
+	const { values } = setup(t, {
+		'/api/game': () => Response.json({ n: 12, token: 'tok' }),
+		'/api/guess': win12
+	});
+	values.set(`nkordle:dclimb:${todayKST()}`, JSON.stringify({ stage: 8, n: 12, climbWords: Array(7).fill('가') }));
+	const game = new Game();
+	game.config = { mode: 'daily-climb', length: { kind: 'fixed', n: 5 } };
+	await game.newGame();
+	assert.equal(game.n, 12);
+	for (let i = 0; i < 12; i++) game.type('ㄱ');
+	await game.submit();
+	assert.equal(game.status, 'won');
+	assert.equal(game.toast, '12자까지 완주!');
+});
+
+// settings·best·climbtime도 어긋난 값은 없는 것처럼 읽는다. 읽을 때만 보고 저장값은 지우거나 고치지 않는다.
+const readSettings = (t, raw) => {
+	const { values } = setup(t);
+	values.set('nkordle:settings', raw);
+	return { game: new Game(), values };
+};
+
+const triesCases = [['99', 10], ['1', 4], ['0', 4], ['-3', 4], ['5.5', 6], ['"7"', 6], ['null', 6], ['7', 7]];
+for (const [raw, want] of triesCases) {
+	test(`settings.maxTries ${raw}는 ${want}회로 읽고 저장값은 그대로 둔다`, (t) => {
+		const stored = `{"maxTries":${raw}}`;
+		const { game, values } = readSettings(t, stored);
+		assert.equal(game.settingTries, want);
+		assert.equal(values.get('nkordle:settings'), stored);
+	});
+}
+
+const hardThemeCases = [
+	['{"hard":"yes"}', 'hard', false], ['{"hard":1}', 'hard', false], ['{"hard":true}', 'hard', true],
+	['{"theme":"blue"}', 'theme', 'system'], ['{"theme":"dark"}', 'theme', 'dark'], ['{"theme":"light"}', 'theme', 'light']
+];
+for (const [raw, field, want] of hardThemeCases) {
+	test(`settings ${raw}는 ${field}를 ${want}로 읽는다`, (t) => {
+		assert.equal(readSettings(t, raw).game[field], want);
+	});
+}
+
+for (const raw of ['5', '[]', '"x"']) {
+	test(`settings가 ${raw}이면 전부 기본값이다`, (t) => {
+		const { game } = readSettings(t, raw);
+		assert.deepEqual([game.settingTries, game.hard, game.theme], [6, false, 'system']);
+	});
+}
+
+test('settings 필드는 따로 판단한다', (t) => {
+	const { game } = readSettings(t, '{"maxTries":8,"hard":"x","theme":"dark"}');
+	assert.deepEqual([game.settingTries, game.hard, game.theme], [8, false, 'dark']);
+});
+
+const CLIMB = { mode: 'climb-streak', length: { kind: 'fixed', n: 6 } };
+const CLIMB_KEY = 'climb-streak:fixed-6';
+
+for (const [raw, want] of [['"x"', 0], ['-1', 0], ['2.5', 0], ['{}', 0], ['3', 3]]) {
+	test(`best:가 ${raw}이면 ${want}으로 읽고 저장값은 그대로 둔다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', JSON.stringify(CLIMB));
+		values.set(`nkordle:best:${CLIMB_KEY}`, raw);
+		assert.equal(new Game().bestStage, want);
+		assert.equal(values.get(`nkordle:best:${CLIMB_KEY}`), raw);
+	});
+}
+
+// 어긋난 climbtime은 기록 전체가 없는 것이라, 스테이지를 클리어하면 새 기록으로 정상 처리된다.
+const brokenClimbTimes = {
+	'stages 없음': '{"best":null}',
+	'best.stage가 문자열': '{"best":{"stage":"a","ms":1},"stages":{}}',
+	'best.stage가 0': '{"best":{"stage":0,"ms":1},"stages":{}}',
+	'best.ms가 음수': '{"best":{"stage":1,"ms":-1},"stages":{}}',
+	'stages가 배열': '{"best":null,"stages":[]}',
+	'stages 값이 문자열': '{"best":null,"stages":{"1":"x"}}',
+	'stages 값이 음수': '{"best":null,"stages":{"1":-5}}',
+	배열: '[]',
+	숫자: '5'
+};
+for (const [name, raw] of Object.entries(brokenClimbTimes)) {
+	test(`climbtime이 ${name}이면 빈 기록으로 읽고 스테이지를 클리어하면 통계와 토스트가 정상이다`, async (t) => {
+		const { values, calls } = setup(t, {
+			'/api/game': (body) => Response.json({ n: body.n ?? 6, token: 'tok' }),
+			'/api/guess': (body) => Response.json({ ok: true, marks: Array(body.jamo.length).fill('c'), word: '정답' })
+		});
+		values.set('nkordle:config', JSON.stringify(CLIMB));
+		values.set(`nkordle:climbtime:${CLIMB_KEY}`, raw);
+		const game = new Game();
+		assert.deepEqual(game.climbTime, { best: null, stages: {} });
+		assert.equal(values.get(`nkordle:climbtime:${CLIMB_KEY}`), raw);
+
+		await game.newGame();
+		game.current = 'ㄱ'.repeat(game.n);
+		await game.submit();
+		assert.equal(game.status, 'won');
+		assert.equal(game.toast, '스테이지 1 클리어');
+		assert.equal(game.stats.played, 1);
+		assert.equal(JSON.parse(values.get('nkordle:stats:climb-streak')).won, 1);
+		assert.equal(game.bestStage, 1);
+		assert.equal(calls.filter((c) => c.url === '/api/reveal').length, 0);
+	});
+}
+
+const goodClimbTimes = [
+	{ best: { stage: 3, ms: 90000 }, stages: { 1: 1000, 2: 2500.5 } },
+	{ best: null, stages: {} }
+];
+for (const r of goodClimbTimes) {
+	test(`정상 climbtime ${JSON.stringify(r)}은 그대로 읽는다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', JSON.stringify(CLIMB));
+		values.set(`nkordle:climbtime:${CLIMB_KEY}`, JSON.stringify(r));
+		assert.deepEqual(new Game().climbTime, r);
+	});
+}
