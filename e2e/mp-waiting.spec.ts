@@ -258,6 +258,7 @@ test.describe('대기실: 방장 입장에서', () => {
 		await dialog.getByRole('button', { name: '시도 횟수 늘리기' }).click();
 		await expect(dialog.getByRole('status', { name: '시도 횟수' })).toHaveText('7회');
 		await dialog.getByRole('switch', { name: /하드모드/ }).click();
+		await expect(dialog.getByText('단판 180초. 등반은 180초에서 스테이지마다 15초씩 줄어 75초까지.')).toBeVisible();
 		await dialog.getByRole('switch', { name: /제한 시간/ }).click();
 		await dialog.getByRole('switch', { name: /^힌트/ }).click();
 
