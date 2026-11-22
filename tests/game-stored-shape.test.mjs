@@ -223,3 +223,104 @@ test('일일 등반에서 12자 스테이지를 맞히면 climb-length와 같은
 	assert.equal(game.status, 'won');
 	assert.equal(game.toast, '12자까지 완주!');
 });
+
+// settings·best·climbtime도 어긋난 값은 없는 것처럼 읽는다. 읽을 때만 보고 저장값은 지우거나 고치지 않는다.
+const readSettings = (t, raw) => {
+	const { values } = setup(t);
+	values.set('nkordle:settings', raw);
+	return { game: new Game(), values };
+};
+
+const triesCases = [['99', 10], ['1', 4], ['0', 4], ['-3', 4], ['5.5', 6], ['"7"', 6], ['null', 6], ['7', 7]];
+for (const [raw, want] of triesCases) {
+	test(`settings.maxTries ${raw}는 ${want}회로 읽고 저장값은 그대로 둔다`, (t) => {
+		const stored = `{"maxTries":${raw}}`;
+		const { game, values } = readSettings(t, stored);
+		assert.equal(game.settingTries, want);
+		assert.equal(values.get('nkordle:settings'), stored);
+	});
+}
+
+const hardThemeCases = [
+	['{"hard":"yes"}', 'hard', false], ['{"hard":1}', 'hard', false], ['{"hard":true}', 'hard', true],
+	['{"theme":"blue"}', 'theme', 'system'], ['{"theme":"dark"}', 'theme', 'dark'], ['{"theme":"light"}', 'theme', 'light']
+];
+for (const [raw, field, want] of hardThemeCases) {
+	test(`settings ${raw}는 ${field}를 ${want}로 읽는다`, (t) => {
+		assert.equal(readSettings(t, raw).game[field], want);
+	});
+}
+
+for (const raw of ['5', '[]', '"x"']) {
+	test(`settings가 ${raw}이면 전부 기본값이다`, (t) => {
+		const { game } = readSettings(t, raw);
+		assert.deepEqual([game.settingTries, game.hard, game.theme], [6, false, 'system']);
+	});
+}
+
+test('settings 필드는 따로 판단한다', (t) => {
+	const { game } = readSettings(t, '{"maxTries":8,"hard":"x","theme":"dark"}');
+	assert.deepEqual([game.settingTries, game.hard, game.theme], [8, false, 'dark']);
+});
+
+const CLIMB = { mode: 'climb-streak', length: { kind: 'fixed', n: 6 } };
+const CLIMB_KEY = 'climb-streak:fixed-6';
+
+for (const [raw, want] of [['"x"', 0], ['-1', 0], ['2.5', 0], ['{}', 0], ['3', 3]]) {
+	test(`best:가 ${raw}이면 ${want}으로 읽고 저장값은 그대로 둔다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', JSON.stringify(CLIMB));
+		values.set(`nkordle:best:${CLIMB_KEY}`, raw);
+		assert.equal(new Game().bestStage, want);
+		assert.equal(values.get(`nkordle:best:${CLIMB_KEY}`), raw);
+	});
+}
+
+// 어긋난 climbtime은 기록 전체가 없는 것이라, 스테이지를 클리어하면 새 기록으로 정상 처리된다.
+const brokenClimbTimes = {
+	'stages 없음': '{"best":null}',
+	'best.stage가 문자열': '{"best":{"stage":"a","ms":1},"stages":{}}',
+	'best.stage가 0': '{"best":{"stage":0,"ms":1},"stages":{}}',
+	'best.ms가 음수': '{"best":{"stage":1,"ms":-1},"stages":{}}',
+	'stages가 배열': '{"best":null,"stages":[]}',
+	'stages 값이 문자열': '{"best":null,"stages":{"1":"x"}}',
+	'stages 값이 음수': '{"best":null,"stages":{"1":-5}}',
+	배열: '[]',
+	숫자: '5'
+};
+for (const [name, raw] of Object.entries(brokenClimbTimes)) {
+	test(`climbtime이 ${name}이면 빈 기록으로 읽고 스테이지를 클리어하면 통계와 토스트가 정상이다`, async (t) => {
+		const { values, calls } = setup(t, {
+			'/api/game': (body) => Response.json({ n: body.n ?? 6, token: 'tok' }),
+			'/api/guess': (body) => Response.json({ ok: true, marks: Array(body.jamo.length).fill('c'), word: '정답' })
+		});
+		values.set('nkordle:config', JSON.stringify(CLIMB));
+		values.set(`nkordle:climbtime:${CLIMB_KEY}`, raw);
+		const game = new Game();
+		assert.deepEqual(game.climbTime, { best: null, stages: {} });
+		assert.equal(values.get(`nkordle:climbtime:${CLIMB_KEY}`), raw);
+
+		await game.newGame();
+		game.current = 'ㄱ'.repeat(game.n);
+		await game.submit();
+		assert.equal(game.status, 'won');
+		assert.equal(game.toast, '스테이지 1 클리어');
+		assert.equal(game.stats.played, 1);
+		assert.equal(JSON.parse(values.get('nkordle:stats:climb-streak')).won, 1);
+		assert.equal(game.bestStage, 1);
+		assert.equal(calls.filter((c) => c.url === '/api/reveal').length, 0);
+	});
+}
+
+const goodClimbTimes = [
+	{ best: { stage: 3, ms: 90000 }, stages: { 1: 1000, 2: 2500.5 } },
+	{ best: null, stages: {} }
+];
+for (const r of goodClimbTimes) {
+	test(`정상 climbtime ${JSON.stringify(r)}은 그대로 읽는다`, (t) => {
+		const { values } = setup(t);
+		values.set('nkordle:config', JSON.stringify(CLIMB));
+		values.set(`nkordle:climbtime:${CLIMB_KEY}`, JSON.stringify(r));
+		assert.deepEqual(new Game().climbTime, r);
+	});
+}

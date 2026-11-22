@@ -74,11 +74,41 @@ const emptyStats = (): Stats => ({ played: 0, won: 0, streak: 0, maxStreak: 0, d
 /** 'system'은 기기 설정(prefers-color-scheme)을 따른다. 화면에 실제로 박히는 값은 light/dark 둘뿐. */
 export type Theme = 'system' | 'light' | 'dark';
 
-/** localStorage 'settings'에 들어 있는 것. 예전 사용자에게는 theme이 없으므로 전부 optional로 읽는다. */
+/** localStorage 'settings'에 들어 있는 것. */
 interface StoredSettings {
-	maxTries?: number;
-	hard?: boolean;
-	theme?: Theme;
+	maxTries: number;
+	hard: boolean;
+	theme: Theme;
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * 필드마다 따로 보고 어긋난 것만 기본값으로 읽는다. 저장값은 고쳐 쓰지 않는다.
+ * 시도 횟수는 정수면 범위 끝값으로 자르고, 정수가 아니면 기본값이다.
+ */
+function loadSettings(): StoredSettings {
+	const raw = load<unknown>('settings', {});
+	const s = isPlainObject(raw) ? raw : {};
+	const t = s.maxTries;
+	return {
+		maxTries: typeof t === 'number' && Number.isInteger(t) ? Math.min(MAX_TRIES, Math.max(MIN_TRIES, t)) : DEFAULT_TRIES,
+		hard: s.hard === true,
+		theme: s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system'
+	};
+}
+
+const nonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const nonNegFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/** 받는 모양이 아니면 기록 전체를 없는 것으로 읽는다. 일부만 살리면 최고 기록과 스테이지 기록이 어긋난다. */
+function loadClimbTime(key: string): ClimbTimeRecord {
+	const raw = load<unknown>(key, null);
+	if (!isPlainObject(raw) || !isPlainObject(raw.stages)) return emptyClimbTime();
+	const b = raw.best;
+	const bestOk = b === null || (isPlainObject(b) && nonNegInt(b.stage) && b.stage >= 1 && nonNegFinite(b.ms));
+	return bestOk && Object.values(raw.stages).every(nonNegFinite) ? (raw as unknown as ClimbTimeRecord) : emptyClimbTime();
 }
 
 /**
@@ -125,10 +155,11 @@ export class Game {
 	config = $state<ModeConfig>(loadConfig());
 	// settings 키 하나에 maxTries·hard·theme이 같이 들어간다. 쓰기는 반드시 saveSettings()로 —
 	// 한쪽만 save하면 다른 쪽이 지워진다.
-	settingTries = $state<number>(load<StoredSettings>('settings', {}).maxTries ?? DEFAULT_TRIES);
+	private stored = loadSettings();
+	settingTries = $state<number>(this.stored.maxTries);
 	/** 하드모드 — 초록 자리와 노랑 자모를 다음 추측에 반드시 다시 쓴다. 기존 사용자의 저장값에는 이 키가 없다(마이그레이션 없음). */
-	hard = $state<boolean>(load<StoredSettings>('settings', {}).hard ?? false);
-	theme = $state<Theme>(load<StoredSettings>('settings', {}).theme ?? 'system');
+	hard = $state<boolean>(this.stored.hard);
+	theme = $state<Theme>(this.stored.theme);
 
 	n = $state(6);
 	token = $state('');
@@ -192,8 +223,9 @@ export class Game {
 	private loadRecords() {
 		const stats = load<Stats | null>(`stats:${this.config.mode}`, null);
 		this.stats = validStats(stats) ? stats : emptyStats();
-		this.bestStage = load(`best:${configKey(this.config)}`, 0);
-		this.climbTime = load(`climbtime:${configKey(this.config)}`, emptyClimbTime());
+		const best = load<unknown>(`best:${configKey(this.config)}`, 0);
+		this.bestStage = nonNegInt(best) ? best : 0;
+		this.climbTime = loadClimbTime(`climbtime:${configKey(this.config)}`);
 	}
 
 	showToast(msg: string, ms = 1500) {

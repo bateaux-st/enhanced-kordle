@@ -172,7 +172,7 @@
 | S-CLIMB-5 | 스테이지 클리어 토스트는 `스테이지 {번호} 클리어`(2000ms)다. 판이 `lost`로 끝났을 때의 토스트는 S-ROUND-4, 12자 완주 토스트는 S-CLIMB-10(climb-length)·S-CLIMB-11(daily-climb)이다. | `finish` | 코드만 |
 | S-CLIMB-6 | 등반 스테이지가 `lost`로 끝나거나 12자 스테이지를 클리어해 완주하면(S-CLIMB-10, S-CLIMB-11), 또는 그렇게 끝난 일일 등반이 복원되면 1200ms 뒤 등반 결과 창이 자동으로 열린다. 그 사이에 다른 창이 열려 있으면 덮지 않는다. | `routes/+page.svelte` | e:solo-climb (climb-length만) |
 | S-CLIMB-7 | 등반 결과의 피라미드는 맞힌 스테이지의 정답을 맞힌 순서대로 쌓는다. 실패한 스테이지의 정답은 쌓지 않고 `멈춘 곳의 정답: {단어}`로 따로 보인다. 제목은 완주 `12자 완주!`, 한 개 이상 클리어 `스테이지 {클리어 수}까지 올랐습니다`, 0개 `첫 스테이지에서 멈췄습니다`다. | `ClimbModal.svelte` | e:solo-climb |
-| S-CLIMB-8 | 등반 최고 스테이지(`best:<모드>:<길이키>`)는 클리어한 스테이지 번호가 지금 최고보다 클 때만 올라간다. | `game.svelte.ts` `finish` | 코드만 |
+| S-CLIMB-8 | 등반 최고 스테이지(`best:<모드>:<길이키>`)는 클리어한 스테이지 번호가 지금 최고보다 클 때만 올라간다. 저장된 값이 0 이상 정수가 아니면 0으로 읽는다(S-SAVE-3). | `game.svelte.ts` `finish`, `loadRecords` | t:game-stored-shape |
 | S-CLIMB-9 | 등반의 힌트는 스테이지(판)마다 한 번이다(S-HINT-1). 멀티 등반은 등반 전체에서 한 번이다(M-CLIMB-6). 단위가 다른 것은 의도다. | `game.svelte.ts` `clearBoard` | 코드만 |
 | S-CLIMB-10 | climb-length에서 길이 12의 스테이지를 맞히면 `스테이지 {번호} 클리어` 대신 토스트 `12자까지 완주!`(2500ms)를 띄운다. | `game.svelte.ts` `finish` | e:solo-climb |
 | S-CLIMB-11 | daily-climb에서 길이 12의 스테이지를 맞혀 완주하면 climb-length와 같이 `스테이지 {번호} 클리어` 대신 토스트 `12자까지 완주!`(2500ms)를 띄운다. | `game.svelte.ts` `finish` | t:game-stored-shape |
@@ -215,7 +215,7 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-TRY-1 | 설정의 시도 횟수는 4 이상 10 이하(양끝 포함)이고 기본값은 6이다. 설정 창은 1씩 늘리고 줄이며, 4에서 줄이기·10에서 늘리기는 비활성이다. 설정 창 문구: `4~10회. 바꾸는 즉시 적용됩니다. 하루 1개 모드는 6회로 고정.` 문구는 daily만 적지만 daily-climb도 6 고정이다(S-DAILY-7). | `game.svelte.ts` `MIN_TRIES`, `MAX_TRIES`, `DEFAULT_TRIES`, `components/SettingsModal.svelte` | e:solo-modals |
+| S-TRY-1 | 설정의 시도 횟수는 4 이상 10 이하(양끝 포함)이고 기본값은 6이다. 설정 창은 1씩 늘리고 줄이며, 4에서 줄이기·10에서 늘리기는 비활성이다. 저장된 값은 정수면 4~10으로 잘라 읽고 정수가 아니면(소수·문자열·없음) 기본값 6이다. 설정 창 문구: `4~10회. 바꾸는 즉시 적용됩니다. 하루 1개 모드는 6회로 고정.` 문구는 daily만 적지만 daily-climb도 6 고정이다(S-DAILY-7). | `game.svelte.ts` `MIN_TRIES`, `MAX_TRIES`, `DEFAULT_TRIES`, `loadSettings`, `components/SettingsModal.svelte` | e:solo-modals, t:game-stored-shape |
 | S-TRY-2 | 설정을 바꾸면 진행 중인 판에도 즉시 적용된다. 판의 끝은 "추측을 하나 수락한 뒤 행 수가 시도 횟수 이상인지"로 정하므로, 이미 쌓인 행 수 이상으로 낮추면 다음 추측을 수락한 직후 판이 끝난다([U-1](#u-1)). | `game.svelte.ts` `maxTries`, `submit` | 코드만 |
 | S-TRY-3 | 시도 횟수는 추측이 수락되어 행이 늘 때만 쓴다. 길이 부족, 사전에 없는 단어, 하드 모드 위반, 서버 오류로 거절된 제출은 쓰지 않는다. | `submit` | e:solo-rules, e:solo-play |
 | S-TRY-4 | 보드는 시도 횟수만큼의 행을 그리고, 입력 행은 `playing`이고 이미 쌓인 행 수가 시도 횟수보다 적을 때만 보인다. 판 도중 시도 횟수를 이미 쌓인 행 수 이하로 낮추면 입력 행이 보이지 않지만 입력·제출은 받아들여진다([U-1](#u-1)). | `components/Board.svelte`, `game.svelte.ts` `type` | 코드만 |
@@ -242,7 +242,7 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| S-HARD-1 | 하드 모드는 설정의 전역 스위치(`settings.hard`, 기본 꺼짐)이고 모든 솔로 모드(데일리 포함)에 적용된다. | `game.svelte.ts` `hard` | e:solo-modals |
+| S-HARD-1 | 하드 모드는 설정의 전역 스위치(`settings.hard`, 기본 꺼짐)이고 모든 솔로 모드(데일리 포함)에 적용된다. 저장값이 boolean이 아니면 꺼짐이다. | `game.svelte.ts` `hard`, `loadSettings` | e:solo-modals, t:game-stored-shape |
 | S-HARD-2 | 켜기는 판이 `playing`이 아니거나(끝난 판·로딩) 추측이 아직 하나도 없을 때만 된다. 끄기는 언제나 된다. 켤 수 없을 때 스위치는 비활성이고 `진행 중인 판에는 켤 수 없습니다. 다음 판을 시작하면 켤 수 있습니다.`를 보인다. | `canEnableHard`, `setHard`, `SettingsModal.svelte` | e:solo-modals |
 | S-HARD-3 | 하드 모드 설정 설명 문구: `초록 자모는 그 자리에, 노란 자모는 어디든 반드시 다시 써야 합니다.` | `SettingsModal.svelte` | 코드만 |
 
@@ -296,7 +296,7 @@
 | S-TIME-6 | 스테이지 최고 시간(`stages[스테이지]`)은 그 스테이지의 이전 기록이 있고 이번 시간이 그보다 **엄격하게 짧을 때** 갱신되고 `최고` 표시를 받는다. 첫 클리어는 기록만 만들고 표시가 없다. 같은 시간은 갱신이 아니다. | `climbtime.ts` `applyClear` | t:climbtime |
 | S-TIME-7 | 최고 기록(`best`)은 `{스테이지, 총 시간}`이다. 클리어 스테이지가 더 높으면 갱신하고, 같으면 총 시간이 엄격하게 짧을 때 갱신한다. 총 시간을 모르는 클리어는 비교에서 빠진다. 갱신하면 그 판의 결과에 `새 기록`을 표시한다. | `applyClear`, `isBetterBest` | t:climbtime |
 | S-TIME-8 | 시간 기록이 생기기 전부터 최고 스테이지(`best:`)만 있던 사용자는, 그 스테이지 미만의 클리어로 `best`가 덮이지 않는다. 같은 스테이지부터는 시간으로 갱신한다. | `applyClear` `legacyBestStage` | t:climbtime |
-| S-TIME-9 | 시간 기록은 `climbtime:<모드>:<길이키>`에 `{best, stages}`로 저장한다(형식 규범: [`HANDOFF.md` §7](HANDOFF.md)). 일일 등반은 스테이지 시작 시각(`stageStartAt`), 각 스테이지 시간, 실패 시간, 최고 표시를 `dclimb:<날짜>`에 같이 저장해 새로고침 뒤에도 시간이 이어진다. 저장된 시작 시각부터의 경과로 계속 센다(꺼져 있던 시간도 흐른다). 시작 시각을 모르는 옛 저장본은 `-`로 보인다. | `saveDailyClimb`, `enterRound` | t:game-stored-shape, e:solo-daily |
+| S-TIME-9 | 시간 기록은 `climbtime:<모드>:<길이키>`에 `{best, stages}`로 저장한다(형식 규범: [`HANDOFF.md` §7](HANDOFF.md)). 일일 등반은 스테이지 시작 시각(`stageStartAt`), 각 스테이지 시간, 실패 시간, 최고 표시를 `dclimb:<날짜>`에 같이 저장해 새로고침 뒤에도 시간이 이어진다. 저장된 시작 시각부터의 경과로 계속 센다(꺼져 있던 시간도 흐른다). 시작 시각을 모르는 옛 저장본은 `-`로 보인다. `climbtime:` 저장값이 받는 모양이 아니면 기록 전체가 없는 것이다(S-SAVE-3). | `saveDailyClimb`, `enterRound` | t:game-stored-shape, e:solo-daily |
 | S-TIME-10 | 비데일리 등반은 새로고침하면 진행 중인 스테이지의 시간이 이어지지 않는다(판이 이어지지 않기 때문이다, S-SAVE-2). | `startRound` | 코드만 |
 | S-TIME-11 | 스테이지 사이의 대기(클리어한 판을 보다가 `다음 스테이지`를 누르기까지)는 시간에 들어가지 않는다. 다음 스테이지 시간은 새 보드가 뜰 때부터 센다. | `game.svelte.ts` `nextStage`, `enterRound` | 코드만 |
 | S-TIME-12 | 등반 시계는 `이번 스테이지`와 `총 시간` 두 값을 보인다. 진행 중에는 1초마다 갱신되는 흐르는 값이고, 끝난 뒤에는 확정값(이긴 스테이지는 그 스테이지 시간, 진 스테이지는 실패 시간)이다. 총 시간은 S-TIME-3이다. | `components/ClimbClock.svelte` | e:solo-climb |
@@ -309,8 +309,8 @@
 |---|---|---|---|
 | S-SAVE-1 | 브라우저에 두는 솔로 데이터: `config`, `settings`(시도 횟수·하드·테마), `stats:<모드>`, `best:<모드>:<길이키>`, `climbtime:<모드>:<길이키>`, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`. 멀티는 `mp-session` 하나뿐이다(M-ID-6). | `storage.ts`, `game.svelte.ts` | t:storage, t:game-stored-shape |
 | S-SAVE-2 | 새로고침 뒤 이어지는 것: 설정, 통계, 최고 기록, 마지막 모드. 데일리·일일 등반의 판과 코스 진행. 이어지지 않는 것: 비데일리 모드에서 풀던 판(추측·힌트·입력). | `game.svelte.ts` | 코드만 |
-| S-SAVE-3 | 저장값이 JSON이 아니거나 `null`이면 모든 키가 기본값이다. 모양까지 검사하는 키는 `config`, `stats:<모드>`, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`뿐이고, 모양이 틀리면 기본값(없는 것)으로 읽는다. `best:`·`climbtime:`·`settings`는 모양을 검사하지 않는다([U-22](#u-22)). 저장 쓰기가 실패해도(용량 초과 등) 게임은 계속된다. | `storage.ts`, `game.svelte.ts` `loadConfig`, `validDailySave`, `validClimbSave`, `validStats` | t:storage, t:game-stored-shape |
-| S-SAVE-4 | 테마 설정: `system`(기기 설정 따름), `light`, `dark`. 설정 저장값에 `theme`가 없으면 `system`이다. | `game.svelte.ts` `Theme` | e:solo-modals |
+| S-SAVE-3 | 저장값이 JSON이 아니거나 `null`이면 모든 키가 기본값이다. 모양까지 검사하는 키는 `config`, `settings`, `stats:<모드>`, `best:<모드>:<길이키>`, `climbtime:<모드>:<길이키>`, `daily:<날짜>:<토큰>`, `dclimb:<날짜>`이고, 모양이 틀리면 그 값이 없는 것처럼 기본값으로 읽는다. 받는 모양: `settings`는 객체이고 필드마다 따로 본다(`maxTries`·`hard`·`theme`는 각각 S-TRY-1·S-HARD-1·S-SAVE-4). `best:`는 0 이상 정수이고 아니면 0이다. `climbtime:`은 `best`가 `null`이거나 `{stage: 1 이상 정수, ms: 0 이상 유한수}`이고 `stages`가 배열이 아닌 객체이며 그 값이 모두 0 이상 유한수일 때만 받고, 아니면 기록 전체를 없는 것으로 본다(일부만 살리지 않는다). 읽을 때만 보고 어긋난 저장값을 지우거나 고쳐 쓰지 않는다. 저장 쓰기가 실패해도(용량 초과 등) 게임은 계속된다. | `storage.ts`, `game.svelte.ts` `loadConfig`, `loadSettings`, `loadClimbTime`, `validDailySave`, `validClimbSave`, `validStats` | t:storage, t:game-stored-shape |
+| S-SAVE-4 | 테마 설정: `system`(기기 설정 따름), `light`, `dark`. 설정 저장값에 `theme`가 없거나 셋 중 하나가 아니면 `system`이다. | `game.svelte.ts` `Theme`, `loadSettings` | e:solo-modals, t:game-stored-shape |
 
 ### S-FAIL 서버 요청 실패
 
@@ -862,7 +862,7 @@
 
 | ID | 현재 코드 동작 | 왜 문제인가 | 관련 규칙 |
 |---|---|---|---|
-| <a id="u-1"></a>U-1 | 시도 횟수 설정은 진행 중인 판에도 즉시 적용되고, 판의 끝은 "추측을 하나 수락한 뒤 행 수 ≥ 시도 횟수"로만 정한다. 이미 4행이 있는데 한도를 4로 낮추면 보드가 시도 횟수만큼만 행을 그리므로 입력 행이 사라져 보이지 않지만 입력·제출은 되고, 다음 추측을 수락한 뒤(5행) 판이 끝난다. 저장된 `settings.maxTries`는 읽을 때 범위 검사를 하지 않아 손으로 고친 값(예: 99)이 비데일리 모드에서 그대로 쓰인다(`setTries`만 4~10으로 자른다, 데일리 계열은 6 고정이라 영향이 없다). | 설정 범위(4~10)가 쓰는 쪽에서 지켜지지 않는다. 판 도중 변경의 의미가 규칙으로 정해져 있지 않다. 저장값 검사 일반은 U-22. | S-TRY-1, S-TRY-2, S-TRY-4, S-SAVE-3 |
+| <a id="u-1"></a>U-1 | 시도 횟수 설정은 진행 중인 판에도 즉시 적용되고, 판의 끝은 "추측을 하나 수락한 뒤 행 수 ≥ 시도 횟수"로만 정한다. 이미 4행이 있는데 한도를 4로 낮추면 보드가 시도 횟수만큼만 행을 그리므로 입력 행이 사라져 보이지 않지만 입력·제출은 되고, 다음 추측을 수락한 뒤(5행) 판이 끝난다. | 설정 범위(4~10)가 쓰는 쪽에서 지켜지지 않는다. 판 도중 변경의 의미가 규칙으로 정해져 있지 않다. | S-TRY-1, S-TRY-2, S-TRY-4 |
 | <a id="u-4"></a>U-4 | 정답 확인(`reveal`)이 실패하면 판은 `lost`가 되지만 통계·데일리 저장·정답 공개는 이뤄지지 않는다. 데일리를 새로고침하면 마지막으로 저장된 `playing` 상태(마지막 추측 이전)가 복원되어 같은 판을 다시 풀 수 있다. | 졌는데 통계에 안 남고, 데일리는 마지막 시도를 되돌려 받을 수 있다. | S-GIVE-3, S-STAT-2, S-DAILY-9 |
 | <a id="u-6"></a>U-6 | 닉네임은 길이(코드포인트 5~12)와 앞뒤 공백만 검사한다. 제어문자·보이지 않는 서식 문자·결합 문자 연속 등은 거르지 않는다. 채팅 본문에는 같은 종류의 걸러내기가 있다. | 보이지 않는 글자만으로 이름이 되거나, 표시 순서를 뒤집는 문자가 이름에 들어갈 수 있다. 채팅과 기준이 다르다. | M-ID-1, M-CHAT-2 |
 | <a id="u-7"></a>U-7 | 서버는 끊긴 사람이 있어도 방장이 `kickDisconnected` 없이 시작하는 것을 받아들이고, 그 사람들은 참가자로 게임에 들어간다. 방장 화면은 끊긴 사람이 있으면 항상 "내보내고 시작"만 보이고 `kickDisconnected:true`로 보낸다. | 서버 규칙(시작을 막지 않는다)과 화면 규칙(끊긴 사람은 항상 내보낸다)이 다르다. | M-START-1, M-START-5 |
@@ -875,7 +875,6 @@
 | <a id="u-15"></a>U-15 | 등반에서 `failed`(스테이지 실패)와 `eliminated`(탈락)가 둘 다 `탈락`으로 표시된다. 스스로 나간 사람의 `나감`은 진행 중 상대 패널·칩에서만 보이고, 결과 순위표에서는 나간 사람도 `탈락`이다. | 화면만으로 실패와 끊김·강제 탈락·나감을 구분할 수 없다. | M-COMP 상태 표, M-LEAVE-6 |
 | <a id="u-16"></a>U-16 | 서버는 결과 단계에서도 `ready`를 받아들이지만 다음 대기실로 돌아갈 때 전원 해제된다. | 결과 단계의 준비 토글이 아무 효과 없이 받아들여진다. | M-READY-1, M-READY-2 |
 | <a id="u-17"></a>U-17 | 재촉은 방장이 끊겨 있어도(방장 자리는 있고 소켓만 없음) 받아들여지고 보낸 사람의 쿨다운이 소모된다. 알림을 받을 소켓이 없으면 그 재촉은 아무에게도 가지 않는다. | 받는 사람이 없는 재촉이 성공으로 처리된다. | M-READY-3 |
-| <a id="u-22"></a>U-22 | `best:<모드>:<길이키>`·`climbtime:<모드>:<길이키>`·`settings`는 읽을 때 JSON·`null`만 거르고 모양은 검사하지 않는다. `climbtime:` 값에 `stages`가 없으면(예: `{"best":null}`) 등반 스테이지를 클리어하는 처리에서 예외가 나 판은 `won`이 되지만 정답 공개·통계 기록·데일리 저장이 건너뛰어지고 토스트 `서버에 연결할 수 없습니다`가 뜬다. 숫자가 아닌 `best:` 값은 스테이지 비교가 거짓이 되어 최고 스테이지가 갱신되지 않는다. | `config`·`stats:`·`daily:`·`dclimb:`는 모양을 검사하는데 이 세 키는 검사하지 않아 저장값에 따라 동작이 갈린다. U-1·U-18과 같은 종류다. | S-SAVE-3, S-TIME-9, S-CLIMB-8, S-TRY-1 |
 
 ### 결정된 항목
 
@@ -891,4 +890,5 @@
 | <a id="u-19"></a>U-19 | 협동 마감 처리의 종류 순서는 현행 유지다. 알람이 늦을 때만 생기는 일이다 (2026-11-17 결정) | M-TIME-3, M-COOP-VOTE-7 |
 | <a id="u-20"></a>U-20 | 연승은 같은 모드 안에서 이긴 판의 연속이고 날짜는 기준이 아니다 (2026-11-17 결정) | S-STAT-3 |
 | <a id="u-21"></a>U-21 | 일일 등반 12자 완주도 `12자까지 완주!`(2500ms) 토스트다 (2026-11-17 결정) | S-CLIMB-11 |
+| <a id="u-22"></a>U-22 | `best:`·`climbtime:`·`settings`도 형식을 검사해 어긋나면 기본값이다. `settings`의 시도 횟수는 정수면 4~10으로 자른다 (2026-11-22 결정) | S-SAVE-3, S-SAVE-4, S-TRY-1, S-HARD-1, S-TIME-9, S-CLIMB-8 |
 | <a id="u-23"></a>U-23 | 데일리·일일 등반 단어의 우연한 겹침은 막지 않는다. 데일리 공식은 바꾸지 않는다 (2026-11-17 결정) | S-DAILY-3 |
