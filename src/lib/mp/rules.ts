@@ -21,7 +21,6 @@ export const CLIMB_GRACE_MS = 60_000;
 /** 단판 한 판 전체, 그리고 등반 1스테이지의 제한 시간. */
 export const TIME_LIMIT_MS = 180_000;
 export const CLIMB_STEP_MS = 15_000;
-export const CLIMB_MIN_LIMIT_MS = 60_000;
 /** 클라이언트가 스테이지 클리어 연출을 보이는 시간. 다음 스테이지 제한 시간은 이 뒤부터 센다. */
 export const STAGE_CLEAR_MS = 2_000;
 /** 자동 응답(ping)이 이 시간 넘게 없는 소켓은 서버가 닫는다. 클라이언트 ping 주기는 25초. */

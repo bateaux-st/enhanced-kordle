@@ -1,5 +1,5 @@
 // 등반 공통. 스테이지는 길이 n에서 시작해 n+1씩 올라 12자(LENGTH_MAX)에서 끝난다(개인 등반 nextStage와 같은 규칙).
-import { CLIMB_MIN_LIMIT_MS, CLIMB_STEP_MS, LENGTH_MAX, TIME_LIMIT_MS } from '../../mp/rules.ts';
+import { CLIMB_STEP_MS, LENGTH_MAX, TIME_LIMIT_MS } from '../../mp/rules.ts';
 import type { Settings, StageClearView } from '../../mp/protocol.ts';
 import type { Answer, Board } from './state.ts';
 
@@ -23,8 +23,8 @@ export const hasAllStages = (start: Start): boolean => stageLengths(start.n).eve
 
 export const startAnswers = (start: Start): Record<number, Answer> => ({ ...start.stages, [start.n]: start.answer });
 
-/** 등반 스테이지 k(1부터)의 제한 시간. 하한에 닿으면 그 뒤로 유지한다. */
-export const stageLimitMs = (stage: number): number => Math.max(CLIMB_MIN_LIMIT_MS, TIME_LIMIT_MS - CLIMB_STEP_MS * (stage - 1));
+/** 등반 스테이지 k(1부터)의 제한 시간. */
+export const stageLimitMs = (stage: number): number => TIME_LIMIT_MS - CLIMB_STEP_MS * (stage - 1);
 
 /** 제한 시간을 끈 방은 null. `from`은 그 판·스테이지의 시간이 세기 시작하는 시각. */
 export function stageDeadline(settings: Settings, stage: number, from: number): number | null {

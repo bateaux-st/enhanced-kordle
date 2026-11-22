@@ -264,8 +264,8 @@ const coopSolve = (s, jamo, now) => {
 	for (const p of s.players) if (p.connected) coop.propose(s, p.pid, jamo, true, rng, now);
 };
 
-test('스테이지 제한 시간 표: 180에서 15초씩 줄어 60초 아래로 내려가지 않는다', () => {
-	assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((k) => stageLimitMs(k) / SEC), [180, 165, 150, 135, 120, 105, 90, 75, 60, 60, 60]);
+test('스테이지 제한 시간 표: 180에서 15초씩 줄고, 스테이지는 최대 8개라 8에서 75초가 가장 짧다', () => {
+	assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8].map((k) => stageLimitMs(k) / SEC), [180, 165, 150, 135, 120, 105, 90, 75]);
 });
 
 test('제한 시간을 끈 방은 어느 게임이든 마감이 null이고 시간으로 끝나지 않는다', () => {
