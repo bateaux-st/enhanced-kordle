@@ -61,10 +61,10 @@ test('단판: 정답자는 지표가 아무리 좋은 미정답자보다 위', (
 	assert.deepEqual(ranks(g), ['solver1', 'close2']);
 });
 
-test('단판: 미정답자는 초록 자리 -> 노랑 종류 -> 시도 수 순, 모두 같으면 공동 (1,2,2,4)', () => {
+test('단판: 같은 상태 단계의 미정답자는 초록 자리 -> 노랑 종류 -> 시도 수 순, 모두 같으면 공동 (1,2,2,4)', () => {
 	const g = game('single', {
 		five: entry('failed', ['ㅋㅋㅋㅋㅋㅋ'], { finishedAt: 1 }), // 초록 0
-		greenOnly: entry('gaveup', ['ㅂㅋㅋㅋㅋㅋ', 'ㅋㅋㅋㅋㅋㅋ'], { finishedAt: 2 }), // 초록 1, 노랑 0
+		greenOnly: entry('failed', ['ㅂㅋㅋㅋㅋㅋ', 'ㅋㅋㅋㅋㅋㅋ'], { finishedAt: 2 }), // 초록 1, 노랑 0
 		best: entry('failed', ['ㅂㅏㄴㅏㅋㅋ'], { finishedAt: 3 }), // 초록 4
 		greenYellow: entry('timeout', ['ㅋㅋㅋㅋㅏㅋ', 'ㅂㅋㅋㅋㅋㅋ'], { finishedAt: 4 }) // 두 행을 합쳐 초록 1(ㅂ), 노랑 1(ㅏ)
 	});
@@ -139,8 +139,8 @@ test('finishOrder는 정답자끼리 순위표 순서(공동 순위가 있어도
 		['a', 1, 'solved', 1],
 		['b', 2, 'solved', 2],
 		['c', 3, 'solved', 2],
-		['quit', null, 'gaveup', 1],
-		['fail', null, 'failed', 3]
+		['fail', null, 'failed', 3],
+		['quit', null, 'gaveup', 1]
 	]);
 });
 
@@ -167,4 +167,40 @@ test('등반 순위표는 높이(board.cleared)를 싣는다. 나간 사람은 �
 test('단판 순위표에는 높이 필드가 없다', () => {
 	const g = game('single', { p1: entry('failed', filler(1), { cleared: 3 }) });
 	assert.ok(!('height' in standings(g, (p) => p)[0]));
+});
+
+test('단판: 포기한 사람은 지표가 더 좋아도 실패한 사람 아래, 탈락은 포기 아래', () => {
+	const g = game('single', {
+		out: entry('eliminated', ['ㅂㅏㄴㅏㅋㅋ']),
+		quit: entry('gaveup', ['ㅂㅏㄴㅏㄴㅋ']),
+		fail: entry('failed', filler(6))
+	});
+	assert.deepEqual(ranks(g), ['fail1', 'quit2', 'out3']);
+});
+
+test('단판: 시간 초과는 실패와 같은 단계라 지표로 가르고, 같으면 공동', () => {
+	const g = game('single', {
+		a: entry('timeout', ['ㅂㅋㅋㅋㅋㅋ']),
+		b: entry('failed', ['ㅂㅋㅋㅋㅋㅋ']),
+		c: entry('failed', ['ㅂㅏㅋㅋㅋㅋ'])
+	});
+	const s = standings(g, (p) => p);
+	assert.deepEqual(s.map((x) => [x.pid, x.rank, x.tied]), [['c', 1, false], ['a', 2, true], ['b', 2, true]]);
+});
+
+test('단판: 풀이 중은 실패보다 위(진행 중 잠정 순위)', () => {
+	const g = game('single', {
+		fail: entry('failed', ['ㅂㅏㄴㅏㄴㅋ']),
+		live: entry('playing', ['ㅋㅋㅋㅋㅋㅋ'])
+	});
+	assert.deepEqual(ranks(g), ['live1', 'fail2']);
+});
+
+test('등반: 높이가 상태 단계보다 먼저다', () => {
+	const g = game('climb', {
+		failLow: entry('failed', ['ㅂㅏㄴㅏㄴㅋ'], { cleared: 1 }),
+		outHigh: entry('eliminated', filler(1), { cleared: 3 }),
+		quitHigh: entry('gaveup', filler(1), { cleared: 3 })
+	});
+	assert.deepEqual(ranks(g), ['quitHigh1', 'outHigh2', 'failLow3']);
 });
