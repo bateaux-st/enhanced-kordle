@@ -1,4 +1,4 @@
-import { seed } from './harness/storage.ts';
+import { seed, stored } from './harness/storage.ts';
 import { expect, test } from './harness/test.ts';
 import { boardMarks, boardText, expectRowMarks, startSolo, toast, typeJamo } from './harness/ui.ts';
 import { toJamo } from './harness/words.ts';
@@ -42,7 +42,7 @@ test.describe('솔로 서버 실패', () => {
 		expect(api.calls.guess).toEqual([{ token: `tok:${toJamo('토마토')}`, jamo: 고구마 }]);
 	});
 
-	test('패배 확인(reveal)이 실패하면 토스트로 알리고 다음 단어로 넘어갈 수 있다', async ({ page, solo }) => {
+	test('패배 확인(reveal)이 실패하면 토스트로 알리고 패배는 통계에 남으며 정답 자리는 …이고 다음 단어로 넘어갈 수 있다', async ({ page, solo }) => {
 		await seed(page, { config: { mode: 'endless', length: { kind: 'fixed', n: 6 } }, settings: { maxTries: 4 } });
 		const api = await solo({ answers: ['토마토', '바나나'], valid: ['고구마'] });
 		await startSolo(page);
@@ -56,6 +56,11 @@ test.describe('솔로 서버 실패', () => {
 		await expect(toast(page)).toHaveText(CONNECT_FAIL);
 		expect(api.calls.reveal).toHaveLength(1);
 		expect(await boardText(page)).toEqual(Array(4).fill(고구마));
+		expect(await stored(page, 'stats:endless')).toEqual({ played: 1, won: 0, streak: 0, maxStreak: 0, dist: [] });
+
+		await page.getByRole('button', { name: '통계' }).click();
+		await expect(page.getByRole('dialog', { name: '통계' }).locator('.answer')).toHaveText('이번 정답: …');
+		await page.keyboard.press('Escape');
 
 		await page.getByRole('button', { name: '다음 단어' }).click();
 		await expect.poll(() => api.calls.game.length).toBe(2);
@@ -63,7 +68,7 @@ test.describe('솔로 서버 실패', () => {
 		await expect.poll(() => boardMarks(page)).toEqual(Array(4).fill('......'));
 	});
 
-	test('포기 중 정답 확인(reveal)이 실패하면 토스트로 알리고 패배 상태로 남아 다음 단어로 넘어갈 수 있다', async ({ page, solo }) => {
+	test('포기 중 정답 확인(reveal)이 실패하면 토스트로 알리고 패배로 기록한 채 다음 단어로 넘어갈 수 있다', async ({ page, solo }) => {
 		await seed(page, { config: { mode: 'endless', length: { kind: 'fixed', n: 6 } } });
 		const api = await solo({ answers: ['토마토', '바나나'], valid: ['고구마'] });
 		await startSolo(page);
@@ -79,11 +84,28 @@ test.describe('솔로 서버 실패', () => {
 		expect(api.calls.reveal).toHaveLength(1);
 		await expect(giveUp).toHaveCount(0);
 		expect((await boardText(page))[0]).toBe(고구마);
+		expect(await stored(page, 'stats:endless')).toEqual({ played: 1, won: 0, streak: 0, maxStreak: 0, dist: [] });
 
 		await page.getByRole('button', { name: '다음 단어' }).click();
 		await expect.poll(() => api.calls.game.length).toBe(2);
 		await expect(giveUp).toBeVisible();
 		expect(await boardMarks(page)).toEqual(Array(6).fill('......'));
+	});
+
+	test('등반에서 포기 뒤 정답 확인(reveal)이 실패하면 결과 창이 멈춘 곳의 정답 자리를 …로 보인다', async ({ page, solo, clock }) => {
+		await seed(page, { config: { mode: 'climb-streak', length: { kind: 'fixed', n: 6 } } });
+		const api = await solo({ answers: ['토마토'], valid: ['고구마'] });
+		await startSolo(page);
+		api.failing.reveal = true;
+
+		await page.getByRole('button', { name: '포기' }).click();
+		await page.getByRole('button', { name: '정말 포기?' }).click();
+		await expect(toast(page)).toHaveText(CONNECT_FAIL);
+		await clock.run(1200);
+
+		const result = page.getByRole('dialog', { name: '등반 결과' });
+		await expect(result.locator('.answer')).toHaveText('멈춘 곳의 정답: …');
+		expect(await stored(page, 'stats:climb-streak')).toEqual({ played: 1, won: 0, streak: 0, maxStreak: 0, dist: [] });
 	});
 
 	test('첫 판 요청(game)이 실패하면 토스트 없이 안내와 다시 시도 버튼이 뜨고, 다시 실패해도 남으며, 성공하면 판이 열린다', async ({ page, solo }) => {

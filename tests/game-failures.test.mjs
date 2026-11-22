@@ -4,8 +4,10 @@ import { Game, serverError, setup, start } from './game-mock.mjs';
 
 const CONNECT_FAIL = '서버에 연결할 수 없습니다';
 
-test('시도를 모두 쓴 판에서 reveal이 실패하면 토스트로 알리고 busy를 풀며 패배 상태는 남는다', async (t) => {
-	setup(t, { '/api/reveal': serverError });
+const stored = (values, key) => JSON.parse(values.get(`nkordle:${key}`));
+
+test('시도를 모두 쓴 판에서 reveal이 실패하면 토스트로 알리고 busy를 풀며 패배·통계는 저장되고 정답은 비어 있다', async (t) => {
+	const { values } = setup(t, { '/api/reveal': serverError });
 	const game = await start();
 	for (let i = 0; i < game.maxTries; i++) {
 		game.current = 'ㄱ'.repeat(game.n);
@@ -14,20 +16,144 @@ test('시도를 모두 쓴 판에서 reveal이 실패하면 토스트로 알리�
 	assert.equal(game.status, 'lost');
 	assert.equal(game.toast, CONNECT_FAIL);
 	assert.equal(game.busy, false);
+	assert.equal(game.answer, null);
+	assert.deepEqual(game.stats, { played: 1, won: 0, streak: 0, maxStreak: 0, dist: [] });
+	assert.deepEqual(stored(values, 'stats:endless'), game.stats);
 });
 
-test('포기 중 reveal이 실패해도 busy는 풀린다', async (t) => {
-	setup(t, { '/api/reveal': serverError });
+test('포기 중 reveal이 실패해도 busy는 풀리고 예외 없이 토스트로 알리며 통계는 저장된다', async (t) => {
+	const { values } = setup(t, { '/api/reveal': serverError });
 	const game = await start();
 	await game.giveUp();
 	assert.equal(game.busy, false);
+	assert.equal(game.status, 'lost');
+	assert.equal(game.toast, CONNECT_FAIL);
+	assert.equal(game.answer, null);
+	assert.deepEqual(stored(values, 'stats:endless'), { played: 1, won: 0, streak: 0, maxStreak: 0, dist: [] });
 });
 
-test('포기 중 reveal이 실패하면 예외를 던지지 않고 토스트로 알린다', async (t) => {
-	setup(t, { '/api/reveal': serverError });
+test('패배 통계는 reveal 응답을 기다리는 동안 이미 저장되어 있다', async (t) => {
+	let release;
+	const { values } = setup(t, { '/api/reveal': () => new Promise((r) => (release = () => r(Response.json({ word: '정답' })))) });
 	const game = await start();
+	const pending = game.giveUp();
+	await new Promise((r) => setImmediate(r));
+	assert.equal(game.status, 'lost');
+	assert.equal(game.answer, null);
+	assert.equal(stored(values, 'stats:endless').played, 1);
+	release();
+	await pending;
+	assert.equal(game.answer, '정답');
+	assert.equal(game.toast, '정답: 정답');
+});
+
+// 일일 판 하나를 시도 소진으로 지게 만든다. 응답 속도를 정하려고 reveal 핸들러는 호출부가 준다.
+async function loseDaily(t, extra) {
+	const env = setup(t, extra);
+	const game = new Game();
+	game.config = { mode: 'daily', length: { kind: 'fixed', n: 6 } };
+	await game.newGame();
+	for (let i = 0; i < game.maxTries; i++) {
+		game.current = 'ㄱ'.repeat(game.n);
+		await game.submit();
+	}
+	return { ...env, game, key: `daily:${game.dailyDay}:${game.token}` };
+}
+
+async function reopen(config) {
+	const game = new Game();
+	game.config = config;
+	await game.newGame();
+	return game;
+}
+
+test('일일: 시도 소진 뒤 reveal이 실패해도 lost·answer null로 저장되고, 다시 열면 reveal을 다시 요청해 정답을 채워 저장한다', async (t) => {
+	const reveal = { fail: true };
+	const { values, calls, game, key } = await loseDaily(t, {
+		'/api/reveal': () => (reveal.fail ? serverError() : Response.json({ word: '정답' }))
+	});
+	assert.equal(game.status, 'lost');
+	assert.equal(stored(values, key).status, 'lost');
+	assert.equal(stored(values, key).answer, null);
+	assert.equal(stored(values, 'stats:daily').played, 1);
+
+	reveal.fail = false;
+	const again = await reopen(game.config);
+	assert.equal(again.status, 'lost');
+	await new Promise((r) => setImmediate(r));
+	assert.equal(calls.filter((c) => c.url === '/api/reveal').length, 2);
+	assert.equal(again.answer, '정답');
+	assert.equal(stored(values, key).answer, '정답');
+	assert.equal(stored(values, 'stats:daily').played, 1);
+});
+
+test('일일: 복원 때 reveal도 실패하면 토스트를 띄우고 answer는 null, 상태는 lost로 남는다', async (t) => {
+	const { game } = await loseDaily(t, { '/api/reveal': serverError });
+	const again = await reopen(game.config);
+	await new Promise((r) => setImmediate(r));
+	assert.equal(again.status, 'lost');
+	assert.equal(again.answer, null);
+	assert.equal(again.toast, CONNECT_FAIL);
+});
+
+test('정답이 이미 저장된 진 판을 복원할 때는 reveal을 다시 요청하지 않는다', async (t) => {
+	const { game, calls } = await loseDaily(t);
+	const before = calls.filter((c) => c.url === '/api/reveal').length;
+	const again = await reopen(game.config);
+	await new Promise((r) => setImmediate(r));
+	assert.equal(again.answer, '정답');
+	assert.equal(calls.filter((c) => c.url === '/api/reveal').length, before);
+});
+
+test('복원 reveal이 걸려 있는 동안 새 판이 열리면 늦게 온 응답은 새 판에 들어가지 않는다', async (t) => {
+	const reveal = { hold: false, held: false, release: () => {} };
+	const { values, game, key } = await loseDaily(t, {
+		'/api/game': (body) => Response.json({ n: 6, token: body.mode === 'daily' ? 'tok' : 'tok2' }),
+		'/api/reveal': () => {
+			if (!reveal.hold || reveal.held) return serverError();
+			reveal.held = true;
+			return new Promise((r) => (reveal.release = () => r(Response.json({ word: '늦은정답' }))));
+		}
+	});
+	assert.equal(game.answer, null);
+
+	reveal.hold = true;
+	const again = await reopen(game.config);
+	assert.equal(again.status, 'lost');
+	again.setConfig({ mode: 'endless', length: { kind: 'fixed', n: 6 } });
+	await new Promise((r) => setImmediate(r));
+	assert.equal(again.status, 'playing');
+	assert.equal(again.token, 'tok2');
+
+	// 새 판도 정답 없이 진 판이 되면 상태 조건만으로는 늦은 응답을 못 막는다. 토큰이 달라야 막힌다.
+	await again.giveUp();
+	assert.equal(again.status, 'lost');
+	assert.equal(again.answer, null);
+
+	reveal.release();
+	await new Promise((r) => setImmediate(r));
+	assert.equal(again.answer, null);
+	assert.equal(stored(values, key).answer, null);
+});
+
+test('일일 등반: 포기 뒤 reveal이 실패해도 dclimb 저장본이 남아 새로고침하면 끝난 상태로 이어진다', async (t) => {
+	const { values } = setup(t, { '/api/reveal': serverError });
+	const config = { mode: 'daily-climb', length: { kind: 'fixed', n: 5 } };
+	const game = await reopen(config);
 	await game.giveUp();
+	assert.equal(game.status, 'lost');
+	assert.equal(game.answer, null);
 	assert.equal(game.toast, CONNECT_FAIL);
+	const dclimb = stored(values, `dclimb:${game.dailyDay}`);
+	assert.equal(dclimb.stage, 1);
+	assert.equal(dclimb.stageStartAt, null);
+	assert.equal(typeof dclimb.lostMs, 'number');
+	assert.equal(stored(values, `daily:${game.dailyDay}:${game.token}`).status, 'lost');
+
+	const again = await reopen(config);
+	assert.equal(again.status, 'lost');
+	assert.equal(again.stage, 1);
+	assert.equal(again.lostMs, dclimb.lostMs);
 });
 
 test('첫 판을 받아 오지 못하면 예외를 던지지 않고 토스트 없이 불러오기 실패로 남는다', async (t) => {

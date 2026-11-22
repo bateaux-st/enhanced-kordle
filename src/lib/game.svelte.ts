@@ -401,6 +401,8 @@ export class Game {
 				this.answer = saved.answer;
 				this.hints = saved.hints ?? {};
 				if (saved.status === 'playing') this.stageStartAt = resumeAt !== undefined ? resumeAt : Date.now();
+				// 정답을 받기 전에 저장된 진 판이다. enterRound가 동기라 기다리지 않고 띄운다.
+				else if (saved.status === 'lost' && !saved.answer) void this.revealAnswer(false);
 				return;
 			}
 		}
@@ -466,8 +468,6 @@ export class Game {
 		this.busy = true;
 		try {
 			await this.finish(false);
-		} catch {
-			this.showToast('서버에 연결할 수 없습니다');
 		} finally {
 			this.busy = false;
 		}
@@ -535,11 +535,19 @@ export class Game {
 			if (won) this.recordClear(ms);
 			else this.lostMs = ms;
 		}
+		if (!won) {
+			// 졌다는 사실은 정답 확인(reveal)이 실패해도 남아야 한다. 저장을 먼저 하고 정답은 그 뒤에 받는다.
+			this.recordStats(false, this.rows.length);
+			if (isDaily(this.config.mode)) this.saveDaily();
+			if (this.config.mode === 'daily-climb') this.saveDailyClimb();
+			await this.revealAnswer(true);
+			return;
+		}
+
 		const word = revealed ?? (await post<RevealResponse>('/api/reveal', { token: this.token })).word;
 		this.answer = word;
-
-		this.recordStats(won, this.rows.length);
-		if (isClimb(this.config.mode) && won) {
+		this.recordStats(true, this.rows.length);
+		if (isClimb(this.config.mode)) {
 			this.climbWords = [...this.climbWords, word];
 			if (this.stage > this.bestStage) {
 				this.bestStage = this.stage;
@@ -549,14 +557,33 @@ export class Game {
 		if (isDaily(this.config.mode)) this.saveDaily();
 		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
 
-		if (won) {
-			const completes = this.config.mode === 'climb-length' || this.config.mode === 'daily-climb';
-			if (completes && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
-			else if (isClimb(this.config.mode)) this.showToast(`스테이지 ${this.stage} 클리어`, 2000);
-			else this.showToast('정답입니다', 2000);
-		} else {
-			this.showToast(`정답: ${word}`, 3000);
+		const completes = this.config.mode === 'climb-length' || this.config.mode === 'daily-climb';
+		if (completes && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
+		else if (isClimb(this.config.mode)) this.showToast(`스테이지 ${this.stage} 클리어`, 2000);
+		else this.showToast('정답입니다', 2000);
+	}
+
+	/**
+	 * 진 판의 정답을 받아 채운다. 실패해도 던지지 않고 토스트만 띄운다(answer는 null로 남는다).
+	 * 복원 경로는 busy를 걸지 않아 응답을 기다리는 사이 다른 판이 열릴 수 있으므로,
+	 * 요청 때의 토큰과 같은 진 판에 아직 정답이 없을 때만 반영한다.
+	 */
+	private async revealAnswer(announce: boolean) {
+		const token = this.token;
+		let word: string | null;
+		try {
+			word = (await post<RevealResponse>('/api/reveal', { token })).word;
+		} catch {
+			word = null;
 		}
+		if (this.token !== token || this.status !== 'lost' || this.answer) return;
+		if (word === null) {
+			this.showToast('서버에 연결할 수 없습니다');
+			return;
+		}
+		this.answer = word;
+		if (isDaily(this.config.mode)) this.saveDaily();
+		if (announce) this.showToast(`정답: ${word}`, 3000);
 	}
 
 	/** 클리어한 스테이지 시간을 반영한다. bestStage 갱신보다 먼저 불러야 옛 최고 스테이지를 비교 기준으로 쓸 수 있다. */
