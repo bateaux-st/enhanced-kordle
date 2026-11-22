@@ -64,17 +64,20 @@ test('발급된 토큰으로 다시 hello하면 같은 자리로 돌아오고, �
 	assert.equal(ofType(host.ws.take(), 'snap').length, 3, '끊김, 복귀, 새 입장이 각각 방송된다');
 });
 
-test('닉네임 규칙을 어기면 error 뒤 1008로 닫고 자리를 만들지 않는다', async (t) => {
+test('닉네임 규칙을 어기면(짧음·보이지 않는 문자·양방향 제어·결합 문자 4연속·빈칸만) error 뒤 1008로 닫고 자리를 만들지 않는다', async (t) => {
 	const r = await rig(t);
 	await r.open();
 	const seq = r.state().seq;
-	const ws = await r.connect();
-	await r.send(ws, { type: 'hello', name: '가나다라' });
-	assert.deepEqual(ws.take(), [{ type: 'error', code: 'forbidden', msg: '닉네임은 5~12자여야 합니다' }]);
-	assert.deepEqual(ws.closed, { code: 1008, reason: 'bad name' });
-	assert.equal(r.state().seq, seq);
-	assert.equal(r.state().players.length, 1);
-	assert.equal(ws.deserializeAttachment().pid, null);
+	const bad = ['가나다라', '철수​입니다', '철수‮입니다', '철수입니다́̂̃̄', 'ㅤ'.repeat(5)];
+	for (const name of bad) {
+		const ws = await r.connect();
+		await r.send(ws, { type: 'hello', name });
+		assert.deepEqual(ws.take(), [{ type: 'error', code: 'forbidden', msg: '쓸 수 없는 닉네임입니다' }], JSON.stringify(name));
+		assert.deepEqual(ws.closed, { code: 1008, reason: 'bad name' });
+		assert.equal(r.state().seq, seq);
+		assert.equal(r.state().players.length, 1);
+		assert.equal(ws.deserializeAttachment().pid, null);
+	}
 });
 
 test('깨진 메시지는 error로만 답하고 소켓과 저장은 그대로, 바이너리는 무시한다', async (t) => {

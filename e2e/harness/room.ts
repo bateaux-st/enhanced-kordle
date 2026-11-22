@@ -1,7 +1,7 @@
 import { expect, type Page, type WebSocketRoute } from '@playwright/test';
 import { CLOSE } from '../../src/lib/mp/protocol.ts';
 import type { ChatMsg, ClientMsg, Pid, ServerMsg, SessionInfo, Settings, Snapshot } from '../../src/lib/mp/protocol.ts';
-import { DEFAULT_SETTINGS, normalizeName, SESSION_TTL_MS } from '../../src/lib/mp/rules.ts';
+import { DEFAULT_SETTINGS, NAME_BAD_CHARS, normalizeName, SESSION_TTL_MS } from '../../src/lib/mp/rules.ts';
 import { ChatLog, historyMsg, planChat } from '../../src/lib/server/mp/chat.ts';
 import { isClimb, stageLengths } from '../../src/lib/server/mp/climb.ts';
 import type { Start } from '../../src/lib/server/mp/climb.ts';
@@ -164,7 +164,7 @@ export class FakeRoom {
 		this.hellos.push({ token, name: rawName });
 		const name = normalizeName(rawName);
 		if (!name) {
-			this.send({ type: 'error', code: 'forbidden', msg: '닉네임은 5~12자여야 합니다' }, ws);
+			this.send({ type: 'error', code: 'forbidden', msg: NAME_BAD_CHARS }, ws);
 			void ws.close({ code: 1008 });
 			return;
 		}

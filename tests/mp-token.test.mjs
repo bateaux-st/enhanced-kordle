@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import test from 'node:test';
-import { normalizeName, SESSION_TTL_MS } from '../src/lib/mp/rules.ts';
+import { nameProblem, normalizeName, SESSION_TTL_MS } from '../src/lib/mp/rules.ts';
 import { issue, refresh, verify } from '../src/lib/server/mp/session.ts';
 
 const SECRET = 'test-only-secret';
@@ -118,4 +119,56 @@ test('normalizeName: 4자 null, 5자와 12자 통과, 13자 null, 코드포인�
 	assert.equal(normalizeName('  abcd  '), null);
 	assert.equal(normalizeName('🐻🐻🐻🐻🐻'), '🐻🐻🐻🐻🐻');
 	assert.equal(normalizeName(5), null);
+});
+
+test('normalizeName: 보이지 않는 문자·양방향 제어·결합 문자 4연속·빈칸만은 걷지 않고 거절한다', () => {
+	assert.equal(normalizeName('철수​입니다'), null, 'U+200B 제로폭 공백');
+	assert.equal(normalizeName('철수입니다​'), null, '끝의 U+200B도 거절(trim이 지우지 않는다)');
+	assert.equal(normalizeName('철수‮입니다'), null, 'U+202E 양방향 제어');
+	assert.equal(normalizeName('철수입니다'), null, '제어문자');
+	assert.equal(normalizeName('철수	입니다'), null, '가운데 탭');
+	assert.equal(normalizeName('철수입니다́̂̃̄'), null, '결합 문자 4연속');
+	assert.equal(normalizeName('ㅤ'.repeat(5)), null, '한글 채움 문자만 5자');
+	assert.equal(normalizeName('⠀'.repeat(5)), null, '점자 빈칸만 5자');
+	assert.equal(normalizeName('a b c d e'), 'a b c d e', '가운데 공백은 보이는 글자 사이면 통과');
+});
+
+test('normalizeName: 이모지 ZWJ 시퀀스·한글·기호·결합 문자 3연속은 통과한다', () => {
+	const family = '👨‍👩‍👧'; // ZWJ 시퀀스는 닉네임에서도 허용
+	assert.equal(normalizeName(`${family}곰돌이`), `${family}곰돌이`);
+	assert.equal(normalizeName('❤️하트하트하'), '❤️하트하트하', 'FE0F 이모지 표시 선택자');
+	assert.equal(normalizeName('철수♥영희!?'), '철수♥영희!?');
+	assert.equal(normalizeName('한글이름입니다'), '한글이름입니다');
+	assert.equal(normalizeName('abcd́̂̃'), 'abcd́̂̃'.normalize('NFC'), '결합 문자 3연속');
+});
+
+test('nameProblem: 쓸 수 없는 문자를 길이보다 먼저 가르고, 빈 입력은 length다', () => {
+	assert.equal(nameProblem('철수입니다'), null);
+	assert.equal(nameProblem('가나다라'), 'length');
+	assert.equal(nameProblem('가'.repeat(13)), 'length');
+	assert.equal(nameProblem(''), 'length');
+	assert.equal(nameProblem('     '), 'length', '공백만은 아직 입력이 없는 것');
+	assert.equal(nameProblem(7), 'length');
+	assert.equal(nameProblem('가​'), 'chars', '짧아도 쓸 수 없는 문자가 먼저');
+	assert.equal(nameProblem('가'.repeat(13) + '​'), 'chars', '길어도 쓸 수 없는 문자가 먼저');
+	assert.equal(nameProblem('ㅤ'.repeat(5)), 'chars');
+	assert.equal(nameProblem('철수입니다́̂̃̄'), 'chars');
+	// 전역 플래그 정규식의 lastIndex가 남으면 같은 입력의 두 번째 판정이 틀어진다.
+	assert.equal(nameProblem('철수​입니다'), 'chars');
+	assert.equal(nameProblem('철수​입니다'), 'chars');
+	assert.equal(nameProblem('철수​입니다'), 'chars');
+});
+
+test('서명이 맞아도 이름에 쓸 수 없는 문자가 있으면 verify는 null이고 refresh는 새 uid를 발급한다(옛 토큰 이름)', async () => {
+	const { token } = await issue(undefined, '철수입니다', NOW, SECRET);
+	const uid = token.split('.')[1];
+	const nameB64 = Buffer.from('철수​입니다', 'utf8').toString('base64url');
+	const iat = Math.floor(NOW / 1000);
+	const payload = `mp1.${uid}.${nameB64}.${iat}`;
+	const sig = createHmac('sha256', SECRET).update(payload).digest('base64url').slice(0, 32);
+	const old = `${payload}.${sig}`;
+	assert.equal(await verify(old, NOW, SECRET), null);
+	const fresh = await refresh(old, '철수입니다', NOW, SECRET);
+	assert.notEqual(fresh.uid, uid);
+	await assert.rejects(refresh(old, '철수​입니다', NOW, SECRET), RangeError);
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { NAME_MAX, NAME_MIN, normalizeName } from '$lib/mp/rules';
+	import { NAME_BAD_CHARS, NAME_MAX, NAME_MIN, nameProblem, normalizeName } from '$lib/mp/rules';
 	import MpModal from './MpModal.svelte';
 
 	let {
@@ -19,7 +19,9 @@
 
 	let value = $state('');
 	const name = $derived(normalizeName(value));
-	const short = $derived(value.trim().length > 0 && name === null && [...value.trim()].length < NAME_MIN);
+	const badChars = $derived(nameProblem(value) === 'chars');
+	// 쓸 수 없는 문자 안내가 길이 안내보다 먼저다. 문자를 고치기 전에는 글자 수를 채워도 소용없다.
+	const short = $derived(!badChars && value.trim().length > 0 && name === null && [...value.trim()].length < NAME_MIN);
 </script>
 
 <MpModal title="닉네임" small onclose={oncancel}>
@@ -35,14 +37,14 @@
 			id="nick-modal"
 			class="input full"
 			type="text"
-			placeholder="이름"
+			placeholder="5~12자, 글자·숫자·기호·이모지"
 			maxlength={NAME_MAX}
 			autocomplete="off"
 			aria-describedby="nick-modal-count nick-modal-msg"
 			bind:value
 		/>
 		<p id="nick-modal-count" class="note count"><span class="sr">글자 수 </span>{[...value].length}/{NAME_MAX}</p>
-		<p id="nick-modal-msg" class="note msg" role="status">{short ? `${NAME_MIN}자 이상 입력하세요` : message}</p>
+		<p id="nick-modal-msg" class="note msg" role="status">{badChars ? NAME_BAD_CHARS : short ? `${NAME_MIN}자 이상 입력하세요` : message}</p>
 		<div class="two">
 			<button class="btn primary big" type="submit" disabled={!name}>{confirm}</button>
 			<button class="btn" type="button" onclick={oncancel}>취소</button>

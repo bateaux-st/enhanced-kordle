@@ -5,7 +5,7 @@
 	import { MpClient, type CloseReason } from '$lib/mp/client.svelte';
 	import { clearSession, readSession, writeSession } from '$lib/mp/identity';
 	import type { Snapshot } from '$lib/mp/protocol';
-	import { CODE_RE, normalizeName, sameSettings } from '$lib/mp/rules';
+	import { CODE_RE, NAME_BAD_CHARS, normalizeName, sameSettings } from '$lib/mp/rules';
 	import './mp.css';
 	import ChatSheet from './ChatSheet.svelte';
 	import ConnectionOverlay from './ConnectionOverlay.svelte';
@@ -167,7 +167,7 @@
 		in_progress: '진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다',
 		no_room: '없는 방입니다',
 		destroyed: '없는 방입니다',
-		bad_name: '닉네임은 5~12자여야 합니다'
+		bad_name: NAME_BAD_CHARS
 	};
 
 	$effect(() => {

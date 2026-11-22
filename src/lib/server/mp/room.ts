@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CLOSE } from '../../mp/protocol.ts';
 import type { ClientMsg, ServerMsg, SessionInfo, Settings, RoomSummary } from '../../mp/protocol.ts';
-import { LOBBY_REFRESH_MS, normalizeName } from '../../mp/rules.ts';
+import { LOBBY_REFRESH_MS, NAME_BAD_CHARS, normalizeName } from '../../mp/rules.ts';
 import { dict } from '../dict.ts';
 import { randomIndex } from '../token.ts';
 import { ChatLog, historyMsg, planChat } from './chat.ts';
@@ -204,7 +204,7 @@ export class Room extends DurableObject<RoomEnv> {
 	private async hello(ws: WebSocket, token: string | undefined, rawName: string): Promise<void> {
 		const name = normalizeName(rawName);
 		if (!name) {
-			this.sendTo(ws, { type: 'error', code: 'forbidden', msg: '닉네임은 5~12자여야 합니다' });
+			this.sendTo(ws, { type: 'error', code: 'forbidden', msg: NAME_BAD_CHARS });
 			return closeQuietly(ws, 1008, 'bad name');
 		}
 		const session = await refresh(token, name, Date.now(), mpSecret(this.env.KORDLE_SECRET));
