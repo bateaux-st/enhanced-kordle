@@ -36,7 +36,7 @@ test('대기실: 점검은 180초 주기로 울리고 Lobby 재알림은 300초�
 	assert.ok(r.alarmAt() < sec(480 + REAP_CHECK_IDLE_MS / 1000));
 });
 
-test('게임 중에는 점검 주기가 45초로 줄어든다', async (t) => {
+test('게임 중에는 점검 주기가 15초로 줄어든다', async (t) => {
 	const r = await rig(t, { pool: POOL });
 	const players = await r.players();
 	await r.send(players[0].ws, { type: 'start' });
@@ -55,7 +55,7 @@ test('제한 시간이 있는 판: 점검 알람 사이에 마감이 오면 마�
 	guest.ws.take();
 
 	const fired = await fireUntil(r, players, sec(TIME_LIMIT_MS / 1000));
-	assert.deepEqual(fired.map((ms) => ms / 1000), [30, 75, 120, 165, 180]);
+	assert.deepEqual(fired.map((ms) => ms / 1000), [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]);
 	assert.equal(r.state().phase, 'result');
 	assert.deepEqual(Object.values(r.state().game.players).map((p) => p.status), ['timeout', 'timeout']);
 	const [snap] = ofType(host.ws.take(), 'snap').slice(-1);
@@ -145,12 +145,11 @@ test('협동 후보 투표는 마감 알람이 울리면 그 시점 표로 집�
 	await r.send(host.ws, { type: 'propose', jamo: 'ㅂㅏㄴㅏㄴㅏ' });
 	await r.send(guest.ws, { type: 'propose', jamo: 'ㅋㅋㅋㅋㅋㅋ' });
 	assert.equal(r.state().game.step.kind, 'vote');
-	assert.equal(r.alarmAt(), T0 + VOTE_MS);
+	assert.equal(r.alarmAt(), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 15초가 투표 마감 20초보다 이르다');
 	host.ws.take();
 
 	await r.send(host.ws, { type: 'vote', candidate: 0 });
-	beat(r, host, guest);
-	await r.fireAlarm();
+	await fireUntil(r, [host, guest], T0 + VOTE_MS);
 	const g = r.state().game;
 	assert.equal(g.step.kind, 'propose', '표를 집계한 뒤 다음 행의 제안 단계로 간다');
 	assert.equal(g.board.rows.length, 1);
@@ -194,6 +193,82 @@ test('Lobby 알림: 접속 인원·방장·설정이 바뀔 때만 올리고 준
 	assert.equal(r.ctx.storage.puts('upsertAt'), n + 1);
 });
 
+test('맡아 둔 자리가 풀리는 시각(끊긴 시각 + 60000ms)에 알람이 울려 목록 인원을 한 번 줄여 알린다', async (t) => {
+	const r = await rig(t);
+	const [host, guest] = await r.players();
+	await r.settle();
+	r.at(sec(10));
+	await r.drop(guest.ws);
+	await r.settle();
+	assert.deepEqual(r.lobby.upserts().map((u) => u.players), [1, 2], '끊긴 직후에는 자리를 맡아 둬서 요약이 그대로다');
+
+	const fired = await fireUntil(r, [host], sec(10) + DISCONNECT_GRACE_MS - 1);
+	assert.ok(fired.every((ms) => ms < 10_000 + DISCONNECT_GRACE_MS));
+	assert.equal(r.alarmAt(), sec(10) + DISCONNECT_GRACE_MS, '다음 알람은 자리가 풀리는 시각');
+	assert.equal(r.lobby.upserts().length, 2);
+
+	beat(r, host);
+	await r.fireAlarm();
+	assert.deepEqual(r.lobby.upserts().map((u) => u.players), [1, 2, 1]);
+	assert.ok(r.alarmAt() > sec(10) + DISCONNECT_GRACE_MS, '풀린 시각이 과거 후보로 남아 알람이 반복해 울리지 않는다');
+	assert.equal(r.state().players.length, 2, '알람은 목록만 갱신하고 자리는 회수하지 않는다');
+});
+
+test('입장 전 확인(info)의 인원은 입장 거절과 같은 경계로 바뀐다: 59999ms는 4/5 + 맡은 자리 1, 60000ms는 4', async (t) => {
+	const r = await rig(t);
+	const players = await r.players(NAMES.slice(1, 5));
+	assert.equal(players.length, 5);
+	r.at(sec(10));
+	await r.drop(players[4].ws);
+	r.at(sec(10) + DISCONNECT_GRACE_MS - 1);
+	assert.equal((await r.room.info()).players, 5);
+	const late = await r.hello(NAMES[5]);
+	assert.equal(late.ws.closed?.code, 4001, '목록·확인이 가득이면 입장도 거절된다');
+	r.at(sec(10) + DISCONNECT_GRACE_MS);
+	assert.equal((await r.room.info()).players, 4);
+	const ok = await r.hello(NAMES[5]);
+	assert.ok(ok.pid, '60000ms부터는 입장된다');
+});
+
+test('자리가 풀리기 전에 DO가 내려갔다 깨어나도 풀리는 시각의 알람이 변화를 알린다', async (t) => {
+	const r = await rig(t);
+	const [host, guest] = await r.players();
+	await r.settle();
+	r.at(sec(10));
+	await r.drop(guest.ws);
+	await r.settle();
+	await r.revive();
+	assert.equal(r.alarmAt() <= sec(10) + DISCONNECT_GRACE_MS, true);
+	await fireUntil(r, [host], sec(10) + DISCONNECT_GRACE_MS - 1);
+	r.at(sec(10) + DISCONNECT_GRACE_MS);
+	await r.revive();
+	beat(r, host);
+	await r.fireAlarm({ stay: true });
+	assert.deepEqual(r.lobby.upserts().map((u) => u.players), [1, 2, 1]);
+});
+
+test('끊긴 자리가 풀리기 전에 돌아오거나 접속자가 없어 목록에서 빠진 방은 자리 해제 알람을 걸지 않는다', async (t) => {
+	const r = await rig(t);
+	const [host, guest] = await r.players();
+	await r.settle();
+	r.at(sec(10));
+	await r.drop(guest.ws);
+	await r.settle();
+	assert.ok(r.alarmAt() <= sec(10) + DISCONNECT_GRACE_MS);
+	r.at(sec(20));
+	const back = await r.hello(NAMES[1], guest.session.token);
+	await r.settle();
+	await fireUntil(r, [host, back], sec(10) + DISCONNECT_GRACE_MS + 1);
+	assert.deepEqual(r.lobby.upserts().map((u) => u.players), [1, 2], '돌아온 자리는 요약이 변하지 않아 다시 알리지 않는다');
+	assert.ok(r.alarmAt() > sec(10) + DISCONNECT_GRACE_MS + 1, '풀릴 자리가 없으면 그 시각 알람이 남지 않는다');
+
+	r.at(sec(100));
+	await r.drop(back.ws);
+	await r.drop(host.ws);
+	await r.settle();
+	assert.equal(r.alarmAt(), sec(130), '목록에서 빠진 방은 소멸 마감만 걸린다');
+});
+
 test('Lobby 알림이 실패하면 요약이 같아도 다음 동기화에서 다시 올린다', async (t) => {
 	const r = await rig(t);
 	r.lobby.fail.upsert = new Error('lobby down');
@@ -233,6 +308,8 @@ test('목록에서 지우는 호출이 실패하면 다음 동기화에서 다�
 	assert.equal(r.state().seq, seq, '재시도는 상태를 다시 쓰지 않는다');
 });
 
-test('상수: 소켓 무응답 한도는 점검 주기와 같은 45초다', () => {
-	assert.equal(SOCKET_IDLE_MS, REAP_CHECK_PLAYING_MS);
+test('상수: 게임 중 점검 주기는 무응답 한도보다 짧아 넘긴 소켓을 한도 뒤 주기 안에 잡는다', () => {
+	assert.equal(SOCKET_IDLE_MS, 45_000);
+	assert.equal(REAP_CHECK_PLAYING_MS, 15_000);
+	assert.ok(REAP_CHECK_PLAYING_MS < SOCKET_IDLE_MS);
 });

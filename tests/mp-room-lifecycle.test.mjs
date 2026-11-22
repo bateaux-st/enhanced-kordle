@@ -101,6 +101,57 @@ test('협동 초안은 메모리와 방송만 바꾸고 저장·seq를 올리지
 	assert.deepEqual(r.state().game.step.drafts[guest.pid], 'ㅂㅏㄴ');
 });
 
+test('게임 중·결과의 설정 변경은 보관 설정만 저장하고 방송·seq·Lobby 알림은 내지 않으며 재시작 뒤에도 남아 다음 게임에 적용된다', async (t) => {
+	const r = await rig(t, { pool: POOL });
+	const [host, guest] = await r.players();
+	await r.send(host.ws, { type: 'start' });
+	assert.equal(r.state().phase, 'playing');
+	await r.settle();
+	host.ws.take();
+	guest.ws.take();
+	const puts = r.ctx.storage.puts('state');
+	const seq = r.state().seq;
+	const upserts = r.lobby.upserts().length;
+	const pending = { ...r.state().settings, tries: 8, length: 9 };
+
+	await r.send(host.ws, { type: 'settings', settings: pending });
+	await r.settle();
+	assert.equal(r.ctx.storage.puts('state'), puts + 1, '보관만 바뀌어도 저장한다');
+	assert.equal(r.state().seq, seq, 'seq는 올리지 않는다');
+	assert.deepEqual(r.state().pendingSettings, pending);
+	assert.equal(r.state().settings.tries, 6);
+	assert.deepEqual([host.ws.take(), guest.ws.take()], [[], []], '오류도 스냅샷도 없다');
+	assert.equal(r.lobby.upserts().length, upserts);
+
+	await r.send(host.ws, { type: 'settings', settings: pending });
+	assert.equal(r.ctx.storage.puts('state'), puts + 1, '같은 값은 다시 저장하지 않는다');
+
+	await r.revive();
+	assert.deepEqual(r.state().pendingSettings, pending, '재시작해도 보관이 남는다');
+	await r.send(host.ws, { type: 'giveup' });
+	await r.send(guest.ws, { type: 'giveup' });
+	assert.equal(r.state().phase, 'result');
+	await r.send(host.ws, { type: 'again' });
+	assert.deepEqual([r.state().phase, r.state().settings, r.state().pendingSettings], ['lobby', pending, null]);
+	assert.equal(ofType(host.ws.take(), 'snap').at(-1).snap.settings.tries, 8);
+});
+
+test('보관 설정 필드가 없는 이전 저장본도 읽어 다음 게임에 현재 설정으로 간다', async (t) => {
+	const r = await rig(t, { pool: POOL });
+	const [host, guest] = await r.players();
+	await r.send(host.ws, { type: 'start' });
+	await r.send(host.ws, { type: 'giveup' });
+	await r.send(guest.ws, { type: 'giveup' });
+	assert.equal(r.state().phase, 'result');
+	delete r.state().pendingSettings;
+	await r.revive();
+	host.ws.take();
+
+	await r.send(host.ws, { type: 'again' });
+	assert.deepEqual([r.state().phase, r.state().settings.tries, r.state().pendingSettings], ['lobby', 6, null]);
+	assert.equal(ofType(host.ws.take(), 'error').length, 0);
+});
+
 test('하이버네이션 복원: 같은 저장소·소켓으로 새 인스턴스를 만들면 상태·첨부·알람이 이어지고 아무것도 다시 쓰지 않는다', async (t) => {
 	const r = await rig(t);
 	const [host, guest] = await r.players();

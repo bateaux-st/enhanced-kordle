@@ -350,14 +350,14 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| M-ID-1 | 닉네임은 NFC로 정규화하고 앞뒤 공백을 지운 뒤 길이(코드포인트)가 5 이상 12 이하(양끝 포함)일 때만 받는다. 문자 종류는 제한하지 않는다([U-6](#u-6)). | `mp/rules.ts` `normalizeName`, `NAME_MIN`, `NAME_MAX` | t:mp-token, t:mp-room-socket |
+| M-ID-1 | 닉네임은 NFC로 정규화하고 앞뒤 공백을 지운 뒤 길이(코드포인트)가 5 이상 12 이하(양끝 포함)이고 쓸 수 없는 문자가 없을 때만 받는다. 쓸 수 없는 문자는 채팅 본문과 같은 기준(M-CHAT-2)으로 정한다: ① 제어문자와 보이지 않는 서식 문자(제로폭 공백, 양방향 제어, 소프트 하이픈, 단어 결합자, BOM, 눈에 안 보이는 결합·선택·태그 문자)가 하나라도 있음 ② 결합 문자(`\p{M}`)가 4개 이상 연달아 있음 ③ 앞뒤 공백을 지운 뒤 비어 있지 않은데 공백·ZWJ/ZWNJ·`U+FE0F`·한글 채움 문자·점자 빈칸만 남아 보이는 글자가 없음. 하나라도 걸리면 채팅처럼 걷어 내고 받지 않고 **거절**한다. 이모지 시퀀스에 쓰는 ZWJ·ZWNJ·`U+FE0F`는 허용한다. 두 기준은 같은 정규식을 공유해 어긋나지 않는다. 앞뒤 공백을 지운 결과가 빈 문자열이면 문자 문제가 아니라 길이 미달이다. 화면이 거절 까닭을 가를 수 있게 `nameProblem`이 `length`(길이) 또는 `chars`(쓸 수 없는 문자, 길이보다 먼저 판정)를 돌려주고, `normalizeName`은 맞으면 이름·아니면 `null`이다. 경계 예: U+200B나 U+202E가 든 이름·결합 문자 4연속·한글 채움 문자만 5자는 거절, 이모지 ZWJ 시퀀스·한글·기호·결합 문자 3연속은 통과. | `mp/rules.ts` `normalizeName`, `nameProblem`, `NAME_MIN`, `NAME_MAX` | t:mp-token, t:mp-room-socket |
 | M-ID-2 | 같은 방에 같은 이름이 이미 있으면(자기 자신은 제외) `이름(2)`, `이름(3)`… 순으로 접미사를 붙여 비어 있는 첫 이름으로 한다. 접미사를 포함해 12자를 넘지 않게 이름 앞부분을 잘라 맞춘다. 확정된 이름은 입장 응답(`welcome`)으로 알린다. | `server/mp/members.ts` `uniqueName` | t:mp-members |
 | M-ID-3 | 토큰: `mp1.<uid>.<이름 base64url>.<발급 시각(초)>.<서명>`. `uid`는 16바이트 난수의 base64url 22자, 서명은 `HMAC-SHA256(KORDLE_SECRET, "mp1.<uid>.<이름>.<발급 시각>")`의 base64url 앞 32자다. 솔로 정답 토큰(`n.t.idx.서명`)과 접두어 `mp1.`로 갈라진다. | `server/mp/session.ts` | t:mp-token |
-| M-ID-4 | 토큰은 서명·형식이 맞고 `now − 발급 시각×1000 ≤ 24시간`일 때 유효하다(24시간째까지 유효, 그 뒤 거절). 이름이 토큰 안에서 규칙에 맞지 않으면(옛 4자 이하 이름 등) 무효다. | `session.ts` `verify`, `SESSION_TTL_MS` | t:mp-token |
+| M-ID-4 | 토큰은 서명·형식이 맞고 `now − 발급 시각×1000 ≤ 24시간`일 때 유효하다(24시간째까지 유효, 그 뒤 거절). 이름이 토큰 안에서 규칙에 맞지 않으면(옛 4자 이하 이름, 쓸 수 없는 문자가 든 이름 등) 무효다. 무효인 토큰으로 입장해도 거절하지 않고 새 `uid`로 발급한다(M-ID-5). | `session.ts` `verify`, `SESSION_TTL_MS` | t:mp-token |
 | M-ID-5 | 입장(`hello`)마다 갱신한다: 유효한 토큰이면 같은 `uid`로 발급 시각을 `now`로 바꾸고 새 이름으로 다시 서명한다. 토큰이 없거나 만료·변조면 거절하지 않고 새 `uid`로 발급한다. 새 토큰은 입장 직후 첫 스냅샷에만 `session{token, exp}`로 실린다. `exp = 발급 시각(초) × 1000 + 24시간`. | `session.ts` `refresh`, `room.ts` `hello` | t:mp-token, t:mp-room-socket |
-| M-ID-6 | 브라우저에는 `nkordle:mp-session` 하나만 둔다: `{token?, name, exp?}`. 부팅 때 형식이 틀리거나 `exp < now`이면 지우고 닉네임을 다시 묻는다(`exp = now`는 유효). 닉네임이 5자 미만인 옛 기록은 없는 것으로 보되 지우지 않는다. 게임 데이터(추측·초안·투표·결과)는 브라우저에 저장하지 않는다. | `mp/identity.ts` | t:mp-identity |
+| M-ID-6 | 브라우저에는 `nkordle:mp-session` 하나만 둔다: `{token?, name, exp?}`. 부팅 때 형식이 틀리거나 `exp < now`이면 지우고 닉네임을 다시 묻는다(`exp = now`는 유효). 닉네임이 5자 미만인 옛 기록은 없는 것으로 보되 지우지 않는다. 저장된 이름의 문자 종류는 여기서 검사하지 않으므로 쓸 수 없는 문자가 든 옛 기록은 그대로 읽히고, 입장 때 서버가 1008로 거절한다(M-ID-8). 게임 데이터(추측·초안·투표·결과)는 브라우저에 저장하지 않는다. | `mp/identity.ts` | t:mp-identity |
 | M-ID-7 | `나가기`는 세션을 지우지 않는다. `임시 계정 지우기`만 키를 지우고 닉네임을 다시 묻는다. | `identity.ts` `clearSession` | t:mp-identity, e:mp-lobby |
-| M-ID-8 | 닉네임이 규칙에 맞지 않고 원문이 64 UTF-16 코드 단위 이하인 `hello`는 오류 `forbidden` `닉네임은 5~12자여야 합니다`를 보낸 뒤 소켓을 1008로 닫고 자리를 만들지 않는다. 원문이 64단위를 넘으면 파서가 먼저 `잘못된 요청입니다`(M-ROOM-10)로 거절하고 소켓을 닫지 않는다. 방 만들기(`POST /api/room`)는 400 `bad name`이다. 입력 칸은 12자까지 받고 5자 미만이면 `5자 이상 입력하세요`를 보인다. | `room.ts` `hello`, `routes/api/room/+server.ts`, `NickModal.svelte` | t:mp-room-socket, t:api-room, e:mp-lobby |
+| M-ID-8 | 닉네임이 규칙에 맞지 않고 원문이 64 UTF-16 코드 단위 이하인 `hello`는 오류 `forbidden` `쓸 수 없는 닉네임입니다`를 보낸 뒤 소켓을 1008로 닫고 자리를 만들지 않는다. 원문이 64단위를 넘으면 파서가 먼저 `잘못된 요청입니다`(M-ROOM-10)로 거절하고 소켓을 닫지 않는다. 방 만들기(`POST /api/room`)는 400 `bad name`이다. 입력 칸은 12자까지 받고 안내 문구(placeholder)는 `5~12자, 글자·숫자·기호·이모지`다. 입력 중 쓸 수 없는 문자가 있으면 `쓸 수 없는 닉네임입니다`를 보이고(길이와 상관없이 먼저), 그렇지 않고 5자 미만이면 `5자 이상 입력하세요`를 보인다. 어느 쪽이든 확인·방 만들기·입장 버튼은 막힌다. 로비의 이름 수정칸과 닉네임 창이 같은 규칙이다. | `room.ts` `hello`, `routes/api/room/+server.ts`, `NickModal.svelte`, `LobbyView.svelte` | t:mp-room-socket, t:api-room, e:mp-lobby |
 | M-ID-9 | `임시 계정 지우기` 버튼은 로비 화면의 설정 창에서만 보이고 방 안에서는 보이지 않는다. | `components/mp/MpSettings.svelte`, `MultiApp.svelte` | e:mp-waiting |
 
 ### M-ROOM 방 만들기와 입장
@@ -368,9 +368,9 @@
 | M-ROOM-2 | 방 만들기 `POST /api/room {token?, name, settings?}` → `{code, session}`. 검사 순서: ① 방 바인딩 없음 503 ② 이름(400 `bad name`) ③ 토큰이 있는데 문자열이 아님(400 `bad token`) ④ 설정이 있으면 M-SET-2로 검증(400 `bad settings`), 없으면 기본 설정(M-SET-1). 유효하지 않은 토큰은 거절하지 않고 새 `uid`로 발급한다. | `routes/api/room/+server.ts` | t:api-room |
 | M-ROOM-3 | 코드를 난수로 뽑고 이미 쓰이고 있으면 다시 뽑아, 처음 포함 최대 5번(`MAX_ATTEMPTS`) 시도한다. 5번 모두 이미 쓰이고 있으면 503 `could not allocate a room code`. | `api/room/+server.ts` | t:api-room |
 | M-ROOM-4 | 방이 만들어지면 만든 사람이 방장 자리를 예약한다(접속 전이므로 끊긴 사람과 같이 취급: 접속자 0, 끊긴 시각 = 만든 시각). 만든 시각 + 5000ms가 되기 전에 입장하면 방장이 유지되고(M-HOST-2), 그 시각이 지난 뒤 접속 중인 다른 사람이 있으면 그 사람이 방장을 이어받는다(M-HOST-7, M-HOST-8). 아무도 입장하지 않으면 30000ms 뒤 방이 사라진다(M-LIFE-1). | `state.ts` `initRoom` | t:mp-timers |
-| M-ROOM-5 | 입장 전 확인 `GET /api/room/<코드>`는 방 요약을 주고(`cache-control: no-store`) 없는 방·형식 틀린 코드는 404다. 코드로 입장하는 화면은 요약에 따라(`가득`은 접속자 수 기준이라 U-8의 어긋남이 그대로 적용된다, [U-8](#u-8)) `진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다`(`inProgress`), `방이 가득 찼습니다`(`players ≥ max`), `없는 방입니다`(404), `서버에 연결할 수 없습니다`를 입장 전에 알린다. 저장된 닉네임이 있는 링크 입장(`?room=코드`)은 이 확인 없이 바로 접속하고 서버의 거절(M-ROOM-7)을 따른다. | `api/room/[code]/+server.ts`, `LobbyView.svelte`, `MultiApp.svelte` | t:api-room-code, e:mp-lobby |
+| M-ROOM-5 | 입장 전 확인 `GET /api/room/<코드>`는 방 요약을 주고(`cache-control: no-store`) 없는 방·형식 틀린 코드는 404다. 코드로 입장하는 화면은 요약에 따라(`가득`은 요약의 `players`(M-LIFE-5) 기준이라 서버의 정원 판정과 같은 자리 수다) `진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다`(`inProgress`), `방이 가득 찼습니다`(`players ≥ max`), `없는 방입니다`(404), `서버에 연결할 수 없습니다`를 입장 전에 알린다. 저장된 닉네임이 있는 링크 입장(`?room=코드`)은 이 확인 없이 바로 접속하고 서버의 거절(M-ROOM-7)을 따른다. | `api/room/[code]/+server.ts`, `LobbyView.svelte`, `MultiApp.svelte` | t:api-room-code, e:mp-lobby |
 | M-ROOM-6 | 방은 자리를 최대 5개 가진다(`MAX_PLAYERS`). 시작에는 접속자가 2명 이상이어야 한다(`MIN_PLAYERS`, M-START-1). | `rules.ts` | t:mp-members |
-| M-ROOM-7 | 입장(`hello`) 처리 순서: ① 닉네임 검증(M-ID-8). ② 같은 `uid`의 자리가 있으면 그 자리로 돌아온다. 단 그 자리가 `left`(스스로 나간 자리)이고 방이 `playing`이면 거절한다(닫힘 코드 4002). ③ 같은 `uid`의 자리가 없으면, 방이 `playing`이면 거절(4002). ④ 자리 수가 5 이상이면 방장이 아니고 끊긴 지 60000ms 이상(`now − 끊긴 시각 ≥ 60000`)인 사람의 자리를 먼저 비운다. 그래도 5 이상이면 거절(4001). ⑤ 성공하면 자리를 만들거나 되살린다. 거절한 소켓은 해당 코드로 닫는다. | `members.ts` `join`, `evictStale`, `room.ts` | t:mp-members, t:mp-room-socket |
+| M-ROOM-7 | 입장(`hello`) 처리 순서: ① 닉네임 검증(M-ID-8). ② 같은 `uid`의 자리가 있으면 그 자리로 돌아온다. 단 그 자리가 `left`(스스로 나간 자리)이고 방이 `playing`이면 거절한다(닫힘 코드 4002). ③ 같은 `uid`의 자리가 없으면, 방이 `playing`이면 거절(4002). ④ 자리 수가 5 이상이면 방장이 아니고 끊긴 지 60000ms 이상(`now − 끊긴 시각 ≥ 60000`)인 사람의 자리를 먼저 비운다(남는 자리가 방 요약 `players`, M-LIFE-5). 그래도 5 이상이면 거절(4001). ⑤ 성공하면 자리를 만들거나 되살린다. 거절한 소켓은 해당 코드로 닫는다. | `members.ts` `join`, `holdsSeat`, `evictStale`, `room.ts` | t:mp-members, t:mp-room-socket, t:mp-rooms |
 | M-ROOM-8 | 입장에 성공하면 접속자 0 표시(`emptySince`)를 지운다. 방장이 비어 있으면 입장한 사람이 방장이 된다. | `members.ts` `join`, `room.ts` `hello` | t:mp-room-socket, t:mp-members |
 | M-ROOM-9 | 이미 입장한 소켓의 두 번째 `hello`는 오류 `forbidden` `이미 입장했습니다`, 입장 전 소켓의 다른 메시지는 오류 `forbidden` `먼저 입장해야 합니다`다. 없는 방에 연결된 소켓은 첫 메시지에서 4004로 닫힌다. 자리를 잃은 소켓(방에 없는 `pid`)의 메시지도 4004로 닫는다. | `room.ts` `webSocketMessage`, `act` | t:mp-room-socket, t:mp-room-lifecycle |
 | M-ROOM-10 | 잘못된 메시지(JSON이 아니거나, 객체가 아니거나, 모르는 `type`, 필드 타입·범위·길이 위반(한도는 M-ROOM-15), 원문 4096 코드 단위 초과)는 오류 `forbidden` `잘못된 요청입니다`만 돌려주고 소켓·상태는 그대로다. 바이너리는 무시한다. | `server/mp/parse.ts`, `room.ts` | t:mp-parse, t:mp-room-socket |
@@ -391,12 +391,12 @@
 | `start` 수락 | `lobby` | `playing` | M-START. 그 시점의 모든 자리가 참가자가 되고(`inGame`), 설정은 복사본이 게임에 고정된다 |
 | 경쟁: 마지막 풀이 중 참가자가 끝남 | `playing` | `result` | M-COMP-9. 순위표 고정, 준비 전원 해제, 나가기로 떠난 자리 삭제 |
 | 협동: 정답 / 시도 소진 / 제한 시간 / 방장 포기 | `playing` | `result` | M-COOP-13. 명단 고정, 준비 전원 해제, 나가기로 떠난 자리 삭제 |
-| `again` 또는 `next` 수락 | `result` | `lobby` | 설정 유지(`next`는 교체 가능), 게임 데이터 폐기, 전원 준비·`inGame` 해제 |
+| `again` 또는 `next` 수락 | `result` | `lobby` | 설정 = 요청 설정 > 보관 설정 > 현재 설정(M-SET-11), 보관 설정 비움, 게임 데이터 폐기, 전원 준비·`inGame` 해제 |
 | 방 소멸 | 어느 단계든 | 없음 | M-LIFE-1 |
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| M-PHASE-1 | 게임은 시작 때의 설정 복사본으로 끝까지 진행한다. 진행 중에는 설정을 바꿀 수 없다(M-SET-3). | `comp.ts`·`coop.ts` `startGame` | t:mp-members |
+| M-PHASE-1 | 게임은 시작 때의 설정 복사본으로 끝까지 진행한다. 진행 중과 결과에서 온 설정 변경은 현재 설정을 바꾸지 않고 보관된다(M-SET-3, M-SET-11). | `comp.ts`·`coop.ts` `startGame` | t:mp-members |
 | M-PHASE-2 | 등반은 스테이지가 이어지는 동안 한 게임이다. 스테이지 사이에 단계는 바뀌지 않는다. | `climb.ts` | t:mp-climb |
 | M-PHASE-3 | `result`에서 `lobby`로 돌아올 때 이전 게임의 정답·순위표·패널·보드는 스냅샷에서 사라진다. 끊긴 채 남은 사람은 자리를 지키고, 결과 중 들어온 사람은 준비 전인 사람으로 들어와 있다. | `members.ts` `backToLobby` | t:mp-members, t:mp-snapshot |
 
@@ -418,9 +418,9 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| M-READY-1 | 준비(`ready {on}`): 방에 있는 사람이 `playing`이 아닌 단계에서 토글한다. 평가 순서 ① `playing`이면 `phase` `게임 중에는 준비를 바꿀 수 없습니다` ② 방장이면 `forbidden` `방장은 준비하지 않습니다`. 자리가 없는 소켓은 M-ROOM-9로 닫혀 이 평가에 오지 않는다. 결과 단계에서도 받아들인다([U-16](#u-16)). | `members.ts` `setReady` | t:mp-members |
+| M-READY-1 | 준비(`ready {on}`): 방에 있는 사람이 **대기실(`lobby`)에서만** 토글한다. 평가 순서 ① 단계가 `lobby`가 아니면(게임 중·결과 모두) `phase` `대기실에서만 준비할 수 있습니다` ② 방장이면 `forbidden` `방장은 준비하지 않습니다`. 자리가 없는 소켓은 M-ROOM-9로 닫혀 이 평가에 오지 않는다. 결과 중 화면의 준비 버튼은 M-VIS-11을 따른다. | `members.ts` `setReady` | t:mp-members |
 | M-READY-2 | 준비가 해제되는 경우: 접속이 끊길 때, 입장·재입장할 때, 설정 값이 실제로 바뀔 때(전원), `again`·`next`(전원), 게임이 끝날 때(전원), 방장 넘기기(옛·새 방장). | `members.ts`, `comp.ts` `settle`, `coop.ts` `endGame` | t:mp-members, t:mp-comp, t:mp-coop |
-| M-READY-3 | 재촉(`nudge`): 방장이 아닌 사람이 방장에게 보낸다. 평가 순서 ① 방장이 비었거나 보낸 사람이 방장이면 `forbidden` `방장에게만 재촉할 수 있습니다`(자리가 없는 소켓은 M-ROOM-9로 닫힌다) ② `playing`이면 `phase` `게임 중에는 재촉할 수 없습니다` ③ 같은 사람의 이전 재촉이 있고 `now − 이전 재촉 시각 < 30000`이면 `cooldown` `{올림(남은 ms/1000)}초 뒤에 다시 재촉할 수 있습니다`(정확히 30000ms째는 허용). 성공하면 방장에게만 `{type:'nudge', from:<보낸 사람 이름>}`이 간다. 다른 사람은 그 사이에도 재촉할 수 있다(쿨다운은 사람마다). 방장이 끊겨 있어도 성공으로 처리된다([U-17](#u-17)). | `members.ts` `nudge`, `NUDGE_COOLDOWN_MS` | t:mp-members, t:mp-room-socket, e:mp-waiting |
+| M-READY-3 | 재촉(`nudge`): 방장이 아닌 사람이 방장에게 보낸다. 평가 순서 ① 방장이 비었거나 보낸 사람이 방장이면 `forbidden` `방장에게만 재촉할 수 있습니다`(자리가 없는 소켓은 M-ROOM-9로 닫힌다) ② `playing`이면 `phase` `게임 중에는 재촉할 수 없습니다` ③ 방장이 끊겨 있으면(`connected`가 거짓) `forbidden` `방장이 접속 중이어야 합니다`, 쿨다운은 쓰지 않는다(`nudgedAt` 불변) ④ 같은 사람의 이전 재촉이 있고 `now − 이전 재촉 시각 < 30000`이면 `cooldown` `{올림(남은 ms/1000)}초 뒤에 다시 재촉할 수 있습니다`(정확히 30000ms째는 허용). 성공하면 방장에게만 `{type:'nudge', from:<보낸 사람 이름>}`이 간다. 다른 사람은 그 사이에도 재촉할 수 있다(쿨다운은 사람마다). 화면은 재촉을 보내며 로컬 쿨다운을 먼저 걸고, 방장이 끊겨 있어 거절받으면 로컬 쿨다운을 되돌린다(다시 누를 수 있다). | `members.ts` `nudge`, `NUDGE_COOLDOWN_MS` | t:mp-members, t:mp-room-socket, e:mp-waiting |
 | M-READY-4 | 재촉 버튼(`방장 재촉`)은 대기실 목록의 **방장 줄**에 있고, 보는 사람이 방장이 아니면서 스스로 준비를 마친(`준비 완료`) 때만 보인다. 방장 화면과 준비 전인 사람의 화면에는 없고, 방장이 아닌 참가자의 줄에도 없다(그 줄에는 `준비 완료` 배지만 있다). 누르면 재촉을 보내고 즉시 로컬 쿨다운 30000ms(남은 초 배지, 버튼 비활성)를 시작하며 토스트 `재촉했습니다`를 띄운다. 서버가 `cooldown` 오류를 주면 오류 문구의 `N초`에 쿨다운을 맞춘다(새로고침으로 로컬 값을 잃은 경우). | `WaitingRoom.svelte` `nudge` | e:mp-waiting |
 | M-READY-5 | 방장 화면의 재촉 알림은 메시지 `{이름}님이 재촉합니다!`(재촉한 사람이 둘 이상이면 `{이름}님 외 {n}명이 재촉합니다!`)를 보이고 4000ms마다 다시 재생한다. 자동으로 닫히지 않고 Esc와 버튼으로만 닫는다. 버튼은 시작 가능이면 `지금 시작`, 아니면 `대기실 보기`다. 시작 버튼 곁에 받은 재촉 횟수(같은 사람의 반복 포함) 배지 `재촉 {n}회`가 붙는다. | `NudgeLayer.svelte`, `WaitingRoom.svelte` | e:mp-waiting |
 | M-READY-6 | 방장 화면의 재촉 표시(횟수·알림)는 방 설정이 바뀔 때, 방장이 바뀔 때, 단계가 `lobby`가 아니게 될 때 초기화된다. | `MultiApp.svelte` `resetNudge` | 코드만 |
@@ -434,9 +434,9 @@
 | M-START-2 | 시작(`start`) 처리 순서: ① 보낸 사람이 방장이 아니면 `forbidden` `방장만 시작할 수 있습니다` ② M-START-1을 어기면 오류(단계가 `lobby`가 아니면, 즉 게임 중이거나 결과 단계여도 `phase` `이미 시작했습니다`, 나머지 `forbidden`: `방장이 접속 중이어야 합니다` / `두 명 이상 모여야 시작할 수 있습니다` / `{n}명이 아직 준비하지 않았습니다`) ③ 정답 조회에 실패했거나 등반인데 12자까지 한 스테이지라도 정답을 못 읽었으면 `unavailable` `서버에 연결할 수 없습니다`(상태 불변, 방장에게만) ④ 시작. | `reduce.ts` `start` | t:mp-members, t:mp-room-d1 |
 | M-START-3 | 시작 길이가 `랜덤`이면 시작 때 5 이상 12 이하에서 하나를 정하고, 그 길이(등반은 12자까지 모든 길이)마다 풀(t=3)에서 정답을 하나씩 무작위로 읽는다. 단판은 모든 참가자에게 같은 정답이고 등반은 모든 참가자가 같은 단어 순서다. | `comp.ts` `chooseStartN`, `room.ts` `lookupStart` | t:mp-comp, t:mp-room-d1 |
 | M-START-4 | 대기실에서 방장이 시작을 요청하면 인원을 세기 전에 응답 없는 소켓을 먼저 정리한다(M-CONN-4, 방장의 소켓은 제외). 거절될 요청은 정답 조회를 하지 않는다. | `room.ts` `act` | t:mp-room-d1 |
-| M-START-5 | 시작 때 방에 있는 모든 자리가 참가자다(끊긴 사람 포함). `start`에 `kickDisconnected:true`가 실리면 끊긴 자리를 방에서 삭제하고 시작한다. 방장 화면은 끊긴 사람이 있으면 시작 버튼을 `{이름} 내보내고 시작`(여럿이면 `{이름} 외 {n}명 내보내고 시작`)으로 바꾸고 항상 `kickDisconnected:true`로 보낸다([U-7](#u-7)). | `members.ts` `removeDisconnected`, `WaitingRoom.svelte`, `MultiApp.svelte` | t:mp-members, e:mp-waiting |
+| M-START-5 | 시작할 때 끊긴 자리는 방에서 삭제하고, 삭제된 사람은 게임에 들어가지 않는다. `kickDisconnected`는 값과 무관하게 이렇게 처리한다. 서버는 그 필드를 검증만 하고 읽지 않으므로 `true`든 `false`든 없든 받아도 무시한다. 방장 화면은 끊긴 사람이 있으면 시작 버튼을 `{이름} 내보내고 시작`(여럿이면 `{이름} 외 {n}명 내보내고 시작`)으로 바꾸고 항상 `kickDisconnected:true`로 보낸다. | `members.ts` `removeDisconnected`, `reduce.ts` `start`, `WaitingRoom.svelte`, `MultiApp.svelte` | t:mp-members, e:mp-waiting |
 | M-START-6 | 시작 불가 사유 문구(방장 화면): `혼자서는 시작할 수 없습니다`(alone), `{n}명 대기 중`(waiting), `방장이 접속해야 합니다`(no_host). | `WaitingRoom.svelte` | e:mp-waiting |
-| M-START-7 | 결과 → 대기실: `again {}`은 설정을 그대로, `next {settings?}`는 설정이 있으면 교체하고 방장에게만 `{type:'opensettings'}`을 보낸다. 둘 다 방장만 되고(`forbidden` `방장만 다음 게임을 고를 수 있습니다`), 단계가 `result`가 아니면 `phase` `결과 화면에서만 고를 수 있습니다`. 설정 값이 틀리면 결과에 머문다. | `members.ts` `backToLobby`, `reduce.ts` | t:mp-members, t:mp-room-socket |
+| M-START-7 | 결과 → 대기실: `again {}`은 보관 설정이 있으면 그것을, 없으면 현재 설정을 그대로 쓰고, `next {settings?}`는 설정이 있으면 그것으로 교체하고(없으면 `again`과 같다. 순서는 M-SET-11) 방장에게만 `{type:'opensettings'}`을 보낸다. 둘 다 방장만 되고(`forbidden` `방장만 다음 게임을 고를 수 있습니다`), 단계가 `result`가 아니면 `phase` `결과 화면에서만 고를 수 있습니다`. 설정 값이 틀리면 결과에 머문다. | `members.ts` `backToLobby`, `reduce.ts` | t:mp-members, t:mp-room-socket |
 
 ### M-SET 방 설정
 
@@ -455,14 +455,15 @@
 |---|---|---|---|
 | M-SET-1 | 방 설정의 기본값은 위 표다(`DEFAULT_SETTINGS`). 방을 만들 때 설정을 주지 않으면 기본값으로 만들어진다. | `mp/rules.ts` | t:mp-parse, t:api-room |
 | M-SET-2 | 설정은 모든 필드가 위 표의 범위일 때만 받는다. 하나라도 어긋나면 통째로 거절한다. 알려진 필드만 복사하고 모르는 필드는 버린다. 통신으로 온 설정이 틀리면 메시지 전체가 `잘못된 요청입니다`(M-ROOM-10)다. | `rules.ts` `parseSettings`, `parse.ts` | t:mp-parse, t:api-room |
-| M-SET-3 | 설정 변경(`settings`)은 방장만, `playing`이 아닌 단계(대기실·결과)에서 할 수 있다. 평가 순서 ① 방장이 아니면 `forbidden` `방장만 설정을 바꿀 수 있습니다` ② `playing`이면 `phase` `게임 중에는 설정을 바꿀 수 없습니다`. 화면의 설정 창은 대기실에서만 연다([U-12](#u-12)). | `members.ts` `applySettings` | t:mp-members |
-| M-SET-4 | 설정 값이 현재와 다를 때만 바뀐다. 같은 값이면 아무 일도 없고 준비도 유지된다. 실제로 바뀌면 전원의 준비를 푼다(방장 포함). | `members.ts` `applySettings`, `rules.ts` `sameSettings` | t:mp-members, e:mp-waiting |
+| M-SET-3 | 설정 변경(`settings`)은 방장만 할 수 있고, 평가 순서는 ① 방장이 아니면 `forbidden` `방장만 설정을 바꿀 수 있습니다` ② 값이 올바르지 않으면 `forbidden` `설정 값이 올바르지 않습니다`다(M-SET-2). 통과하면 단계에 따라 갈린다. 대기실(`lobby`)이면 현재 설정을 바로 바꾼다(M-SET-4). 게임 중(`playing`)과 결과(`result`)이면 현재 설정은 그대로 두고 받은 값을 **보관 설정**에 둔다(M-SET-11). 게임 중이라고 거절하지 않는다. 보관할 때는 준비를 풀지 않는다. 화면의 설정 창은 대기실에서만 연다. | `members.ts` `applySettings` | t:mp-members |
+| M-SET-4 | 대기실에서는 설정 값이 현재와 다를 때만 바뀐다. 같은 값이면 아무 일도 없고 준비도 유지된다. 실제로 바뀌면 전원의 준비를 푼다(방장 포함). | `members.ts` `applySettings`, `rules.ts` `sameSettings` | t:mp-members, e:mp-waiting |
 | M-SET-5 | 설정 창의 설명 문구(종류): 협동 `한 보드에 단어를 제안하고 골라 함께 풉니다.` / 경쟁 `같은 정답을 각자 풉니다.` | `components/mp/RoomSettings.svelte` | 코드만 |
 | M-SET-6 | 설정 창의 설명 문구(선택 방식): 투표 `자기 제안에도 투표할 수 있습니다. 20초 안에 정하고, 동률이면 돌림판.` / 돌림판 `제안 중 하나를 무작위로 고릅니다.` | `RoomSettings.svelte` | 코드만 |
 | M-SET-7 | 설정 창의 설명 문구(게임): 단판 `한 단어.` / 등반 `시작 길이에서 12자까지 한 자모씩 올라갑니다.` | `RoomSettings.svelte` | 코드만 |
 | M-SET-8 | 설정 창의 하드 모드 설명은 S-HARD-3과 같은 문구다. | `RoomSettings.svelte` | 코드만 |
 | M-SET-9 | 설정 창의 힌트 설명: `노란 자모 하나의 실제 위치를 알려줍니다. ` 뒤에 등반은 `등반 전체에서 방 전체가 한 번.`(협동) / `등반 전체에서 한 사람이 한 번.`(경쟁), 단판은 `한 판에 한 번.`(협동) / `한 사람에 한 번.`(경쟁). | `RoomSettings.svelte` | 코드만 |
 | M-SET-10 | 설정 창의 제한 시간 설명: `단판 180초. 등반은 180초에서 스테이지마다 15초씩 줄어 60초까지.` | `RoomSettings.svelte` | 코드만 |
+| M-SET-11 | 보관 설정은 방 상태의 `pendingSettings`이고, 게임 중·결과의 `settings`를 받을 때마다 마지막 값으로 덮어쓴다(값이 현재 설정과 같아도 보관한다). 결과 → 대기실(`again`·`next`)이 되는 순간 적용할 설정은 **요청에 실린 설정 > 보관 설정 > 현재 설정** 순으로 정하고(`again`은 요청 설정이 없다), 적용한 뒤 보관 설정을 비운다(요청 설정을 썼어도 비운다). 요청 설정이 올바르지 않아 거절되면 결과에 머물고 보관 설정도 그대로다. 그래서 대기실에서는 보관 설정이 늘 비어 있고, 결과 화면의 `settings`와 로비 목록 요약은 보관 설정과 상관없이 끝난 게임 기준 그대로다. 보관 설정은 방장이 바뀌어도(승계·넘기기) 방에 남고 새 방장이 `again`·`next`를 누를 때 적용된다. 아무에게도 보이지 않는다(M-VIS-12). 방 상태와 함께 저장되어 DO가 다시 시작해도 남는다. 보관 설정이 없는 이전 저장본은 비어 있는 것으로 읽는다. | `members.ts` `applySettings`, `backToLobby`, `state.ts` `pendingSettings` | t:mp-members, t:mp-snapshot, t:mp-room-lifecycle |
 
 ### M-MSG 메시지 권한과 거절
 
@@ -474,7 +475,7 @@
 | `ready` | 자리 있는 사람 | `playing`이 아닐 때, 방장 제외 | M-READY-1 |
 | `nudge` | 방장이 아닌 사람 | `playing`이 아닐 때 | M-READY-3 |
 | `leave` | 자리 있는 사람 | 언제나 | M-LEAVE |
-| `settings` | 방장 | `playing`이 아닐 때 | M-SET-3 |
+| `settings` | 방장 | 언제나(`lobby`는 즉시 적용, `playing`·`result`는 보관) | M-SET-3, M-SET-11 |
 | `start` | 방장 | `lobby` | M-START |
 | `again`, `next` | 방장 | `result` | M-START-7 |
 | `transfer` | 방장 | `playing`이 아닐 때 | M-HOST-5 |
@@ -489,7 +490,7 @@
 |---|---|---|---|
 | M-MSG-1 | 단계·게임 종류가 안 맞는 메시지의 `phase` 오류 문구는 방 설정(`kind`)이 아니라 **현재 `game`의 종류**로 갈린다. ① `game`이 없는 대기실: `guess`·`hint`·`giveup`은 `진행 중인 게임이 없습니다`, 협동 전용 메시지(`draft`·`propose`·`unpropose`·`pass`·`vote`·`close`·`hintvote`)는 `협동 게임에서만 쓸 수 있습니다`, `eliminate`는 M-COMP-7 ②③④를 모두 통과한 뒤(보낸 사람이 방장이고 대상이 방에 있으며 끊겨 있을 때)에야 `진행 중인 게임이 없습니다`이고, 앞의 단계에서 막히면 그 오류(`방장만 탈락시킬 수 있습니다`, `방에 없는 사람입니다`, `접속 중인 사람은 탈락시킬 수 없습니다`)다. ② 경쟁 게임(결과 단계 포함): `guess`·`hint`·`giveup`은 풀이 중이 아니면 M-COMP-2 ①~③의 오류, `eliminate`는 M-COMP-7 ②③④를 통과한 뒤 ⑤에서 M-COMP-2 ①~③의 오류, 협동 전용 메시지는 `협동 게임에서만 쓸 수 있습니다`. ③ 협동 게임(결과 단계 포함): `guess`·`eliminate`는 `경쟁 게임에서만 쓸 수 있습니다`, 협동 메시지(`hint`·`giveup` 포함)는 게임이 `playing`이 아니면 `진행 중인 협동 게임이 없습니다`. | `server/mp/reduce.ts`, `comp.ts`, `coop.ts` | t:mp-coop, t:mp-comp |
 | M-MSG-2 | 닫기 코드: 4000 같은 `uid`의 새 소켓이 자리를 넘겨받음, 4001 정원 초과, 4002 진행 중이라 입장 불가(또는 나간 사람의 재입장), 4004 없는 방(또는 자리 없음), 4005 방 소멸, 1008 닉네임 규칙 위반, 1001 응답 없는 소켓 정리, 1000 나가기. 클라이언트는 4000·4001·4002·4004·4005·1008에서는 재접속하지 않는다. | `protocol.ts` `CLOSE`, `client.svelte.ts` `TERMINAL` | t:mp-room-socket, t:mp-client |
-| M-MSG-3 | 입장 거절 안내 문구: 4001 `방이 가득 찼습니다`, 4002 `진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다`, 4004·4005 `없는 방입니다`, 1008 `닉네임은 5~12자여야 합니다`. 같은 계정의 다른 탭이 접속하면(4000) 이 탭은 `다른 탭에서 접속했습니다`를 보이고 다시 붙지 않는다. | `MultiApp.svelte`, `ConnectionOverlay.svelte` | e:mp-lobby, e:mp-connection |
+| M-MSG-3 | 입장 거절 안내 문구: 4001 `방이 가득 찼습니다`, 4002 `진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다`, 4004·4005 `없는 방입니다`, 1008 `쓸 수 없는 닉네임입니다`. 같은 계정의 다른 탭이 접속하면(4000) 이 탭은 `다른 탭에서 접속했습니다`를 보이고 다시 붙지 않는다. | `MultiApp.svelte`, `ConnectionOverlay.svelte` | e:mp-lobby, e:mp-connection |
 
 ### M-LEAVE 나가기
 
@@ -502,9 +503,9 @@
 | M-LEAVE-3 | 경쟁에서 풀이 중인 사람이 나가면 그 즉시 `eliminated`(탈락)로 끝난다. 이미 끝난 사람이나 참가자가 아닌 사람이 나가면 게임에는 영향이 없다. | `comp.ts` `forfeit` | t:mp-comp |
 | M-LEAVE-4 | 협동에서 나간 사람의 제안·초안·투표·패스는 지워지고 집계 대상에서 빠진다. 힌트 투표를 연 사람이 나가면 그 투표는 `moot`로 접는다. 투표 단계의 처리는 M-COOP-VOTE-9. 처리 뒤 진행 조건을 다시 본다(M-COOP-3). | `coop.ts` `forfeit` | t:mp-coop, t:mp-coop-pass-hint |
 | M-LEAVE-5 | 나간 사람은 그 게임이 끝날 때까지(`playing`) 같은 `uid`로 돌아올 수 없다(4002). 게임이 끝난 뒤에는 새 입장자로 들어올 수 있다. | `members.ts` `join` | t:mp-members, t:mp-room-socket |
-| M-LEAVE-6 | 스냅샷에서 `left: true`는 스스로 나간 사람에게만 붙는다. 끊김이나 방장의 탈락 처리는 붙지 않는다. 결과 단계에서 나간 사람은 자리가 삭제된다. | `snapshot.ts` | t:mp-snapshot |
+| M-LEAVE-6 | 스냅샷에서 `left: true`는 스스로 나간 사람에게만 붙는다. 끊김이나 방장의 탈락 처리는 붙지 않는다. 결과 단계에서 나간 사람은 자리가 삭제된다. 순위표 항목에도 같은 사람에게만 `left: true`가 붙어(M-RANK-6) 결과 순위표의 상태 칸이 `나감`으로 보인다. | `snapshot.ts`, `rank.ts` | t:mp-snapshot, t:mp-comp, e:mp-result |
 | M-LEAVE-7 | 게임 중 나가기는 확인 창을 거친다. 이미 끝난 게임에서는 바로 나간다. | `MpGame.svelte` `leave` | e:mp-comp |
-| M-LEAVE-8 | 전원이 나가서 자리가 0개가 되면 방이 사라진다(M-LIFE-1 ①). | `timers.ts` `abandoned`, `reduce.ts` | t:mp-timers, t:mp-room-lifecycle |
+| M-LEAVE-8 | 전원이 나가기로 떠나면(자리가 0개이거나, 게임 중 남은 자리가 모두 나간 사람) 협동·경쟁 모두 방이 사라진다(M-LIFE-1 ①). | `timers.ts` `abandoned`, `reduce.ts` | t:mp-timers, t:mp-room-lifecycle |
 
 ### M-CONN 접속과 끊김
 
@@ -514,13 +515,13 @@
 | M-CONN-2 | 끊긴 사람의 자리는 방이 있는 동안 남는다. 같은 `uid`로 다시 입장하면 같은 자리로 돌아온다(M-ROOM-7). 돌아오면 준비는 해제된다. | `members.ts` `join` | t:mp-members |
 | M-CONN-3 | 클라이언트는 25000ms마다 문자열 `ping`을 보내고, 서버는 방을 깨우지 않고 `pong`으로 자동 응답한다. | `rules.ts` `HEARTBEAT_MS`, `room.ts` | 코드만 |
 | M-CONN-4 | 무응답 소켓 정리: 마지막 자동 응답 시각(응답이 없으면 접속 시각)에서 `now − 그 시각 > 45000`이면 그 소켓을 1001로 닫고 그 자리를 끊김으로 처리한다. **정확히 45000ms는 정상이고 45001ms부터 정리 대상이다.** | `timers.ts` `isStaleSocket`, `room.ts` `reapStale`, `SOCKET_IDLE_MS` | t:mp-timers, t:mp-room-alarm |
-| M-CONN-5 | 소켓 정리 점검은 소켓이 있을 때만, 마지막 점검 시각 + 게임 중 45000ms 또는 대기실·결과 180000ms에 울리는 알람이 한다. 알람이 다른 이유(마감, 방장 승계, 목록 재알림)로 울려도 같은 처리에서 점검한다. 방장이 대기실에서 시작을 요청하면 그 소켓을 뺀 나머지에 대해 한 번 더 점검한다. | `timers.ts` `reapCheckAt`, `room.ts` `alarm`, `reap`, `REAP_CHECK_PLAYING_MS`, `REAP_CHECK_IDLE_MS` | t:mp-timers, t:mp-room-alarm |
+| M-CONN-5 | 소켓 정리 점검은 소켓이 있을 때만, 마지막 점검 시각 + 게임 중 15000ms 또는 대기실·결과 180000ms에 울리는 알람이 한다. 알람이 다른 이유(마감, 방장 승계, 목록 재알림, 자리 해제)로 울려도 같은 처리에서 점검한다. 방장이 대기실에서 시작을 요청하면 그 소켓을 뺀 나머지에 대해 한 번 더 점검한다. | `timers.ts` `reapCheckAt`, `room.ts` `alarm`, `reap`, `REAP_CHECK_PLAYING_MS`, `REAP_CHECK_IDLE_MS` | t:mp-timers, t:mp-room-alarm |
 | M-CONN-6 | 서버가 재시작되면 저장된 접속 상태를 믿지 않는다. 열린 소켓이 없는 접속자는 끊김으로 바꾸고, 그 사이 지난 마감을 먼저 처리한 뒤 협동 진행 조건을 다시 본다. | `members.ts` `reconcile`, `room.ts` `reconcileSockets` | t:mp-members, t:mp-room-lifecycle |
 | M-CONN-7 | 경쟁 자동 탈락: 풀이 중인 참가자가 끊긴 채 `max(끊긴 시각, 게임 시작 시각) + 60000`ms에 도달하면(`now ≥` 그 시각) 그 사람만 `eliminated`가 되고 기록 시각은 그 시각이다. 대기실에서 끊긴 채 시작을 맞은 사람은 게임 시작부터 센다. 그 시각이 되기 전에 돌아오면 탈락하지 않는다(정확히 그 시각에 도착하면 만료 처리가 먼저라 탈락한다, M-TIME-2). 탈락한 뒤 돌아와도 되살아나지 않고 탈락 상태의 자리로 돌아와 그 게임을 탈락 상태로 지켜본다. 접속 중이거나 이미 끝난 사람은 대상이 아니다. `timer` 설정과 무관하다. | `comp.ts` `eliminationAt`, `DISCONNECT_GRACE_MS` | t:mp-timers, e:mp-connection |
 | M-CONN-8 | 협동에서는 끊김으로 탈락하지 않는다. 끊긴 사람은 집계 대상에서만 빠지고 이미 낸 제안은 남는다(M-COOP-2). | `coop.ts` `countable` | t:mp-timers, t:mp-coop |
 | M-CONN-9 | 클라이언트는 연결이 끊기면 즉시 한 번, 2000ms 뒤 한 번 다시 붙는다. 그래도 안 되면 멈추고(`lost`) 사용자가 `다시 연결`을 누르거나 숨은 탭이 다시 보이면 시도 횟수를 처음부터 센다. 닫기 코드 4000, 4001, 4002, 4004, 4005, 1008에서는 재시도하지 않는다(M-MSG-2). 1000·1001·1005·1006 등 나머지 코드는 재시도한다. 재접속은 같은 토큰으로 `hello`를 다시 보낸다. | `mp/client.svelte.ts` | t:mp-client, e:mp-connection |
 | M-CONN-10 | 클라이언트는 스냅샷의 `seq`가 지금까지 받은 값보다 **낮으면** 버리고 같거나 높으면 받아들인다. 서버 시계 보정은 최근 받아들인 스냅샷의 `now − 로컬 시각`을 쓴다. | `client.svelte.ts` `receive` | t:mp-client |
-| M-CONN-11 | 소켓 정리(45000ms 초과)와 경쟁 끊김 탈락 대기(60000ms)는 별개의 시계다. 반쯤 끊긴 소켓은 정리될 때 비로소 끊김이 되므로, 그 클라이언트의 탈락(M-CONN-7)은 "마지막 응답 + 정리 지연 + 60000ms" 뒤에 일어난다([U-9](#u-9)). | `timers.ts`, `comp.ts` | t:mp-room-alarm |
+| M-CONN-11 | 소켓 정리(45000ms 초과)와 경쟁 끊김 탈락 대기(60000ms)는 별개의 시계다. 반쯤 끊긴 소켓은 정리될 때 비로소 끊김이 되므로, 게임 중 그 클라이언트의 탈락(M-CONN-7)은 마지막 자동 응답 뒤 최대 45000 + 15000(게임 중 점검 주기) + 60000ms, 즉 약 120000ms 뒤에 일어난다. 알람이 다른 이유로 먼저 울리면 더 빠를 수 있다. | `timers.ts`, `comp.ts` | t:mp-room-alarm |
 | M-CONN-12 | 입장하기 전(`hello` 전) 소켓도 접속 시각 + 45000ms를 넘기면(`now − 접속 시각 > 45000`, 자동 응답이 한 번도 없는 경우) M-CONN-4처럼 1001로 정리된다. 이 소켓은 자리가 없어 끊김 처리할 대상이 없다. | `room.ts` `reapStale` | 코드만 |
 | M-CONN-13 | 서버는 소켓이 닫혔다는 알림에 같은 코드로 답장 close를 한다. 예약 코드 1005·1006은 닫기에 쓸 수 없으므로 1000으로 바꿔 답한다(Room·Lobby 모두). | `room.ts`·`lobby.ts` `webSocketClose` | t:mp-room-socket, t:mp-lobby-do |
 | M-CONN-14 | 연결 상태 안내(클라이언트): 자동 재접속 중에는 `연결이 끊겼습니다. 다시 연결하는 중…`(움직임 줄이기(`prefers-reduced-motion`)에서는 회전 표시 없이 `재접속 중…`), 재시도를 다 쓰면 `방에 다시 들어갈 수 없습니다`와 버튼 `다시 연결`·`로비로`, 같은 계정이 다른 탭에서 접속하면(4000) `다른 탭에서 접속했습니다`와 `이 탭은 더 이상 이 방에 연결되어 있지 않습니다.`와 버튼 `로비로`(다시 붙지 않는다). 방에 한 번도 입장하지 못한 채 닫히면(재시도를 다 쓴 경우는 `서버에 연결할 수 없습니다`, 그 밖은 M-MSG-3의 문구) 로비에서 들어갔으면 로비 화면에, 링크로 들어갔으면 오류 화면에 그 문구를 보인다. | `ConnectionOverlay.svelte`, `MultiApp.svelte` | e:mp-connection |
@@ -529,15 +530,15 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| M-LIFE-1 | 방은 다음 중 하나가 되면 사라진다: ① 자리가 0개(전원이 나가기로 떠남) → 즉시. ② 접속자가 0명인 상태가 30000ms 이어짐(`now ≥ 접속자가 0이 된 시각 + 30000`). 접속자가 0이 된 시각은 방 생성 직후도 포함하며, 누군가 입장하면 지운다. 그 시각 + 30000ms가 되기 전에 끊긴 사람이 돌아오면 방은 남는다(정확히 그 시각이면 소멸 처리가 먼저다). | `timers.ts` `tick`, `abandoned`, `EMPTY_ROOM_MS` | t:mp-timers, t:mp-room-lifecycle |
-| M-LIFE-2 | 경쟁 게임 중 전원이 나가기로 떠나면 게임이 끝나는 순간(M-COMP-9) 나간 자리가 치워져 ①로 즉시 사라진다. 나가기와 끊김이 섞여 자리가 남으면 ①이 아니라 ②(30초)를 따른다. 협동은 게임이 끝나기 전에는 나간 자리를 치우지 않으므로 전원이 나가기로 떠나도 ②(30초)를 따른다([U-13](#u-13)). | `comp.ts` `settle`, `timers.ts`, `coop.ts` `forfeit` | t:mp-timers (경쟁·섞임만) |
+| M-LIFE-1 | 방은 다음 중 하나가 되면 사라진다: ① 전원이 나가기로 떠남(자리가 0개이거나, 게임 중인데 남은 자리가 모두 나간 사람) → 즉시. ② 접속자가 0명인 상태가 30000ms 이어짐(`now ≥ 접속자가 0이 된 시각 + 30000`). 접속자가 0이 된 시각은 방 생성 직후도 포함하며, 누군가 입장하면 지운다. 그 시각 + 30000ms가 되기 전에 끊긴 사람이 돌아오면 방은 남는다(정확히 그 시각이면 소멸 처리가 먼저다). | `timers.ts` `tick`, `abandoned`, `EMPTY_ROOM_MS` | t:mp-timers, t:mp-room-lifecycle |
+| M-LIFE-2 | 게임 중 전원이 나가기로 떠나면 경쟁·협동 모두 ①로 즉시 사라진다. 경쟁은 마지막 사람이 나가는 순간 게임이 끝나(M-COMP-9) 나간 자리가 치워져 자리가 0개가 되고, 협동은 게임을 끝내지 않고 남은 자리가 모두 나간 사람인 것으로 같은 시점에 사라진다(결과 상태를 만들지 않는다). 나가기와 끊김이 섞여 끊긴 자리가 남으면 ①이 아니라 ②(30초)를 따른다. | `comp.ts` `settle`, `timers.ts` `abandoned` | t:mp-timers |
 | M-LIFE-3 | 사라질 때: 알람과 저장 데이터를 지우고, 공개 목록에서 빼고, 열려 있던 소켓을 4005로 닫고(입장 전 소켓 포함), 채팅 기록을 비운다. 이후 그 코드는 없는 방이다. | `room.ts` `destroy` | t:mp-room-lifecycle |
 | M-LIFE-4 | 공개 목록에는 접속자가 1명 이상인 방만 낸다. 방 생성 직후(방장 예약만 있음), 모두 나가기로 떠난 방, 접속자가 0인 방은 목록에서 빠진다. 접속자가 돌아오면 다시 난다. | `rooms.ts` `isListed` | t:mp-rooms |
-| M-LIFE-5 | 목록 항목(방 요약): 코드, 방장 이름(방장이 없으면 빈 문자열), `kind`, `game`, `players`(**접속자 수**, 끊긴 자리는 세지 않는다), `max`(=5), `inProgress`(`playing`), `length`, `tries`, `hard`, `timer`, 서버가 받은 시각 `updatedAt`. | `rooms.ts` `summarize` | t:mp-rooms |
-| M-LIFE-6 | 방은 요약이 바뀔 때(접속 인원·방장·종류·게임·진행 여부·길이·시도·하드·제한 시간)만 즉시 목록에 알린다. 준비 토글은 알리지 않는다. 접속자가 있는 동안 300000ms마다 다시 알린다(심장박동). | `rooms.ts` `sameSummary`, `rules.ts` `LOBBY_REFRESH_MS` | t:mp-rooms, t:mp-room-alarm |
+| M-LIFE-5 | 목록 항목(방 요약): 코드, 방장 이름(방장이 없으면 빈 문자열), `kind`, `game`, `players`(**접속자 + 끊긴 지 60000ms가 안 된 자리**: 지금 입장하면 정원 판정(M-ROOM-7 ④)에 쓰일 자리 수다. 방장은 끊긴 지 오래여도 세고, 방장이 아닌 자리는 `now − 끊긴 시각 ≥ 60000`이면 세지 않는다), `max`(=5), `inProgress`(`playing`), `length`, `tries`, `hard`, `timer`, 서버가 받은 시각 `updatedAt`. | `rooms.ts` `summarize`, `members.ts` `heldCount` | t:mp-rooms, t:mp-room-alarm |
+| M-LIFE-6 | 방은 요약이 바뀔 때(목록 인원·방장·종류·게임·진행 여부·길이·시도·하드·제한 시간)만 즉시 목록에 알린다. 준비 토글은 알리지 않는다. 접속자가 있는 동안 300000ms마다 다시 알린다(심장박동). 맡아 둔 자리(방장이 아닌 끊긴 자리)가 풀리는 시각(끊긴 시각 + 60000ms)에도 요약을 다시 만들어 바뀌었으면 알리고 같으면 알리지 않는다. 알람은 접속자가 있어 목록에 오른 방에서 아직 오지 않은 해제 시각이 있을 때만 그 시각을 후보로 건다. 알람은 목록만 갱신하고 자리는 입장 때만 회수한다(M-ROOM-7 ④). | `rooms.ts` `sameSummary`, `timers.ts` `alarmTarget`, `members.ts` `nextSeatReleaseAt`, `rules.ts` `LOBBY_REFRESH_MS` | t:mp-rooms, t:mp-room-alarm, t:mp-timers |
 | M-LIFE-7 | 목록은 마지막 알림 이후 `now − updatedAt > 750000`인 방을 지운다(정확히 750000ms는 남는다). 재시작으로 소켓 없이 남은 방은 알리지 않으므로 이 시간 뒤 빠진다. | `rooms.ts` `listRooms`, `LOBBY_STALE_MS` | t:mp-rooms, t:mp-lobby-do |
-| M-LIFE-8 | 목록 정렬: 입장 가능한 방(`inProgress`가 아니고 `players < max`, 접속자 수 기준이라 서버의 정원 판정과 어긋날 수 있다, [U-8](#u-8)) 먼저, 그 안에서 `updatedAt`이 최신인 순. 최대 50개. | `rooms.ts` `listRooms`, `LOBBY_LIST_MAX` | t:mp-rooms, t:mp-lobby-do |
-| M-LIFE-9 | 목록 태그: `진행 중`(`inProgress`) → `가득`(`players ≥ max`) → `대기 중`. `대기 중`이 아닌 방은 목록에서 눌러 입장할 수 없다. 이유 문구: 진행 중 `진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다`, 가득 `방이 가득 찼습니다`. 가득 여부는 접속자 수 기준이라 서버의 자리 수 기준 거절(M-ROOM-7 ④)과 어긋날 수 있다([U-8](#u-8)). | `LobbyView.svelte` | e:mp-lobby |
+| M-LIFE-8 | 목록 정렬: 입장 가능한 방(`inProgress`가 아니고 `players < max`) 먼저, 그 안에서 `updatedAt`이 최신인 순. 최대 50개. | `rooms.ts` `listRooms`, `LOBBY_LIST_MAX` | t:mp-rooms, t:mp-lobby-do |
+| M-LIFE-9 | 목록 태그: `진행 중`(`inProgress`) → `가득`(`players ≥ max`) → `대기 중`. `대기 중`이 아닌 방은 목록에서 눌러 입장할 수 없다. 이유 문구: 진행 중 `진행 중인 방입니다. 게임이 끝나면 들어갈 수 있습니다`, 가득 `방이 가득 찼습니다`. 가득 여부는 `players`(M-LIFE-5)라 서버의 자리 수 기준 거절(M-ROOM-7 ④)과 같은 정의다. | `LobbyView.svelte` | e:mp-lobby |
 | M-LIFE-10 | 목록 구독은 `/ws-lobby` WebSocket이다. 구독한 소켓은 접속 직후 현재 목록을 한 번 받고, 이후 목록 내용(코드별 요약, 순서·`updatedAt` 제외)이 바뀔 때만 전체 목록을 받는다. | `server/mp/lobby.ts`, `mp/lobby-feed.ts`, `rules.ts` `LOBBY_FALLBACK_POLL_MS` | t:mp-lobby-do, t:lobby-feed, e:mp-lobby |
 | M-LIFE-11 | 로비 소켓이 끊긴 동안만 보이는 탭에서 `GET /api/rooms`를 15000ms마다 부르고, 재연결은 3000ms에서 60000ms까지 지수 백오프다. | `mp/lobby-feed.ts`, `rules.ts` `LOBBY_FALLBACK_POLL_MS` | t:lobby-feed, e:mp-lobby |
 | M-LIFE-12 | 로비 클라이언트는 `Date.now() − 마지막 응답 > 75000`이면(정확히 75000ms는 정상) 반쯤 끊긴 소켓으로 보고 버린 뒤 폴링과 재연결로 넘어간다. | `mp/lobby-feed.ts` `DEAD_MS` | t:lobby-feed |
@@ -548,12 +549,12 @@
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| M-TIME-1 | 마감 시각은 단판은 `게임 시작 + 180000`, 등반은 스테이지 k(1부터)에서 `시작 + 제한(k)`이다. 제한(k) = `max(60000, 180000 − 15000 × (k − 1))`. 스테이지 k+1의 마감은 스테이지 k를 클리어한 시각 + 2000(`STAGE_CLEAR_MS`) + 제한(k+1)이다. 경쟁은 사람마다, 협동은 방의 공유 보드 하나가 마감을 가진다. | `server/mp/climb.ts` `stageLimitMs`, `stageDeadline`, `rules.ts` | t:mp-timers |
+| M-TIME-1 | 마감 시각은 단판은 `게임 시작 + 180000`, 등반은 스테이지 k(1부터)에서 `시작 + 제한(k)`이다. 제한(k) = `180000 − 15000 × (k − 1)`. 스테이지 k+1의 마감은 스테이지 k를 클리어한 시각 + 2000(`STAGE_CLEAR_MS`) + 제한(k+1)이다. 경쟁은 사람마다, 협동은 방의 공유 보드 하나가 마감을 가진다. | `server/mp/climb.ts` `stageLimitMs`, `stageDeadline`, `rules.ts` | t:mp-timers |
 | M-TIME-2 | 마감은 `now ≥ 마감 시각`에서 만료한다. 서버는 M-MSG 머리글이 정한 메시지(자리가 있는 사람의 `chat`을 뺀 메시지, 입장 처리에 들어간 `hello`)를 처리하기 전에 만료된 마감을 먼저 처리한다. 그래서 마감 시각 정각(또는 그 뒤)에 도착한 제출·제안은 거절되고(`phase`), 1ms 전에 도착한 것은 받는다. | `timers.ts` `tick`, `reduce.ts` | t:mp-timers |
-| M-TIME-3 | 한 번의 처리에서 여러 마감이 지났으면 마감 시각이 아니라 **이 종류 순서**로 처리한다(경쟁 참가자별 만료 안에서만 시각이 이른 것이 먼저다, M-COMP-8): 방 소멸(자리 0개, 접속자 0 30000ms) → 방장 승계 → 경쟁 참가자별 만료(M-COMP-8) → 협동 공유 보드 마감 → 협동 투표 마감 → 협동 힌트 투표 마감. 게임이 끝나는 마감이 먼저이므로 끝난 게임의 투표·힌트 투표는 이미 접혀 있다. 같은 시각으로 다시 처리해도 결과가 같다. 이 순서는 알람이 늦게 울려 여러 마감이 함께 지났을 때만 의미가 있고, 그때 마감 시각 순서와 달라도 의도다. | `timers.ts` `tick` | t:mp-timers, t:mp-coop-vote |
+| M-TIME-3 | 한 번의 처리에서 여러 마감이 지났으면 마감 시각이 아니라 **이 종류 순서**로 처리한다(경쟁 참가자별 만료 안에서만 시각이 이른 것이 먼저다, M-COMP-8): 방 소멸(자리 0개, 접속자 0 30000ms) → 방장 승계 → 경쟁 참가자별 만료(M-COMP-8) → 협동 공유 보드 마감 → 협동 투표 마감 → 협동 힌트 투표 마감. 게임이 끝나는 마감이 먼저이므로 끝난 게임의 투표·힌트 투표는 이미 접혀 있다. 같은 시각으로 다시 처리해도 결과가 같다. 자리 해제 시각(M-LIFE-6)은 목록만 갱신하는 알람 후보라 이 순서에 들지 않는다. 이 순서는 알람이 늦게 울려 여러 마감이 함께 지났을 때만 의미가 있고, 그때 마감 시각 순서와 달라도 의도다. | `timers.ts` `tick` | t:mp-timers, t:mp-coop-vote |
 | M-TIME-4 | 알람이 늦거나 방이 오래 잠들어 여러 마감이 한꺼번에 지났어도, 각 사람의 종료 시각(`finishedAt`)은 **마감 시각**으로 기록한다(처리한 시각이 아니다). 순위 입력이 흔들리지 않게 하려는 것이다. 게임 종료 시각(`endedAt`)은 처리한 시각이다. | `comp.ts` `expireCompPlayers` | t:mp-timers |
 | M-TIME-5 | 제한 시간 만료의 결과: 경쟁은 그 사람만 `timeout`(등반은 그 높이에서 멈춤), 협동은 게임 전체가 `lost` / `timeout`(등반은 등반 전체)이다. | `comp.ts`, `coop.ts` `expireDeadline` | t:mp-timers |
-| M-TIME-6 | 등반 제한 시간 표: 스테이지 1은 180000, 2는 165000, 3은 150000, 4는 135000, 5는 120000, 6은 105000, 7은 90000, 8은 75000ms다. 스테이지는 시작 길이에서 12자까지 최대 8개라 하한 60000ms에는 닿지 않는다([U-10](#u-10)). | `climb.ts` | t:mp-timers |
+| M-TIME-6 | 등반 제한 시간 표: 스테이지 1은 180000, 2는 165000, 3은 150000, 4는 135000, 5는 120000, 6은 105000, 7은 90000, 8은 75000ms다. 스테이지는 시작 길이에서 12자까지 최대 8개다. | `climb.ts` | t:mp-timers |
 | M-TIME-7 | 무입력 경고(클라이언트에서만): 지금 입력할 것이 있는 사람 화면에서 마지막 입력(또는 경고 닫기) 뒤 60000ms가 지나면 `진행 중입니다` 경고창을 띄운다. 경고는 자동 포기·퇴장으로 이어지지 않고, 닫고 입력하면 이어진다. 대상: 경쟁은 내가 `playing`일 때, 협동은 내가 접속 중 참가자이고 제안 단계에서 제안도 패스도 안 했거나 투표 단계에서 내 표가 없을 때. 끊긴 동안, 모달·채팅·강제 탈락 확인 창이 열려 있는 동안은 세지 않는다. | `MpGame.svelte` `idleTarget`, `rules.ts` `coopNeedsInput` | e:mp-comp, e:mp-coop, t:mp-coop-pass-hint |
 
 ### M-COMP 경쟁
@@ -566,10 +567,10 @@
 |---|---|---|
 | `playing` | `진행 중`(남의 패널에서는 `풀이 중`, 끊겼으면 `접속 끊김`) | 시작 |
 | `solved` | `정답` | 모든 칸이 `c`인 추측이 수락됨(단판, 또는 등반의 12자 스테이지) |
-| `failed` | `실패`(등반에서는 `탈락`으로 표시, [U-15](#u-15)) | 정답이 아닌 추측이 수락되어 행 수 ≥ 시도 횟수 |
+| `failed` | `실패`(등반 스테이지 실패도 `실패`) | 정답이 아닌 추측이 수락되어 행 수 ≥ 시도 횟수 |
 | `gaveup` | `포기` | 본인이 `giveup` |
 | `timeout` | `시간 초과` | 자기 보드 마감 또는 등반 유예 마감에 도달(M-TIME) |
-| `eliminated` | `탈락`(진행 중인 상대 패널에서만 스스로 나간 사람이 `나감`, 결과 순위표에서는 모두 `탈락`, [U-15](#u-15)) | 끊김 60000ms(M-CONN-7), 방장의 강제 탈락, 나가기 |
+| `eliminated` | `탈락`(스스로 나간 사람은 진행 중 상대 패널·칩과 결과 순위표 모두에서 `나감`) | 끊김 60000ms(M-CONN-7), 방장의 강제 탈락, 나가기 |
 
 `playing` 외 상태는 끝난 것이다. 끝난 사람은 되살아나지 않고 더 이상 제출·힌트·포기를 할 수 없다.
 
@@ -587,7 +588,7 @@
 | M-COMP-10 | 끝난 사람은 현재 순위(M-RANK-8)를 본다. 남의 진행(색)은 풀이 중인 사람도 본다(M-VIS-1). | `snapshot.ts` | t:mp-snapshot, e:mp-comp |
 | M-COMP-11 | 멀티 결과를 개인 통계에 기록하지 않는 것은 S-STAT-5와 같다. | S-STAT-5 | 코드만 |
 | M-COMP-12 | 방장 화면의 경쟁 게임에서 접속이 끊긴 풀이 중 상대에게만 `탈락 처리` 버튼이 보이고, 누르면 확인 창 `{이름}님을 탈락 처리할까요?`(`탈락 처리`·`취소`)를 거쳐 `eliminate`를 보낸다. 협동에는 없다. | `OpponentPanel.svelte`, `OpponentSheet.svelte`, `MpGame.svelte` | e:mp-comp |
-| M-COMP-13 | 내 상태가 `playing`에서 바뀌는 순간 클라이언트가 토스트를 한 번 띄운다: `solved` `정답입니다 · {순위}위`(순위를 모르면 `정답입니다`), `failed` `실패했습니다`(등반은 `탈락했습니다`), `eliminated` `탈락했습니다`(재접속 과정을 거쳐 탈락이 확인되면 `접속이 끊겨 탈락했습니다`), `timeout` `시간이 다 됐습니다`. | `MpGame.svelte` | e:mp-comp, e:mp-connection |
+| M-COMP-13 | 내 상태가 `playing`에서 바뀌는 순간 클라이언트가 토스트를 한 번 띄운다: `solved` `정답입니다 · {순위}위`(순위를 모르면 `정답입니다`), `failed` `실패했습니다`(등반도 같다), `eliminated` `탈락했습니다`(재접속 과정을 거쳐 탈락이 확인되면 `접속이 끊겨 탈락했습니다`), `timeout` `시간이 다 됐습니다`. | `MpGame.svelte` | e:mp-comp, e:mp-connection |
 
 ### M-CLIMB 등반 (경쟁·협동 공통)
 
@@ -609,12 +610,12 @@
 | M-RANK-1 | 정답자(`solved`)가 모든 미정답자보다 위다. | `server/mp/rank.ts` `standings` | t:mp-rank |
 | M-RANK-2 | 단판의 정답자 순서: 시도 수(그 보드의 행 수)가 적은 쪽, 같으면 완료 시각(ms)이 이른 쪽. 둘 다 같을 때만 공동 순위다. | `rank.ts` `standings` | t:mp-rank |
 | M-RANK-3 | 등반의 완주자 순서는 완주를 처리한 순서(`finishOrder`)다. 같은 ms에 끝나도 순서가 갈리고 공동 순위가 없다. | `rank.ts` | t:mp-rank |
-| M-RANK-4 | 미정답자(`failed`·`gaveup`·`timeout`·`eliminated`, 끝났든 풀이 중이든)는 상태와 무관하게 지표로만 비교한다. 순서: ① (등반만) 높이 = 클리어한 스테이지 수, 큰 쪽이 위 ② 초록 자리 수 = 현재 스테이지 보드의 모든 행에서 `c`를 받은 서로 다른 자리 수, 큰 쪽 ③ 노랑 자모 종류 수 = 현재 보드의 모든 행에서 `p`를 받은 서로 다른 자모 종류 수, 큰 쪽 ④ 시도 수 = 현재 보드의 행 수, 적은 쪽. 모두 같으면 공동이다. 단판은 ①을 비교하지 않는다([U-14](#u-14)). | `rank.ts` `metrics`, `cmpMetrics` | t:mp-rank |
+| M-RANK-4 | 미정답자(`playing`·`failed`·`gaveup`·`timeout`·`eliminated`)는 정답자 아래에서 다음 순서로 비교한다. ① (등반만) 높이 = 클리어한 스테이지 수, 큰 쪽이 위 ② 상태 단계, 위에서 아래로 풀이 중(`playing`, 진행 중 잠정 순위에만 나온다) > 실패(`failed`, 시간 초과 `timeout` 포함) > 포기(`gaveup`) > 탈락(`eliminated`, 스스로 나간 사람 포함) ③ 초록 자리 수 = 현재 스테이지 보드의 모든 행에서 `c`를 받은 서로 다른 자리 수, 큰 쪽 ④ 노랑 자모 종류 수 = 현재 보드의 모든 행에서 `p`를 받은 서로 다른 자모 종류 수, 큰 쪽 ⑤ 시도 수 = 현재 보드의 행 수, 적은 쪽. 모두 같으면 공동이다(상태 단계가 다르면 공동이 아니다). 높이가 상태 단계보다 먼저라 등반에서는 높이가 높은 탈락자가 낮은 실패자보다 위다. 단판은 ①을 비교하지 않는다. | `rank.ts` `cmpUnsolved`, `metrics`, `cmpMetrics` | t:mp-rank |
 | M-RANK-5 | 공동 순위: 바로 앞 사람과 비교해 0이면 같은 순위 숫자를 쓰고, 다음 사람은 사람 수만큼 건너뛴다(1, 2, 2, 4). 공동인 사람은 모두 `tied`로 표시한다. 같은 순위 안의 표시 순서는 게임 참가자 목록 순(시작 때의 자리 순)이다. | `rank.ts` `place` | t:mp-rank, e:mp-result |
-| M-RANK-6 | 순위표 항목: `pid`, 순위표를 만든 시점의 이름, `rank`, `tied`, 그 시점의 상태, 시도 수(보드 행 수), 완료 순서(`finishOrder`: 정답자끼리 1부터, 공동이어도 1·2·3, 정답이 아니면 없음), 등반이면 높이. 단판 순위표에는 높이가 없다. | `rank.ts`, `protocol.ts` `Standing` | t:mp-rank |
+| M-RANK-6 | 순위표 항목: `pid`, 순위표를 만든 시점의 이름, `rank`, `tied`, 그 시점의 상태, 시도 수(보드 행 수), 완료 순서(`finishOrder`: 정답자끼리 1부터, 공동이어도 1·2·3, 정답이 아니면 없음), 등반이면 높이, 게임 중 스스로 나간 사람이면 `left: true`(나간 사람만, 순위상으로는 탈락과 같은 단계). 단판 순위표에는 높이가 없다. | `rank.ts`, `protocol.ts` `Standing` | t:mp-rank, t:mp-comp |
 | M-RANK-7 | 결과 단계의 순위표는 게임이 끝난 시점에 고정된다. 이후 사람이 나가도 바뀌지 않고 이름·상태·시도·높이는 순위표가 들고 있다. | `comp.ts` `settle` | t:mp-comp |
 | M-RANK-8 | 진행 중 잠정 순위: 내 상태가 `playing`이 아니게 되면 진행 중에도 순위표(M-RANK-1~5로 지금 상태를 계산한 것)를 받는다. 풀이 중인 사람은 받지 못한다. | `snapshot.ts` `compView` | t:mp-snapshot |
-| M-RANK-9 | 잠정 순위 표시(클라이언트): 서버 순위표 중 끝난 사람(상태 `playing` 아님)끼리만 순위 숫자를 다시 매긴다(공동은 1, 1, 3). 풀이 중인 사람은 숫자 없이 끝난 사람 아래에 서버 순서대로 둔다. | `mp/live-rank.ts` | t:mp-live-rank, e:mp-comp |
+| M-RANK-9 | 잠정 순위 표시(클라이언트): 서버 순위표 중 끝난 사람(상태 `playing` 아님)끼리만 순위 숫자를 다시 매긴다(공동은 1, 1, 3). 풀이 중인 사람은 서버 순위(M-RANK-4에서는 실패보다 위)와 상관없이 숫자 없이 끝난 사람 아래에 서버 순서대로 둔다. | `mp/live-rank.ts` | t:mp-live-rank, e:mp-comp |
 
 ### M-VIS 누가 무엇을 보는가
 
@@ -632,7 +633,8 @@
 | M-VIS-8 | 협동은 모두가 같은 것을 본다: 공유 보드, 모두의 확정 제안과 초안과 패스한 사람, 투표 단계의 후보(자모열과 제안자), 후보별 득표수, 투표를 마친 사람 목록, 내 표. 누가 어느 후보에 찍었는지는 보내지 않는다. | `snapshot.ts` `stepView` | t:mp-snapshot |
 | M-VIS-9 | 결과 모달(경쟁·협동)은 종료 1200ms 뒤에 열린다(채팅 시트가 열려 있으면 닫힌 뒤, 결과 단계에서 재접속하면 즉시). 방장의 선택지는 `같은 설정으로 한 판 더`(`again`), `설정 바꾸기`(`next`), `나가기`이고, 방장이 아닌 사람은 `대기실로`, `나가기`다. | `MpGame.svelte`, `MpResult.svelte` | e:mp-comp |
 | M-VIS-10 | 결과 단계에서 방장이 다음 게임을 고르는 동안 `between` 화면을 보는 사람: 결과에서 `대기실로`를 누른 이번 게임 참가자, 그리고 결과 중 들어와 방장을 넘겨받은 사람. 내용: 방장이면 `다음 게임을 골라 주세요.`, `고르면 모두 대기실로 이동합니다.`와 `같은 설정으로 한 판 더`·`설정 바꾸기`, 방장이 아니면 `방장이 다음 게임을 고르는 중입니다.`, `정해지면 대기실로 이동합니다.`. 이번 게임 참가자에게는 `결과 보기`, 모두에게 `나가기`가 있다. | `MultiApp.svelte` `between`, `lateJoiner` | e:mp-result, e:mp-comp |
-| M-VIS-11 | 결과 중 들어온 사람이 방장이 아니면 결과 대신 대기실 화면을 보고 준비할 수 있다([U-16](#u-16)). | `MultiApp.svelte` `lateJoiner` | e:mp-result |
+| M-VIS-11 | 결과 중 들어온 사람이 방장이 아니면 결과 대신 대기실 화면을 보는데, 결과 단계 동안 `준비` 버튼은 비활성이다(안내 `방장이 다음 게임을 고르는 중입니다.`는 그대로). 대기실이 되면 버튼이 켜진다. | `MultiApp.svelte` `lateJoiner`, `WaitingRoom.svelte` | e:mp-result |
+| M-VIS-12 | 보관 설정(M-SET-11)은 스냅샷에도 로비 목록에도 들어가지 않아 방장을 포함한 누구에게도 보이지 않는다. | `snapshot.ts` `personalize`, `rooms.ts` `summarize` | t:mp-snapshot |
 
 ### M-COOP 협동
 
@@ -716,7 +718,7 @@
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
 | M-CHAT-1 | 자리가 있고 나가지 않은 사람은 단계와 무관하게(대기실·게임 중·결과, 경쟁 중에도) 방 전원에게 채팅을 보낼 수 있다. 자리가 없는 소켓은 M-ROOM-9로 4004로 닫힌다. 나간 사람의 소켓은 이미 닫혀 있어 보낼 수 없고, 서버는 방어 검사로 `forbidden` `채팅할 수 없습니다`로 거절하고 기록하지 않는다(정상 클라이언트로는 도달하지 않는다). | `server/mp/chat.ts` `post` | t:mp-chat |
-| M-CHAT-2 | 본문은 이 순서로 다듬는다: ① NFC ② 줄바꿈·탭·`U+2028`·`U+2029`를 공백으로 ③ 제어문자와 보이지 않는 서식 문자(제로폭 공백, 양방향 제어, 소프트 하이픈, 단어 결합자, BOM, 눈에 안 보이는 결합·선택·태그 문자)를 제거(이모지용 ZWJ·ZWNJ·`U+FE0F`는 남긴다) ④ 연달아 오는 결합 문자는 3개까지만 ⑤ 앞뒤 공백 제거. 걷어 낸 뒤 코드포인트가 1 이상 100 이하이고, 공백·ZWJ/ZWNJ·`U+FE0F`·한글 채움 문자·점자 빈칸만 남지 않았을 때만 받는다. 길이는 걷어 낸 뒤에 재므로 보이지 않는 문자로 길이를 채울 수 없다. | `mp/rules.ts` `normalizeChat`, `CHAT_MAX` | t:mp-chat |
+| M-CHAT-2 | 본문은 이 순서로 다듬는다: ① NFC ② 줄바꿈·탭·`U+2028`·`U+2029`를 공백으로 ③ 제어문자와 보이지 않는 서식 문자(제로폭 공백, 양방향 제어, 소프트 하이픈, 단어 결합자, BOM, 눈에 안 보이는 결합·선택·태그 문자)를 제거(이모지용 ZWJ·ZWNJ·`U+FE0F`는 남긴다) ④ 연달아 오는 결합 문자는 3개까지만 ⑤ 앞뒤 공백 제거. 걷어 낸 뒤 코드포인트가 1 이상 100 이하이고, 공백·ZWJ/ZWNJ·`U+FE0F`·한글 채움 문자·점자 빈칸만 남지 않았을 때만 받는다. 길이는 걷어 낸 뒤에 재므로 보이지 않는 문자로 길이를 채울 수 없다. 닉네임은 같은 문자 기준에 걸리면 걷어 내지 않고 거절한다(M-ID-1). | `mp/rules.ts` `normalizeChat`, `CHAT_MAX` | t:mp-chat |
 | M-CHAT-3 | 본문이 M-CHAT-2에 맞지 않는 메시지는 `잘못된 요청입니다`(M-ROOM-10)로 거절된다. 클라이언트는 규칙에 안 맞는 본문을 보내지 않는다. | `parse.ts`, `client.svelte.ts` `sendChat` | t:mp-chat, t:mp-parse |
 | M-CHAT-4 | 속도 제한: 같은 계정(`uid`, 방에 새로 들어와 `pid`가 바뀌어도 같은 계정)이 `now − 이전 받아들인 시각 < 5000`인 메시지를 5개 보낸 상태에서 또 보내면 `cooldown` `채팅을 너무 빨리 보내고 있습니다`로 거절한다. 정확히 5000ms 전의 메시지는 창 밖이다. 거절된 시도는 창에 세지 않는다. 사람마다 따로 센다. | `chat.ts` `post`, `CHAT_WINDOW_MS`, `CHAT_BURST` | t:mp-chat, t:mp-room-socket, e:mp-chat |
 | M-CHAT-5 | 받아들인 채팅은 자리가 있고 열린 소켓 전원(보낸 사람 포함)에게 `{type:'chat', msg:{id, pid, name, text, at}}`로 방송한다. `name`은 방의 현재 이름, `at`은 서버 시각이다. 스냅샷에 싣지 않고 거절은 보낸 사람에게만 `error`로 간다. | `chat.ts` `planChat` | t:mp-chat |
@@ -782,6 +784,7 @@
 | `MIN_PLAYERS` | `2` | 시작에 필요한 접속자 수 | `src/lib/mp/rules.ts` |
 | `NAME_MIN` | `5` | 닉네임 최소 길이(코드포인트, 포함) | `src/lib/mp/rules.ts` |
 | `NAME_MAX` | `12` | 닉네임 최대 길이(포함) | `src/lib/mp/rules.ts` |
+| `NAME_BAD_CHARS` | `'쓸 수 없는 닉네임입니다'` | 쓸 수 없는 문자가 든 닉네임의 입력 안내·서버 오류·1008 토스트 문구 | `src/lib/mp/rules.ts` |
 | `CODE_ALPHABET` | `'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'` | 방 코드 문자 | `src/lib/mp/rules.ts` |
 | `CODE_LENGTH` | `6` | 방 코드 길이 | `src/lib/mp/rules.ts` |
 | `CODE_RE` | `/^[A-HJ-NP-Z2-9]{6}$/` | 방 코드 형식 | `src/lib/mp/rules.ts` |
@@ -799,7 +802,7 @@
 | `NUDGE_COOLDOWN_MS` | `30_000` | 같은 사람의 재촉 간격 | `src/lib/mp/rules.ts` |
 | `HOST_GRACE_MS` | `5_000` | 방장이 끊긴 뒤 승계까지 | `src/lib/mp/rules.ts` |
 | `EMPTY_ROOM_MS` | `30_000` | 접속자 0명이 이어지면 방 소멸 | `src/lib/mp/rules.ts` |
-| `DISCONNECT_GRACE_MS` | `60_000` | 경쟁 끊김 자동 탈락, 정원이 찼을 때 끊긴 자리 회수 | `src/lib/mp/rules.ts` |
+| `DISCONNECT_GRACE_MS` | `60_000` | 경쟁 끊김 자동 탈락, 정원이 찼을 때 끊긴 자리 회수, 목록 인원이 끊긴 자리를 세는 기간 | `src/lib/mp/rules.ts` |
 | `IDLE_WARNING_MS` | `60_000` | 무입력 경고(클라이언트) | `src/lib/mp/rules.ts` |
 | `HINT_VOTE_MS` | `30_000` | 협동 힌트 투표 제한 | `src/lib/mp/rules.ts` |
 | `VOTE_MS` | `20_000` | 협동 후보 투표 제한 | `src/lib/mp/rules.ts` |
@@ -807,10 +810,9 @@
 | `CLIMB_GRACE_MS` | `60_000` | 경쟁 등반 첫 완주 뒤 유예 | `src/lib/mp/rules.ts` |
 | `TIME_LIMIT_MS` | `180_000` | 단판 한 판 전체·등반 1스테이지 제한 | `src/lib/mp/rules.ts` |
 | `CLIMB_STEP_MS` | `15_000` | 등반 스테이지마다 줄어드는 제한 | `src/lib/mp/rules.ts` |
-| `CLIMB_MIN_LIMIT_MS` | `60_000` | 등반 제한 시간 하한 | `src/lib/mp/rules.ts` |
 | `STAGE_CLEAR_MS` | `2_000` | 클리어 연출 시간. 다음 스테이지 제한은 이 뒤부터 센다 | `src/lib/mp/rules.ts` |
 | `SOCKET_IDLE_MS` | `45_000` | 자동 응답이 이 시간을 **넘게** 없는 소켓은 정리 | `src/lib/mp/rules.ts` |
-| `REAP_CHECK_PLAYING_MS` | `45_000` | 게임 중 소켓 정리 점검 주기 | `src/lib/mp/rules.ts` |
+| `REAP_CHECK_PLAYING_MS` | `15_000` | 게임 중 소켓 정리 점검 주기 | `src/lib/mp/rules.ts` |
 | `REAP_CHECK_IDLE_MS` | `180_000` | 대기실·결과 소켓 정리 점검 주기 | `src/lib/mp/rules.ts` |
 | `HEARTBEAT_MS` | `25_000` | 클라이언트 ping 주기 | `src/lib/mp/rules.ts` |
 | `LOBBY_FALLBACK_POLL_MS` | `15_000` | 로비 소켓이 끊긴 동안 목록 폴링 주기 | `src/lib/mp/rules.ts` |
@@ -858,21 +860,9 @@
 
 ## 미결·모순
 
-아래는 현재 코드의 동작이 **규칙으로서 모순이거나 비어 있거나 이상해 보이는** 곳이다. 본문에는 현재 코드 동작을 썼다. 어느 쪽이 정답인지는 정하지 않았고, 결정은 사용자가 한다. 각 항목은 충돌하는 규칙 ID를 적는다.
+규칙으로서 모순이거나 비어 있거나 이상해 보이는 곳은 사용자가 결정하면 아래 `결정된 항목` 표로 옮긴다.
 
-| ID | 현재 코드 동작 | 왜 문제인가 | 관련 규칙 |
-|---|---|---|---|
-| <a id="u-6"></a>U-6 | 닉네임은 길이(코드포인트 5~12)와 앞뒤 공백만 검사한다. 제어문자·보이지 않는 서식 문자·결합 문자 연속 등은 거르지 않는다. 채팅 본문에는 같은 종류의 걸러내기가 있다. | 보이지 않는 글자만으로 이름이 되거나, 표시 순서를 뒤집는 문자가 이름에 들어갈 수 있다. 채팅과 기준이 다르다. | M-ID-1, M-CHAT-2 |
-| <a id="u-7"></a>U-7 | 서버는 끊긴 사람이 있어도 방장이 `kickDisconnected` 없이 시작하는 것을 받아들이고, 그 사람들은 참가자로 게임에 들어간다. 방장 화면은 끊긴 사람이 있으면 항상 "내보내고 시작"만 보이고 `kickDisconnected:true`로 보낸다. | 서버 규칙(시작을 막지 않는다)과 화면 규칙(끊긴 사람은 항상 내보낸다)이 다르다. | M-START-1, M-START-5 |
-| <a id="u-8"></a>U-8 | 목록의 인원수·`가득` 태그는 접속자 수 기준이고, 서버의 정원 판정은 자리 수(끊긴 자리 포함, 끊긴 지 60000ms 이상이면 회수) 기준이다. 접속자 4명 + 끊긴 지 60000ms 미만의 1명이면 목록은 `대기 중`(4/5)인데 입장하면 4001로 거절된다. 같은 접속자 수 기준이 코드 입장 전 확인(`players ≥ max`)과 목록 정렬의 "입장 가능" 판정에도 쓰인다. | 같은 "가득"이 두 곳에서 다르게 정의된다. | M-LIFE-5, M-LIFE-8, M-LIFE-9, M-ROOM-5, M-ROOM-7 |
-| <a id="u-9"></a>U-9 | 끊김은 두 시계로 정해진다. 서버가 반쯤 끊긴 소켓을 정리하는 시점(마지막 응답 + 45000ms 초과, 점검은 마지막 점검 + 게임 중 45000ms·대기실 180000ms에 울리는 알람이 하고 다른 알람도 같이 점검한다)과 경쟁 끊김 탈락 대기(60000ms)다. 침묵한 클라이언트는 정리될 때 비로소 끊긴 것이 되므로, 경쟁 탈락은 최대 약 45000 + 45000 + 60000ms(게임 중) 뒤에, 대기실·결과의 목록 인원은 최대 약 180000 + 45000ms 뒤에, 대기실·결과의 방장 승계는 거기에 5000ms를 더한 최대 약 230000ms 뒤에 일어난다(알람이 다른 이유로 울리면 더 빠를 수 있다). | "끊긴 지 60초"라는 규칙이 사용자가 체감하는 시간과 맞지 않을 수 있다. 값 자체가 규칙인지 결과일 뿐인지 정해져 있지 않다. | M-CONN-4, M-CONN-5, M-CONN-7, M-CONN-11, M-HOST-2 |
-| <a id="u-10"></a>U-10 | 등반 제한 시간의 하한 60000ms(`CLIMB_MIN_LIMIT_MS`)는 스테이지가 최대 8개(5자~12자)라 180000 − 15000 × 7 = 75000ms가 가장 짧아 닿지 않는다. | 하한 규칙이 실제로는 적용되지 않는다. | M-TIME-1, M-TIME-6 |
-| <a id="u-12"></a>U-12 | 서버는 방장의 설정 변경을 `playing`이 아니면(결과 단계 포함) 받아들인다. 화면의 설정 창은 대기실에서만 연다. 결과 단계에서 방 설정이 바뀌어도 이미 끝난 게임에 고정된 설정은 그대로이지만, 스냅샷의 `settings`는 방 설정이라 결과 단계 화면이 바뀐 값(`game`(단판·등반)·`tries`·`hard`·`hints`)을 쓰고(협동·경쟁 종류는 `game.kind`라 바뀌지 않는다) 로비 목록의 요약도 바뀐 방 설정을 따른다. | 결과 단계의 설정 변경이 규칙으로 정해져 있지 않다. | M-SET-3, M-PHASE-1 |
-| <a id="u-13"></a>U-13 | 경쟁은 게임 중 전원이 나가기로 떠나면 즉시(자리가 치워져) 사라지지만, 협동은 나간 자리를 게임이 끝날 때까지 치우지 않아 접속자 0 30000ms 뒤에 사라진다. | 같은 "전원 나가기"가 종류에 따라 즉시와 30초로 다르다. | M-LIFE-1, M-LIFE-2, M-LEAVE-8 |
-| <a id="u-14"></a>U-14 | 경쟁 순위에서 실패·포기·시간 초과·탈락은 모두 같은 미정답자로 보고 지표(높이·초록·노랑·시도)만 비교한다. 포기하거나 끊겨 탈락한 사람이 시도를 다 쓰고 실패한 사람보다 위일 수 있다. | 상태가 순위에 영향을 주지 않는 것이 의도인지 확인이 필요하다. | M-RANK-4 |
-| <a id="u-15"></a>U-15 | 등반에서 `failed`(스테이지 실패)와 `eliminated`(탈락)가 둘 다 `탈락`으로 표시된다. 스스로 나간 사람의 `나감`은 진행 중 상대 패널·칩에서만 보이고, 결과 순위표에서는 나간 사람도 `탈락`이다. | 화면만으로 실패와 끊김·강제 탈락·나감을 구분할 수 없다. | M-COMP 상태 표, M-LEAVE-6 |
-| <a id="u-16"></a>U-16 | 서버는 결과 단계에서도 `ready`를 받아들이지만 다음 대기실로 돌아갈 때 전원 해제된다. | 결과 단계의 준비 토글이 아무 효과 없이 받아들여진다. | M-READY-1, M-READY-2 |
-| <a id="u-17"></a>U-17 | 재촉은 방장이 끊겨 있어도(방장 자리는 있고 소켓만 없음) 받아들여지고 보낸 사람의 쿨다운이 소모된다. 알림을 받을 소켓이 없으면 그 재촉은 아무에게도 가지 않는다. | 받는 사람이 없는 재촉이 성공으로 처리된다. | M-READY-3 |
+남은 미결 항목이 없다.
 
 ### 결정된 항목
 
@@ -885,7 +875,18 @@
 | <a id="u-3"></a>U-3 | 솔로 서버는 힌트 횟수·정답 공개 시점을 강제하지 않는다. 무상태 설계이며 화면이 지키는 규칙이다 (2026-11-17 결정) | S-HINT-1, S-HINT-4, S-API-4 |
 | <a id="u-4"></a>U-4 | 패배는 통계·데일리 저장을 먼저 하고 정답은 그 뒤에 받는다. 실패하면 토스트와 `…`, 복원 때 다시 요청한다 (2026-11-17 결정) | S-GIVE-2, S-GIVE-3, S-ROUND-4, S-STAT-2, S-DAILY-8, S-DAILY-9, S-DCLIMB-4, S-CLIMB-7, S-CLIMB-14 |
 | <a id="u-5"></a>U-5 | 데일리 과거 날짜 하한 없음은 의도다 (2026-11-17 결정) | S-DAILY-5 |
+| <a id="u-6"></a>U-6 | 닉네임에 보이지 않는 문자·양방향 제어·결합 문자 4개 이상 연속·빈칸만이면 걷어 내지 않고 거절한다 (2026-11-17 결정) | M-ID-1, M-ID-8, M-MSG-3, M-CHAT-2 |
+| <a id="u-7"></a>U-7 | 시작할 때 끊긴 자리는 kickDisconnected와 무관하게 항상 내보낸다 (2026-11-17 결정) | M-START-5 |
+| <a id="u-8"></a>U-8 | 목록 인원·`가득`·입장 가능·코드 입장 전 확인을 접속자 + 끊긴 지 60000ms 안 된 자리로 센다. 자리가 풀리는 시각에 목록을 다시 알린다 (2026-11-17 결정) | M-LIFE-5, M-LIFE-6, M-LIFE-8, M-LIFE-9, M-ROOM-5, M-ROOM-7, M-TIME-3 |
+| <a id="u-9"></a>U-9 | 게임 중 소켓 정리 점검 주기를 15000ms로 줄인다(경쟁 끊김 탈락 최대 약 120초, 대기실 180초는 그대로) (2026-11-17 결정) | M-CONN-5, M-CONN-11 |
+| <a id="u-10"></a>U-10 | 닿지 않는 등반 제한 시간 하한 60000ms를 지운다(동작 불변) (2026-11-17 결정) | M-TIME-1, M-TIME-6 |
 | <a id="u-11"></a>U-11 | 제한 시간을 끈 방은 기다려 주는 방이고, 접속 중 잠수의 대책은 제한 시간이다. 강퇴는 v1 제외 (2026-11-17 결정) | M-HOST-4 |
+| <a id="u-12"></a>U-12 | 게임 중·결과의 설정 변경은 보관 설정에 두고, 다음 게임 때 요청 > 보관 > 현재 순으로 적용한 뒤 비운다 (2026-11-17 결정, 적용 순서 2026-11-22 확인) | M-SET-3, M-SET-4, M-SET-11, M-PHASE-1, M-START-7, M-VIS-12 |
+| <a id="u-13"></a>U-13 | 협동도 게임 중 전원이 나가면 즉시 소멸한다(경쟁과 통일) (2026-11-17 결정) | M-LIFE-1, M-LIFE-2, M-LEAVE-8 |
+| <a id="u-14"></a>U-14 | 미정답자는 (등반은 높이 다음) 상태 단계 풀이 중 > 실패·시간 초과 > 포기 > 탈락 순으로 먼저 가른다 (2026-11-17 결정, 풀이 중 단계 2026-11-22) | M-RANK-4, M-RANK-9 |
+| <a id="u-15"></a>U-15 | 등반 스테이지 실패도 실패로, 결과 순위표에서 나간 사람은 나감으로 표시한다 (2026-11-17 결정) | M-COMP 상태 표, M-COMP-13, M-LEAVE-6, M-RANK-6 |
+| <a id="u-16"></a>U-16 | 준비는 대기실에서만 받는다. 결과 중 들어온 사람의 준비 버튼은 결과 단계에서 비활성이다 (2026-11-17 결정, 화면 보완 2026-11-22) | M-READY-1, M-VIS-11 |
+| <a id="u-17"></a>U-17 | 방장이 끊겨 있으면 재촉을 거절하고 쿨다운을 쓰지 않는다. 화면은 거절 받으면 로컬 쿨다운을 되돌린다 (2026-11-17 결정) | M-READY-3 |
 | <a id="u-18"></a>U-18 | 저장된 `config`의 고정 길이는 범위 밖 정수면 끝값으로 자르고, 정수가 아니면 기본 설정이다 (2026-11-17 결정) | S-MODE-3 |
 | <a id="u-19"></a>U-19 | 협동 마감 처리의 종류 순서는 현행 유지다. 알람이 늦을 때만 생기는 일이다 (2026-11-17 결정) | M-TIME-3, M-COOP-VOTE-7 |
 | <a id="u-20"></a>U-20 | 연승은 같은 모드 안에서 이긴 판의 연속이고 날짜는 기준이 아니다 (2026-11-17 결정) | S-STAT-3 |

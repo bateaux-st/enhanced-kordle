@@ -116,6 +116,8 @@ export interface RoomState {
 	code: string;
 	createdAt: number;
 	settings: Settings;
+	/** 게임 중·결과에 방장이 보낸 설정. 다음 게임으로 갈 때 적용하고 비운다. 스냅샷에 싣지 않는다. 이전 저장본에는 없을 수 있다. */
+	pendingSettings?: Settings | null;
 	phase: Phase;
 	hostPid: Pid | null;
 	players: Player[];

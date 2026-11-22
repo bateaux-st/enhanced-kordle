@@ -78,6 +78,8 @@ test('입력 검사 순서: 이름, 토큰 형식, 설정. 어느 것이든 방�
 		[{ body: { name: 5 } }, 'bad name'],
 		[{ body: { name: '가나다라' } }, 'bad name'],
 		[{ body: { name: '가'.repeat(13) } }, 'bad name'],
+		[{ body: { name: '철수​입니다' } }, 'bad name'],
+		[{ body: { name: '철수‮입니다' } }, 'bad name'],
 		[{ body: { name: NAME, token: 5 } }, 'bad token'],
 		[{ body: { name: NAME, token: null } }, 'bad token'],
 		[{ body: { name: NAME, token: ['x'] } }, 'bad token'],

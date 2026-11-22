@@ -2,12 +2,16 @@
 import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS, REAP_CHECK_IDLE_MS, REAP_CHECK_PLAYING_MS, SOCKET_IDLE_MS } from '../../mp/rules.ts';
 import { eliminationAt, expireCompPlayers } from './comp.ts';
 import { expireDeadline, expireHintVote, expireVote } from './coop.ts';
-import { hostSuccessionAt, succeedHost } from './members.ts';
+import { hostSuccessionAt, nextSeatReleaseAt, succeedHost } from './members.ts';
 import { isListed } from './rooms.ts';
 import type { Rng, RoomState } from './state.ts';
 
-/** 자리가 하나도 없다: 전원이 나가기로 떠났다. 끊김이 하나라도 섞이면 자리가 남아 해당하지 않는다. */
-export const abandoned = (s: RoomState): boolean => s.players.length === 0;
+/**
+ * 전원이 나가기로 떠났다: 자리가 하나도 없거나, 게임 중인데 남은 자리가 모두 나간 사람이다.
+ * 경쟁은 마지막 사람이 나가는 순간 게임이 끝나며 자리가 치워지지만, 협동은 끝나기 전에는 나간 자리를 남기므로 두 번째 조건으로 같은 시점을 잡는다.
+ * 끊김이 하나라도 섞이면 해당하지 않는다.
+ */
+export const abandoned = (s: RoomState): boolean => s.players.length === 0 || (s.phase === 'playing' && s.players.every((p) => p.left));
 
 /** 다음 알람 시각. 걸 마감이 없으면 null. */
 export function nextDeadline(s: RoomState): number | null {
@@ -35,20 +39,23 @@ export function nextDeadline(s: RoomState): number | null {
 export const isStaleSocket = (seenAt: number, now: number): boolean => now - seenAt > SOCKET_IDLE_MS;
 
 /**
- * 소켓 정리 점검 시각. 소켓이 있을 때만 후보다. 주기는 phase별이다: 게임 중 45초, 대기실·결과 180초.
+ * 소켓 정리 점검 시각. 소켓이 있을 때만 후보다. 주기는 phase별이다: 게임 중 15초, 대기실·결과 180초.
  * 소켓별 마지막 응답 시각이 아니라 점검 주기로 잡는다: ping은 DO를 깨우지 않으므로 응답 시각에 맞추면 25초마다 알람이 울린다.
  */
 export const reapCheckAt = (lastCheck: number, socketCount: number, phase: RoomState['phase']): number | null =>
 	socketCount > 0 ? lastCheck + (phase === 'playing' ? REAP_CHECK_PLAYING_MS : REAP_CHECK_IDLE_MS) : null;
 
 /**
- * 알람을 걸 시각. 마감, Lobby 재알림, 소켓 정리 점검 중 가장 이른 것, 모두 없으면 null.
+ * 알람을 걸 시각. 마감, Lobby 재알림, 맡아 둔 자리가 풀리는 시각, 소켓 정리 점검 중 가장 이른 것, 모두 없으면 null.
  * 재알림은 목록에 올라 있을 때만 후보다: 접속자가 없으면 syncLobby가 upsert를 하지 않아 lastUpsert가 낡은 채로 남고,
  * 그 값으로 만든 과거 시각이 후보가 되면 알람이 곧바로 다시 울리는 루프가 유예 시간 내내 돈다.
+ * 자리 해제 시각은 목록 인원이 바뀌는 때라 마감이 아니다(tick이 처리할 것이 없다). 목록에 있고 아직 오지 않은 시각만 후보다.
  */
-export function alarmTarget(s: RoomState, lastUpsert: number, reapAt: number | null = null): number | null {
-	const refreshAt = isListed(s) ? lastUpsert + LOBBY_REFRESH_MS : null;
-	const cands = [nextDeadline(s), refreshAt, reapAt].filter((x): x is number => x !== null);
+export function alarmTarget(s: RoomState, lastUpsert: number, reapAt: number | null, now: number): number | null {
+	const listed = isListed(s);
+	const refreshAt = listed ? lastUpsert + LOBBY_REFRESH_MS : null;
+	const releaseAt = listed ? nextSeatReleaseAt(s, now) : null;
+	const cands = [nextDeadline(s), refreshAt, releaseAt, reapAt].filter((x): x is number => x !== null);
 	return cands.length ? Math.min(...cands) : null;
 }
 

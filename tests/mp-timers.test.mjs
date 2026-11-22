@@ -169,6 +169,28 @@ test('게임 중 전원이 나가기로 떠나면 게임이 끝나는 순간 자
 	assert.equal(s.players.length, 0);
 });
 
+test('협동도 게임 중 전원이 나가기로 떠나면 즉시 소멸', () => {
+	const { s, pids } = coopStarted(['가']);
+	const [host, a] = pids;
+	assert.equal(reduce(s, a, { type: 'leave' }, {}, T0 + 1, rng).destroy, false);
+	assert.equal(s.phase, 'playing');
+	const last = reduce(s, host, { type: 'leave' }, {}, T0 + 2, rng);
+	assert.equal(last.destroy, true);
+	assert.equal(tick(s, T0 + 2).destroy, true, '알람이 먼저 와도 같다');
+});
+
+test('협동에서 나가기와 끊김이 섞이면 소멸하지 않고 30초 유예', () => {
+	const { s, pids } = coopStarted(['가']);
+	const [host, a] = pids;
+	disconnect(s, a, T0 + 1);
+	const last = reduce(s, host, { type: 'leave' }, {}, T0 + 2, rng);
+	assert.equal(last.destroy, false);
+	assert.equal(s.phase, 'playing');
+	assert.equal(s.emptySince, T0 + 2);
+	assert.equal(tick(s, T0 + 2 + EMPTY_ROOM_MS - 1).destroy, false);
+	assert.equal(tick(s, T0 + 2 + EMPTY_ROOM_MS).destroy, true);
+});
+
 test('게임 중 나가기와 끊김이 섞이면 소멸하지 않고 30초 유예', () => {
 	const { s, pids } = started(['가']);
 	const [host, a] = pids;
@@ -184,16 +206,30 @@ test('게임 중 나가기와 끊김이 섞이면 소멸하지 않고 30초 유�
 test('알람 시각: 접속자가 없으면 낡은 lastUpsert로 만든 재알림을 후보에 넣지 않는다', () => {
 	// 생성 직후(lastUpsert=0, 생성자 미접속)에 과거 값이 후보가 되면 알람이 곧바로 반복된다.
 	const s = initRoom('ABC234', { uid: 'uid-creator', name: '생성자' }, DEFAULT_SETTINGS, T0, rng);
-	assert.equal(alarmTarget(s, 0), T0 + EMPTY_ROOM_MS);
-	assert.ok(alarmTarget(s, 0) > T0, '과거 시각이 아니다');
+	assert.equal(alarmTarget(s, 0, null, 0), T0 + EMPTY_ROOM_MS);
+	assert.ok(alarmTarget(s, 0, null, 0) > T0, '과거 시각이 아니다');
 });
 
 test('알람 시각: 접속자가 있으면 재알림과 마감 중 이른 것, 마감이 없으면 재알림', () => {
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + LOBBY_REFRESH_MS);
 	disconnect(s, s.hostPid, T0 + 1000);
-	assert.equal(alarmTarget(s, T0), T0 + 1000 + HOST_GRACE_MS, '방장 유예가 재알림보다 이르다');
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + 1000 + HOST_GRACE_MS, '방장 유예가 재알림보다 이르다');
+});
+
+test('알람 시각: 끊긴 지 60000ms가 안 된 자리가 풀리는 시각이 후보다. 지났거나 방장·접속자 0이면 후보가 아니다', () => {
+	const s = lobby();
+	const [, a] = joinAll(s, ['가', '나']);
+	disconnect(s, a, T0 + 1000);
+	const release = T0 + 1000 + DISCONNECT_GRACE_MS;
+	assert.equal(alarmTarget(s, T0, null, T0 + 2000), release, '재알림(300초)보다 이른 해제 시각');
+	assert.equal(alarmTarget(s, T0, null, release - 1), release);
+	assert.equal(alarmTarget(s, T0, null, release), T0 + LOBBY_REFRESH_MS, '시각이 되면 후보에서 빠져 알람이 반복되지 않는다');
+	assert.equal(nextDeadline(s), null, '해제 시각은 tick이 처리할 마감이 아니다');
+	assert.equal(tick(s, release, rng).changed, false);
+	for (const p of s.players) disconnect(s, p.pid, T0 + 1000);
+	assert.equal(alarmTarget(s, T0, null, T0 + 2000), T0 + 1000 + EMPTY_ROOM_MS, '접속자 0이면 목록에서 빠져 후보가 아니다');
 });
 
 test('알람 시각: 접속자도 마감도 없으면 null(알람을 걸지 않는다)', () => {
@@ -202,7 +238,7 @@ test('알람 시각: 접속자도 마감도 없으면 null(알람을 걸지 않�
 	for (const p of s.players) p.connected = false;
 	s.emptySince = null;
 	for (const p of s.players) p.disconnectedAt = null;
-	assert.equal(alarmTarget(s, 0), null);
+	assert.equal(alarmTarget(s, 0, null, 0), null);
 });
 
 test('빈 방 유예는 30초', () => {
@@ -218,9 +254,9 @@ test('심장박동: 접속자가 있는 방만 LOBBY_REFRESH_MS(300초)마다 �
 	assert.equal(LOBBY_STALE_MS, 2.5 * LOBBY_REFRESH_MS, 'STALE은 재알림의 2.5배');
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + LOBBY_REFRESH_MS);
 	for (const p of s.players) disconnect(s, p.pid, T0 + 5);
-	assert.equal(alarmTarget(s, T0), T0 + 5 + EMPTY_ROOM_MS, '접속자 0: 심장박동 없이 소멸 마감만');
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + 5 + EMPTY_ROOM_MS, '접속자 0: 심장박동 없이 소멸 마감만');
 });
 
 test('재시작 화해 뒤의 방: 소켓이 없으면 emptySince가 시작돼 30초 뒤 소멸한다', () => {
@@ -237,7 +273,7 @@ test('등반 유예 마감: 첫 완주 뒤 playing인 동안만 마감 후보, �
 	assert.equal(nextDeadline(s), null);
 	for (let n = 10; n <= 12; n++) applyGuess(s, pids[0], stageAnswer(n).jamo, true, T0 + 5);
 	assert.equal(nextDeadline(s), T0 + 5 + CLIMB_GRACE_MS);
-	assert.equal(alarmTarget(s, T0 + 30_000), T0 + 5 + CLIMB_GRACE_MS, '재알림이 더 늦으면 유예 마감이 알람 시각');
+	assert.equal(alarmTarget(s, T0 + 30_000, null, T0 + 30_000), T0 + 5 + CLIMB_GRACE_MS, '재알림이 더 늦으면 유예 마감이 알람 시각');
 	s.phase = 'lobby';
 	assert.equal(nextDeadline(s), null, '게임이 끝나면 마감이 남지 않는다');
 });
@@ -264,8 +300,8 @@ const coopSolve = (s, jamo, now) => {
 	for (const p of s.players) if (p.connected) coop.propose(s, p.pid, jamo, true, rng, now);
 };
 
-test('스테이지 제한 시간 표: 180에서 15초씩 줄어 60초 아래로 내려가지 않는다', () => {
-	assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((k) => stageLimitMs(k) / SEC), [180, 165, 150, 135, 120, 105, 90, 75, 60, 60, 60]);
+test('스테이지 제한 시간 표: 180에서 15초씩 줄고, 스테이지는 최대 8개라 8에서 75초가 가장 짧다', () => {
+	assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8].map((k) => stageLimitMs(k) / SEC), [180, 165, 150, 135, 120, 105, 90, 75]);
 });
 
 test('제한 시간을 끈 방은 어느 게임이든 마감이 null이고 시간으로 끝나지 않는다', () => {
@@ -513,8 +549,8 @@ test('무응답 소켓 판정: 45초까지는 정상, 넘으면 정리 대상', 
 	assert.equal(isStaleSocket(T0, T0 + SOCKET_IDLE_MS + 1), true);
 });
 
-test('소켓 정리 점검 주기는 phase별: 게임 중 45초, 대기실·결과 180초', () => {
-	assert.equal(REAP_CHECK_PLAYING_MS, 45_000);
+test('소켓 정리 점검 주기는 phase별: 게임 중 15초, 대기실·결과 180초', () => {
+	assert.equal(REAP_CHECK_PLAYING_MS, 15_000);
 	assert.equal(REAP_CHECK_IDLE_MS, 180_000);
 	assert.equal(reapCheckAt(T0, 2, 'playing'), T0 + REAP_CHECK_PLAYING_MS);
 	assert.equal(reapCheckAt(T0, 2, 'lobby'), T0 + REAP_CHECK_IDLE_MS);
@@ -526,32 +562,32 @@ test('소켓 정리 점검은 소켓이 있을 때만 알람 후보이고, 다�
 	for (const phase of ['lobby', 'playing', 'result']) assert.equal(reapCheckAt(T0, 0, phase), null);
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + REAP_CHECK_IDLE_MS, '대기실 점검(180초)이 재알림(300초)보다 이르다');
-	assert.equal(alarmTarget(s, T0, T0 + 2 * LOBBY_REFRESH_MS), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby'), T0), T0 + REAP_CHECK_IDLE_MS, '대기실 점검(180초)이 재알림(300초)보다 이르다');
+	assert.equal(alarmTarget(s, T0, T0 + 2 * LOBBY_REFRESH_MS, T0), T0 + LOBBY_REFRESH_MS);
 	for (const p of s.players) p.connected = false;
 	s.emptySince = null;
 	for (const p of s.players) p.disconnectedAt = null;
-	assert.equal(alarmTarget(s, 0, null), null);
-	assert.equal(alarmTarget(s, 0, T0), T0, '접속자가 없어도 소켓이 남아 있으면 점검은 걸린다');
+	assert.equal(alarmTarget(s, 0, null, 0), null);
+	assert.equal(alarmTarget(s, 0, T0, 0), T0, '접속자가 없어도 소켓이 남아 있으면 점검은 걸린다');
 });
 
 test('방장 승계·재접속 유예 같은 마감은 점검 주기가 길어져도 더 이른 후보로 남는다', () => {
 	const s = lobby();
 	joinAll(s, ['가']);
 	disconnect(s, s.hostPid, T0 + 1000);
-	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + 1000 + HOST_GRACE_MS, '승계 5초 마감이 대기실 점검(180초)보다 이르다');
+	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby'), T0), T0 + 1000 + HOST_GRACE_MS, '승계 5초 마감이 대기실 점검(180초)보다 이르다');
 	const g = started(['가']);
 	disconnect(g.s, g.pids[1], T0 + 10 * SEC);
-	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing')), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 45초가 끊김 탈락(70초)보다 이르다');
-	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 40 * SEC, 2, 'playing')), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing'), T0), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 15초가 끊김 탈락(70초)보다 이르다');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 60 * SEC, 2, 'playing'), T0), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
 });
 
 test('제한 시간이 있는 방의 알람은 마감 하나로 걸리고, 점검이 더 이르면 점검이 우선한다', () => {
 	const { s } = started(['가'], ON);
-	assert.equal(alarmTarget(s, T0, null), T0 + TIME_LIMIT_MS, '제한 시간 180초가 재알림 300초보다 이르다');
-	assert.equal(alarmTarget(started(['가']).s, T0, null), T0 + LOBBY_REFRESH_MS, '제한 시간 없이는 재알림');
-	assert.equal(alarmTarget(s, T0 + 200 * SEC, null), T0 + TIME_LIMIT_MS);
-	assert.equal(alarmTarget(s, T0 + 200 * SEC, T0 + REAP_CHECK_PLAYING_MS), T0 + REAP_CHECK_PLAYING_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + TIME_LIMIT_MS, '제한 시간 180초가 재알림 300초보다 이르다');
+	assert.equal(alarmTarget(started(['가']).s, T0, null, T0), T0 + LOBBY_REFRESH_MS, '제한 시간 없이는 재알림');
+	assert.equal(alarmTarget(s, T0 + 200 * SEC, null, T0 + 200 * SEC), T0 + TIME_LIMIT_MS);
+	assert.equal(alarmTarget(s, T0 + 200 * SEC, T0 + REAP_CHECK_PLAYING_MS, T0 + 200 * SEC), T0 + REAP_CHECK_PLAYING_MS);
 });
 
 // ---- 5단계: 스냅샷 ----

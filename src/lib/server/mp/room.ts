@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CLOSE } from '../../mp/protocol.ts';
 import type { ClientMsg, ServerMsg, SessionInfo, Settings, RoomSummary } from '../../mp/protocol.ts';
-import { LOBBY_REFRESH_MS, normalizeName } from '../../mp/rules.ts';
+import { LOBBY_REFRESH_MS, NAME_BAD_CHARS, normalizeName } from '../../mp/rules.ts';
 import { dict } from '../dict.ts';
 import { randomIndex } from '../token.ts';
 import { ChatLog, historyMsg, planChat } from './chat.ts';
@@ -79,8 +79,9 @@ export class Room extends DurableObject<RoomEnv> {
 			this.alarmAt = await ctx.storage.getAlarm();
 			// 깨어난 것만으로는 upsert하지 않도록 저장된 상태의 요약을 이미 알린 것으로 둔다.
 			// 알림 시각은 저장값을 쓴다: 깨어난 시각으로 두면 180초 점검이 300초 재알림을 계속 밀어 STALE로 목록에서 빠진다. 값이 없으면 0이라 한 번 알린다.
-			this.lastSummary = this.state && isListed(this.state) ? summarize(this.state, Date.now()) : null;
+			// 인원은 시각에 따라 달라지므로 Lobby가 아는 값은 마지막 알림 시각 기준이다. 깨어난 시각으로 만들면 자리 해제 알람이 깨운 변화를 이미 알린 것으로 착각한다.
 			this.lastUpsert = (stored.get(UPSERT_KEY) as number | undefined) ?? 0;
+			this.lastSummary = this.state && isListed(this.state) ? summarize(this.state, this.lastUpsert) : null;
 			// 깨어났을 때는 직전에 올렸는지 모르므로 올라가 있다고 보고, 첫 동기화에서 필요하면 한 번 지운다.
 			this.listed = this.state !== null;
 			await this.reconcileSockets();
@@ -203,7 +204,7 @@ export class Room extends DurableObject<RoomEnv> {
 	private async hello(ws: WebSocket, token: string | undefined, rawName: string): Promise<void> {
 		const name = normalizeName(rawName);
 		if (!name) {
-			this.sendTo(ws, { type: 'error', code: 'forbidden', msg: '닉네임은 5~12자여야 합니다' });
+			this.sendTo(ws, { type: 'error', code: 'forbidden', msg: NAME_BAD_CHARS });
 			return closeQuietly(ws, 1008, 'bad name');
 		}
 		const session = await refresh(token, name, Date.now(), mpSecret(this.env.KORDLE_SECRET));
@@ -245,7 +246,7 @@ export class Room extends DurableObject<RoomEnv> {
 		await this.run((s, now) => {
 			const r = reduce(s, pid, msg, io, now, randomIndex);
 			this.deliver(r.events);
-			return { changed: r.changed, skipSave: r.skipSave, destroy: r.destroy };
+			return { changed: r.changed, skipSave: r.skipSave, silent: r.silent, destroy: r.destroy };
 		});
 	}
 
@@ -327,18 +328,20 @@ export class Room extends DurableObject<RoomEnv> {
 
 	// ---- 변경 공통 경로 ----
 
-	private async run(fn?: (s: RoomState, now: number) => { changed: boolean; skipSave?: boolean; destroy?: boolean }): Promise<void> {
+	private async run(fn?: (s: RoomState, now: number) => { changed: boolean; skipSave?: boolean; silent?: boolean; destroy?: boolean }): Promise<void> {
 		const s = this.state;
 		if (!s) return;
 		const now = Date.now();
 		const t = tick(s, now, randomIndex);
 		let changed = t.changed;
 		let save = t.changed;
+		let silent = false;
 		let destroy = t.destroy;
 		if (!destroy && fn) {
 			const r = fn(s, now);
 			changed ||= r.changed;
 			save ||= r.changed && !r.skipSave;
+			silent = r.silent ?? false;
 			destroy = r.destroy ?? false;
 		}
 		if (destroy) return this.destroy(s);
@@ -352,6 +355,9 @@ export class Room extends DurableObject<RoomEnv> {
 				await this.ctx.storage.put(STATE_KEY, s);
 			}
 			this.broadcast(s, now);
+		} else if (silent) {
+			// 보관 설정은 스냅샷에 없어 방송·seq가 필요 없지만, 재시작 뒤에도 남도록 저장한다.
+			await this.ctx.storage.put(STATE_KEY, s);
 		}
 		this.syncLobby(s, now);
 		await this.updateAlarm(s, now);
@@ -418,9 +424,9 @@ export class Room extends DurableObject<RoomEnv> {
 			});
 	}
 
-	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
+	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 자리 해제 시각, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
 	private async updateAlarm(s: RoomState, now: number): Promise<void> {
-		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length, s.phase));
+		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length, s.phase), now);
 		const change = alarmChange(this.alarmAt, target, now);
 		if (change === 'keep') return;
 		if (change === 'delete') {

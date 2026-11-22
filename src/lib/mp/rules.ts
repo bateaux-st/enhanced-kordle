@@ -21,13 +21,12 @@ export const CLIMB_GRACE_MS = 60_000;
 /** 단판 한 판 전체, 그리고 등반 1스테이지의 제한 시간. */
 export const TIME_LIMIT_MS = 180_000;
 export const CLIMB_STEP_MS = 15_000;
-export const CLIMB_MIN_LIMIT_MS = 60_000;
 /** 클라이언트가 스테이지 클리어 연출을 보이는 시간. 다음 스테이지 제한 시간은 이 뒤부터 센다. */
 export const STAGE_CLEAR_MS = 2_000;
 /** 자동 응답(ping)이 이 시간 넘게 없는 소켓은 서버가 닫는다. 클라이언트 ping 주기는 25초. */
 export const SOCKET_IDLE_MS = 45_000;
 /** 소켓 정리 점검 주기. 게임 중에는 끊김이 탈락·결과를 막으므로 짧게, 대기실·결과는 시작 직전 점검이 있어 길게 둔다. */
-export const REAP_CHECK_PLAYING_MS = 45_000;
+export const REAP_CHECK_PLAYING_MS = 15_000;
 export const REAP_CHECK_IDLE_MS = 180_000;
 /** 클라이언트 ping 주기. 서버는 'pong'을 DO를 깨우지 않고 자동 응답한다. */
 export const HEARTBEAT_MS = 25_000;
@@ -54,6 +53,8 @@ export const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;
 
 export const NAME_MIN = 5;
 export const NAME_MAX = 12;
+/** 쓸 수 없는 문자가 든 닉네임을 거절할 때의 안내. 입력 중 안내, 서버 오류, 1008 토스트가 같은 말을 쓴다. */
+export const NAME_BAD_CHARS = '쓸 수 없는 닉네임입니다';
 
 /** 상대 패널·결과표·토스트가 같은 말을 쓰도록 한 곳에 둔다. */
 export const STATUS_LABEL: Record<CompStatus, string> = {
@@ -80,14 +81,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	pick: 'vote'
 };
 
-/** 닉네임 정규화: NFC, 앞뒤 공백 제거, NAME_MIN..NAME_MAX자(코드포인트). 규칙에 안 맞으면 null. */
-export function normalizeName(raw: unknown): string | null {
-	if (typeof raw !== 'string') return null;
-	const name = raw.normalize('NFC').trim();
-	const len = [...name].length;
-	return len >= NAME_MIN && len <= NAME_MAX ? name : null;
-}
-
 // 제어문자(Cc) 외에 Cf 중 ZWSP·LRM/RLM·ALM·양방향 제어(표시 순서를 뒤집어 이름·본문을 위조)·단어 결합자·BOM·소프트 하이픈과,
 // 눈에 안 보이는 결합·선택·태그 문자(CGJ, 몽골 FVS, 크메르 고유 모음, 이형 선택자, 주석 표지, 태그 문자)를 뺀다.
 // ZWJ(U+200D)·ZWNJ·이모지 표시 선택자(U+FE0F)는 이모지 시퀀스에 쓰이므로 남긴다. 단독 FE0F는 CHAT_BLANK이 거른다.
@@ -97,6 +90,31 @@ const CHAT_STRIP =
 const CHAT_BLANK = /^[\s\u200C\u200D\uFE0F\u115F\u1160\u3164\uFFA0\u2800]*$/u;
 // 결합 문자(M)가 이어지면 한 글자 위에 쌓여 줄 밖으로 번진다. 연달아 3개까지만 둔다(태국어·아랍어 모음 부호는 그 안에 든다).
 const CHAT_MARK_RUN = /(\p{M}{3})\p{M}+/gu;
+
+/** 닉네임이 거절되는 까닭. length는 길이, chars는 쓸 수 없는 문자. */
+export type NameProblem = 'length' | 'chars';
+
+// 채팅은 걷어 내고 받지만 닉네임은 같은 기준에 걸리면 거절한다. 정규식은 채팅 것을 그대로 써서 두 기준이 어긋나지 않게 한다.
+// CHAT_STRIP은 전역(g) 플래그라 test()가 lastIndex를 남기므로 플래그만 뺀 사본을 쓴다.
+const NAME_STRIP = new RegExp(CHAT_STRIP.source, 'u');
+const NAME_MARK_RUN = new RegExp(CHAT_MARK_RUN.source, 'u');
+
+/**
+ * 닉네임이 거절되는 까닭. 받을 수 있으면 null. 쓸 수 없는 문자를 길이보다 먼저 본다(화면이 그 안내를 먼저 보이기 위해).
+ * 앞뒤 공백을 지운 뒤 비어 있으면 아직 입력이 없는 것이므로 length다.
+ */
+export function nameProblem(raw: unknown): NameProblem | null {
+	if (typeof raw !== 'string') return 'length';
+	const name = raw.normalize('NFC').trim();
+	if (name !== '' && (NAME_STRIP.test(name) || NAME_MARK_RUN.test(name) || CHAT_BLANK.test(name))) return 'chars';
+	const len = [...name].length;
+	return len >= NAME_MIN && len <= NAME_MAX ? null : 'length';
+}
+
+/** 닉네임 정규화: NFC, 앞뒤 공백 제거, NAME_MIN..NAME_MAX자(코드포인트), 쓸 수 없는 문자 없음. 규칙에 안 맞으면 null. */
+export function normalizeName(raw: unknown): string | null {
+	return nameProblem(raw) === null ? (raw as string).normalize('NFC').trim() : null;
+}
 
 /**
  * 채팅 본문 정규화: NFC, 줄바꿈·탭은 공백, 제어문자와 보이지 않는 서식 문자는 제거, 앞뒤 공백 제거, 1..CHAT_MAX자(코드포인트).

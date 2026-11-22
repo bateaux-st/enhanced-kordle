@@ -25,7 +25,7 @@
 
 	const panel = $derived(player.panel);
 	const kind = $derived(oppKind(player));
-	const label = $derived(oppLabel(player, kind, rank, climb));
+	const label = $derived(oppLabel(player, kind, rank));
 	const n = $derived(panel?.n ?? 0);
 	const last = $derived(panel?.marks[panel.marks.length - 1] ?? []);
 	const used = $derived(panel?.marks.length ?? 0);

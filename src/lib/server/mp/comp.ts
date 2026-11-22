@@ -66,7 +66,7 @@ export function isOver(game: CompGame): boolean {
 export function settle(s: RoomState, now: number): boolean {
 	const game = compGame(s);
 	if (!game || !isOver(game)) return false;
-	game.standings = standings(game, (pid) => findPlayer(s, pid)?.name ?? '');
+	game.standings = standings(game, (pid) => findPlayer(s, pid)?.name ?? '', (pid) => findPlayer(s, pid)?.left === true);
 	game.endedAt = now;
 	s.phase = 'result';
 	for (const p of s.players) p.ready = false;

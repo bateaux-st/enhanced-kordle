@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LOBBY_LIST_MAX, LOBBY_REFRESH_MS, LOBBY_STALE_MS } from '../src/lib/mp/rules.ts';
+import { DISCONNECT_GRACE_MS, LOBBY_LIST_MAX, LOBBY_REFRESH_MS, LOBBY_STALE_MS } from '../src/lib/mp/rules.ts';
 import { DEFAULT_SETTINGS } from '../src/lib/mp/rules.ts';
 import { disconnect, join, leave } from '../src/lib/server/mp/members.ts';
 import { isListed, listRooms, nextStaleAt, sameList, sameSummary, summarize } from '../src/lib/server/mp/rooms.ts';
@@ -58,13 +58,43 @@ test('방이 없으면 빈 배열, 최대 50개', () => {
 	assert.equal(list[0].code, 'r69');
 });
 
-test('목록 인원은 접속자 수: 끊긴 자리는 세지 않는다', () => {
+test('목록 인원은 접속자와 끊긴 지 60초가 안 된 자리를 센다', () => {
 	const s = lobby();
 	const [, a] = joinAll(s, ['가', '나']);
 	assert.equal(summarize(s, T0).players, 3);
 	disconnect(s, a, T0 + 1);
-	assert.equal(summarize(s, T0 + 1).players, 2);
-	assert.equal(s.players.length, 3);
+	assert.equal(summarize(s, T0 + 1).players, 3, '끊긴 직후에는 자리를 맡아 둔다');
+	assert.equal(summarize(s, T0 + 1 + DISCONNECT_GRACE_MS - 1).players, 3);
+	assert.equal(summarize(s, T0 + 1 + DISCONNECT_GRACE_MS).players, 2, '60000ms부터는 세지 않는다');
+	assert.equal(s.players.length, 3, '목록 인원만 바뀌고 자리는 입장 때만 회수한다');
+});
+
+test('목록 인원과 입장 거절은 같은 시각에 갈린다: 경계 59999ms는 가득, 60000ms는 자리가 난다', () => {
+	for (const [delta, full] of [[DISCONNECT_GRACE_MS - 1, true], [DISCONNECT_GRACE_MS, false]]) {
+		const s = lobby();
+		const pids = joinAll(s, ['가', '나', '다', '라']);
+		assert.equal(pids.length, 5);
+		disconnect(s, pids[4], T0 + 10);
+		const now = T0 + 10 + delta;
+		const sum = summarize(s, now);
+		assert.equal(sum.players >= sum.max, full, `delta=${delta}`);
+		assert.equal(join(s, { uid: 'uid-신규', name: '신규' }, now, rng).ok, !full, `delta=${delta}`);
+	}
+});
+
+test('방장은 끊긴 지 오래여도 센다(입장 때 회수하지 않는다)', () => {
+	const s = lobby();
+	const [host] = joinAll(s, ['가']);
+	disconnect(s, host, T0 + 1);
+	assert.equal(summarize(s, T0 + 1 + DISCONNECT_GRACE_MS * 3).players, 2);
+});
+
+test('입장 가능 정렬: 끊긴 자리를 맡아 둔 가득 찬 방은 목록 인원 기준으로 뒤로 간다', () => {
+	const s = lobby();
+	const pids = joinAll(s, ['가', '나', '다', '라']);
+	disconnect(s, pids[4], T0 + 1);
+	const rooms = { ABC234: summarize(s, T0 + 2), B: room('B', { updatedAt: T0 }) };
+	assert.deepEqual(listRooms(rooms, T0 + 3).list.map((r) => r.code), ['B', 'ABC234']);
 });
 
 test('접속자가 0명이면 목록에 내지 않고, 한 명이라도 돌아오면 다시 낸다', () => {
@@ -75,7 +105,7 @@ test('접속자가 0명이면 목록에 내지 않고, 한 명이라도 돌아�
 	assert.equal(isListed(s), true, '방장이 접속 중');
 	disconnect(s, host, T0 + 2);
 	assert.equal(isListed(s), false);
-	assert.equal(summarize(s, T0 + 2).players, 0);
+	assert.equal(summarize(s, T0 + 2).players, 2, '방장 자리와 방금 끊긴 자리');
 	join(s, { uid: 'uid-가', name: '가' }, T0 + 3, rng);
 	assert.equal(isListed(s), true);
 });

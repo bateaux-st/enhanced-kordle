@@ -32,6 +32,46 @@ test.describe('닉네임', () => {
 		expect(await stored(page, 'mp-session')).toEqual({ name: NICK });
 	});
 
+	test('입력칸은 허용 범위를 알려 주고, 보이지 않는 문자·양방향 제어·결합 문자 4연속·빈칸만은 길이와 상관없이 막는다', async ({ page, openLobby }) => {
+		await openLobby();
+		await page.goto('/');
+		await page.getByRole('button', { name: /같이 하기/ }).click();
+
+		const dialog = page.getByRole('dialog', { name: '닉네임' });
+		const input = dialog.getByRole('textbox', { name: '닉네임' });
+		const confirm = dialog.getByRole('button', { name: '확인' });
+		await expect(input).toHaveAttribute('placeholder', '5~12자, 글자·숫자·기호·이모지');
+
+		for (const bad of ['테스트​유저', '테스트‮유저', '테스트유저́̂̃̄', 'ㅤㅤㅤㅤㅤ', '가​']) {
+			await input.fill(bad);
+			await expect(dialog.getByRole('status')).toHaveText('쓸 수 없는 닉네임입니다');
+			await expect(confirm).toBeDisabled();
+		}
+		await input.fill('테스트​');
+		await expect(dialog.getByText('5자 이상 입력하세요')).toHaveCount(0);
+
+		// 이모지 ZWJ 시퀀스와 결합 문자 3연속은 받는다.
+		await input.fill('👨‍👩‍👧곰돌이');
+		await expect(dialog.getByRole('status')).toHaveText('');
+		await expect(confirm).toBeEnabled();
+	});
+
+	test('로비의 이름 수정칸도 같은 안내와 입력 힌트를 쓴다', async ({ page, openLobby }) => {
+		await seed(page, { 'mp-session': { name: NICK } });
+		await openLobby();
+		await page.goto('/');
+		await page.getByRole('button', { name: /같이 하기/ }).click();
+		await page.getByRole('button', { name: `닉네임 수정: ${NICK}` }).click();
+
+		const input = page.getByRole('textbox', { name: '닉네임' });
+		await expect(input).toHaveAttribute('placeholder', '5~12자, 글자·숫자·기호·이모지');
+		await input.fill('테스트​유저');
+		await expect(page.getByRole('status').filter({ hasText: '쓸 수 없는 닉네임입니다' })).toBeVisible();
+		await expect(page.getByRole('button', { name: '확인' })).toBeDisabled();
+		await input.fill('가나다라');
+		await expect(page.getByText('5자 이상 입력하세요')).toBeVisible();
+	});
+
 	test('이름 입력을 취소하면 선택 화면에 남는다', async ({ page }) => {
 		await page.goto('/');
 		await page.getByRole('button', { name: /같이 하기/ }).click();
@@ -289,6 +329,13 @@ test.describe('초대 링크', () => {
 		await room.connected();
 		await expect(page.getByRole('heading', { name: '방 코드 HJK 234' })).toBeVisible();
 		expect(await stored(page, 'mp-session')).toMatchObject({ name: NICK, token: 'tok-me' });
+	});
+
+	test('저장된 이름이 지금 규칙에 걸려 서버가 1008로 거절하면 오류 화면에 사유를 보인다', async ({ page, openRoom }) => {
+		const room = await openRoom({ code: 'HJK234', name: '테스트​유저', others: ['철수'] });
+		await room.enter();
+		await expect(page.getByRole('alert')).toContainText('쓸 수 없는 닉네임입니다');
+		expect(room.hellos.map((h) => h.name)).toEqual(['테스트​유저']);
 	});
 
 	test('링크로 들어간 방이 가득 차 있으면 로비가 아니라 오류 화면으로 간다', async ({ page, openRoom }) => {

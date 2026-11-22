@@ -72,7 +72,7 @@ test('투표 단계에 들어갈 때 마감이 VOTE_MS 뒤로 걸린다(방 제�
 	assert.equal(s.game.board.deadline, null);
 	assert.equal(step(s).deadline, DUE);
 	assert.equal(nextDeadline(s), DUE);
-	assert.equal(alarmTarget(s, T0, null), DUE);
+	assert.equal(alarmTarget(s, T0, null, T0), DUE);
 });
 
 test('방장 마감으로 제안을 닫아도 그 시각부터 VOTE_MS다', () => {

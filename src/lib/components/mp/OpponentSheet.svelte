@@ -28,7 +28,7 @@
 	const STACK_N = 7;
 	const panel = $derived(player.panel);
 	const kind = $derived(oppKind(player));
-	const label = $derived(oppLabel(player, kind, rank, climb));
+	const label = $derived(oppLabel(player, kind, rank));
 	const n = $derived(panel?.n ?? 0);
 	const marks = $derived(panel?.marks ?? []);
 	const detail = $derived(`${label}${climb && panel ? ` · 스테이지 ${panel.stage}` : ''} · 시도 ${marks.length}/${tries}`);

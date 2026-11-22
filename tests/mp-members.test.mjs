@@ -38,6 +38,23 @@ test('playing 중 신규 입장은 거부하고 기존 참가자의 같은 uid �
 	assert.equal(s.players[1].disconnectedAt, null);
 });
 
+test('준비는 대기실에서만 받는다: 게임 중과 결과 중에는 거절하고 준비 상태를 바꾸지 않는다', () => {
+	const { s, pids } = started(['가', '나']);
+	const during = send(s, pids[1], { type: 'ready', on: true });
+	assert.equal(errorOf(during).code, 'phase');
+	assert.equal(errorOf(during).msg, '대기실에서만 준비할 수 있습니다');
+
+	const { s: r, pids: rp } = resultRoom();
+	const late = join(r, { uid: 'uid-새', name: '새' }, T0 + 5000, rng).pid;
+	assert.equal(errorOf(send(r, late, { type: 'ready', on: true }, T0 + 5001)).code, 'phase', '결과 중 들어온 사람도 거절');
+	const off = send(r, rp[1], { type: 'ready', on: false }, T0 + 5002);
+	assert.equal(errorOf(off).msg, '대기실에서만 준비할 수 있습니다');
+	assert.equal(r.players.find((p) => p.pid === rp[1]).ready, true, '거절은 준비를 건드리지 않는다');
+
+	assert.equal(send(r, rp[0], { type: 'again' }, T0 + 5003).changed, true);
+	assert.equal(send(r, late, { type: 'ready', on: true }, T0 + 5004).changed, true, '대기실이 되면 준비할 수 있다');
+});
+
 test('result에서는 신규 입장이 가능하고 이번 게임 참가자가 아니다', () => {
 	const { s, pids } = started(['가']);
 	send(s, pids[1], { type: 'giveup' });
@@ -134,6 +151,81 @@ test('설정 변경 시 전원 준비 해제, 값이 같으면 유지, 방장만
 	assert.equal(send(s, host, { type: 'settings', settings: { ...next, length: 'random' } }).changed, true);
 });
 
+test('게임 중·결과의 설정 변경은 현재 설정을 두고 보관한다: 준비·방송 없이 보관만 바뀌고 같은 값 재전송은 변화 없음', () => {
+	const next = { ...DEFAULT_SETTINGS, tries: 8, hard: true };
+	const { s, pids } = started(['가', '나']);
+	const [host, a] = pids;
+	const before = { ...s.settings };
+	const r = send(s, host, { type: 'settings', settings: next });
+	assert.deepEqual([r.events, r.changed, r.silent], [[], false, true], '거절 없이 보관만 바뀐다');
+	assert.deepEqual([s.settings, s.pendingSettings, s.phase], [before, next, 'playing']);
+	assert.equal(send(s, host, { type: 'settings', settings: next }).silent, false, '같은 값이면 바뀐 것이 없다');
+	assert.equal(errorOf(send(s, a, { type: 'settings', settings: { ...next, tries: 5 } })).code, 'forbidden');
+	assert.equal(errorOf(send(s, host, { type: 'settings', settings: { ...next, tries: 99 } })).msg, '설정 값이 올바르지 않습니다');
+	assert.deepEqual(s.pendingSettings, next, '거절은 보관을 건드리지 않는다');
+
+	for (const pid of [...pids].reverse()) send(s, pid, { type: 'giveup' }, T0 + 10);
+	assert.equal(s.phase, 'result');
+	s.players.forEach((p) => (p.ready = true));
+	const later = { ...DEFAULT_SETTINGS, length: 9 };
+	const r2 = send(s, host, { type: 'settings', settings: later }, T0 + 11);
+	assert.deepEqual([r2.events, r2.changed, r2.silent], [[], false, true]);
+	assert.deepEqual([s.settings, s.pendingSettings], [before, later], '결과에서도 현재 설정은 그대로, 보관은 마지막 값');
+	assert.ok(s.players.every((p) => p.ready), '보관은 준비를 풀지 않는다');
+	assert.equal(errorOf(send(s, a, { type: 'settings', settings: later }, T0 + 12)).code, 'forbidden');
+});
+
+test('다음 게임의 설정은 요청 > 보관 > 현재 순이고 적용한 뒤(요청을 썼어도) 보관을 비운다', () => {
+	const pending = { ...DEFAULT_SETTINGS, tries: 8 };
+	const asked = { ...DEFAULT_SETTINGS, length: 9 };
+	const toResult = (settings = {}) => {
+		const { s, pids } = started(['가'], settings);
+		for (const pid of [...pids].reverse()) send(s, pid, { type: 'giveup' }, T0 + 10);
+		send(s, pids[0], { type: 'settings', settings: pending }, T0 + 11);
+		return { s, host: pids[0] };
+	};
+	const base = toResult();
+	assert.equal(base.s.pendingSettings.tries, 8);
+	send(base.s, base.host, { type: 'again' }, T0 + 20);
+	assert.deepEqual([base.s.settings, base.s.pendingSettings, base.s.phase], [pending, null, 'lobby'], '요청이 없으면 보관');
+
+	const ask = toResult();
+	send(ask.s, ask.host, { type: 'next', settings: asked }, T0 + 20);
+	assert.deepEqual([ask.s.settings, ask.s.pendingSettings], [asked, null], '요청이 보관보다 앞선다');
+
+	const none = toResult();
+	none.s.pendingSettings = null;
+	send(none.s, none.host, { type: 'next' }, T0 + 20);
+	assert.deepEqual([none.s.settings.tries, none.s.pendingSettings], [DEFAULT_SETTINGS.tries, null], '둘 다 없으면 현재 설정');
+
+	const old = toResult();
+	delete old.s.pendingSettings;
+	assert.equal(backToLobby(old.s, old.host).ok, true, '필드가 없는 이전 저장본도 현재 설정으로 간다');
+	assert.equal(old.s.pendingSettings, null);
+
+	const bad = toResult();
+	const err = send(bad.s, bad.host, { type: 'next', settings: { ...asked, tries: 99 } }, T0 + 20);
+	assert.deepEqual([errorOf(err).code, bad.s.phase, bad.s.pendingSettings], ['forbidden', 'result', pending], '요청이 틀리면 결과에 머물고 보관도 그대로');
+});
+
+test('대기실의 설정 변경은 즉시 적용하고 보관하지 않는다. 보관은 방장이 바뀌어도 남아 새 방장이 다음 게임을 고를 때 적용된다', () => {
+	const lob = lobby();
+	joinAll(lob, ['가']);
+	const r = send(lob, lob.hostPid, { type: 'settings', settings: { ...DEFAULT_SETTINGS, tries: 7 } });
+	assert.deepEqual([r.changed, r.silent, lob.settings.tries, lob.pendingSettings ?? null], [true, false, 7, null]);
+
+	const { s, pids } = started(['가', '나']);
+	const [host, a] = pids;
+	for (const pid of [...pids].reverse()) send(s, pid, { type: 'giveup' }, T0 + 10);
+	const pending = { ...DEFAULT_SETTINGS, length: 11 };
+	send(s, host, { type: 'settings', settings: pending }, T0 + 11);
+	assert.equal(send(s, host, { type: 'transfer', pid: a }, T0 + 12).changed, true);
+	assert.equal(errorOf(send(s, host, { type: 'next' }, T0 + 13)).code, 'forbidden', '옛 방장은 못 고른다');
+	assert.deepEqual(s.pendingSettings, pending, '방장이 바뀌어도 보관이 남는다');
+	send(s, a, { type: 'again' }, T0 + 14);
+	assert.deepEqual([s.settings, s.pendingSettings, s.phase], [pending, null, 'lobby']);
+});
+
 test('방장이 나가면 즉시 입장 순으로 접속 중인 다음 사람이 방장', () => {
 	const s = lobby();
 	const [host, a, b, c] = joinAll(s, ['가', '나', '다']);
@@ -171,7 +263,21 @@ test('재촉: 방장에게 이벤트, 1인당 30초 쿨다운, 다른 사람은 
 	assert.equal(errorOf(send(s, host, { type: 'nudge' }, T0)).code, 'forbidden');
 });
 
-test('끊긴 사람은 시작을 막지 않고, 내보내고 시작하면 방에서 빠지며, 아니면 자리를 지키고 참가한다', () => {
+test('재촉: 방장이 끊겨 있으면 forbidden으로 거절하고 쿨다운을 쓰지 않으며, 접속하면 바로 재촉할 수 있다', () => {
+	const s = lobby();
+	const [host, a] = joinAll(s, ['가']);
+	disconnect(s, host, T0 + 1);
+	const r = send(s, a, { type: 'nudge' }, T0 + 2);
+	assert.equal(errorOf(r).code, 'forbidden');
+	assert.equal(errorOf(r).msg, '방장이 접속 중이어야 합니다');
+	assert.equal(s.players.find((p) => p.pid === a).nudgedAt, null);
+	assert.equal(r.events.some((e) => e.type === 'nudge'), false);
+
+	join(s, { uid: 'uid-host', name: '방장' }, T0 + 3, rng);
+	assert.equal(send(s, a, { type: 'nudge' }, T0 + 4).events[0].type, 'nudge');
+});
+
+test('끊긴 사람은 시작을 막지 않고, kickDisconnected 값과 무관하게 시작할 때 방에서 빠져 게임에 들어가지 않는다', () => {
 	const make = () => {
 		const s = lobby();
 		const [host, a, b] = joinAll(s, ['가', '나']);
@@ -189,8 +295,13 @@ test('끊긴 사람은 시작을 막지 않고, 내보내고 시작하면 방에
 
 	({ s, host, b } = make());
 	send(s, host, { type: 'start' }, T0, START_IO);
-	assert.equal(s.players.length, 3);
-	assert.ok(s.game.players[b], '끊긴 채 자리를 지킨 사람도 참가자');
+	assert.equal(s.phase, 'playing');
+	assert.equal(s.players.length, 2, 'kickDisconnected를 안 보내도 끊긴 자리는 빠진다');
+	assert.equal(s.game.players[b], undefined, '끊긴 사람은 참가자가 아니다');
+
+	({ s, host, b } = make());
+	send(s, host, { type: 'start', kickDisconnected: false }, T0, START_IO);
+	assert.equal(s.players.length, 2, 'false여도 같다');
 });
 
 test('접속 중인 사람이 방장 하나뿐이면 끊긴 사람이 있어도 시작 불가', () => {

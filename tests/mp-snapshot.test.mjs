@@ -5,6 +5,8 @@ import * as coop from '../src/lib/server/mp/coop.ts';
 import { backToLobby, disconnect } from '../src/lib/server/mp/members.ts';
 import { reduce } from '../src/lib/server/mp/reduce.ts';
 import { personalize } from '../src/lib/server/mp/snapshot.ts';
+import { sameSummary, summarize } from '../src/lib/server/mp/rooms.ts';
+import { DEFAULT_SETTINGS } from '../src/lib/mp/rules.ts';
 import { ANSWER, compClimbStarted, coopStarted, grantHint, joinAll, lobby, rng, stageAnswer, started, T0 } from './mp-helpers.mjs';
 import { VOTE_MS } from '../src/lib/mp/rules.ts';
 
@@ -13,6 +15,7 @@ const A_ROW = 'ㄴㅏㄴㅂㅏㅇ';
 const B_ROW = 'ㅋㅌㅍㅊㅋㅌ';
 const NOW = T0 + 5000;
 const snapOf = (s, pid) => personalize(s, pid, NOW);
+const send = (s, pid, msg, now = T0) => reduce(s, pid, msg, {}, now, rng);
 
 /** 방장·가·나 세 명이 각자 한 행씩 낸 진행 중 경쟁 단판. 가는 힌트도 썼다. */
 function midGame() {
@@ -114,6 +117,31 @@ test('result: 정답과 순위표가 모두에게 나가고, 그래도 남의 �
 		for (const [pid, row] of Object.entries(rows)) if (pid !== viewer.pid) assert.ok(!json.includes(row));
 		assert.ok(!json.includes('uid-'));
 	}
+});
+
+test('게임 중·결과에 보관한 설정은 스냅샷 settings와 로비 요약에 끼어들지 않고 누구에게도 보이지 않는다', () => {
+	const { s, host, a, b } = midGame();
+	const pending = { ...s.settings, length: 11, tries: 9, hard: true };
+	const base = summarize(s, NOW);
+	send(s, host, { type: 'settings', settings: pending });
+	for (const pid of [host, a, b]) {
+		const view = snapOf(s, pid);
+		assert.deepEqual(view.settings, DEFAULT_SETTINGS);
+		assert.ok(!JSON.stringify(view).includes('pending'));
+	}
+	assert.ok(sameSummary(summarize(s, NOW), base));
+
+	for (const pid of [host, a, b]) giveUp(s, pid, T0 + 30);
+	assert.equal(s.phase, 'result');
+	const resultSummary = summarize(s, NOW);
+	send(s, host, { type: 'settings', settings: { ...pending, length: 12 } }, T0 + 31);
+	for (const pid of [host, a, b]) {
+		const view = snapOf(s, pid);
+		assert.deepEqual([view.phase, view.settings], ['result', DEFAULT_SETTINGS], '결과 화면은 끝난 게임의 설정');
+		assert.ok(!JSON.stringify(view).includes('pending'));
+	}
+	assert.ok(sameSummary(summarize(s, NOW), resultSummary), '로비 요약도 그대로');
+	assert.deepEqual([resultSummary.length, resultSummary.tries, resultSummary.hard], [6, 6, false]);
 });
 
 test('스냅샷의 최상위·게임 필드가 늘 때는 이 목록을 의도적으로 고쳐야 한다', () => {

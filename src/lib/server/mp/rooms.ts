@@ -1,7 +1,7 @@
 // 공개 방 목록의 순수 부분: Room 상태 -> 요약, Lobby 저장소 -> 정렬된 목록.
 import { LOBBY_LIST_MAX, LOBBY_STALE_MS, MAX_PLAYERS } from '../../mp/rules.ts';
 import type { RoomSummary } from '../../mp/protocol.ts';
-import { connectedCount } from './members.ts';
+import { connectedCount, heldCount } from './members.ts';
 import type { RoomState } from './state.ts';
 
 /** 접속자가 있는 방만 목록에 낸다. 모두 떠난 방은 재입장 유예 동안 Room에는 남아도 목록에서는 사라진다. */
@@ -13,7 +13,7 @@ export function summarize(s: RoomState, now: number): RoomSummary {
 		host: s.players.find((p) => p.pid === s.hostPid)?.name ?? '',
 		kind: s.settings.kind,
 		game: s.settings.game,
-		players: connectedCount(s),
+		players: heldCount(s, now),
 		max: MAX_PLAYERS,
 		inProgress: s.phase === 'playing',
 		length: s.settings.length,

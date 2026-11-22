@@ -359,7 +359,7 @@
 		dropped = false;
 		if (was !== 'playing') return;
 		if (st === 'solved') showToast(myRank ? `정답입니다 · ${myRank}위` : '정답입니다');
-		else if (st === 'failed') showToast(climb ? '탈락했습니다' : '실패했습니다');
+		else if (st === 'failed') showToast('실패했습니다');
 		else if (st === 'eliminated') showToast(byDrop ? '접속이 끊겨 탈락했습니다' : '탈락했습니다');
 		else if (st === 'timeout') showToast('시간이 다 됐습니다');
 	});
@@ -704,7 +704,7 @@
 							? myRank
 								? `완료 ${myRank}위`
 								: '완료'
-							: statusLabel(me.status, climb)}
+							: statusLabel(me.status)}
 					</span>
 					{#if othersPlaying}<span class="wait">다른 사람이 끝나길 기다리는 중입니다.</span>{/if}
 				{/if}

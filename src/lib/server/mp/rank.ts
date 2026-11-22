@@ -1,5 +1,5 @@
 // 순위. 높이는 등반에서만 비교하고 단판에서는 뺀다.
-import type { Pid, Standing } from '../../mp/protocol.ts';
+import type { CompStatus, Pid, Standing } from '../../mp/protocol.ts';
 import type { Board, CompGame } from './state.ts';
 
 export interface Metrics {
@@ -31,11 +31,21 @@ export function cmpMetrics(a: Metrics, b: Metrics, useHeight: boolean): number {
 	return a.tries - b.tries;
 }
 
+/** 미정답자의 상태 단계. 작을수록 위: 풀이 중 > 실패·시간 초과 > 포기 > 탈락. */
+const TIER: Record<CompStatus, number> = { playing: 0, solved: 0, failed: 1, timeout: 1, gaveup: 2, eliminated: 3 };
+
+/** 미정답자 비교: (등반만) 높이 -> 상태 단계 -> 초록 -> 노랑 -> 시도. 음수면 a가 위, 0이면 공동. */
+export function cmpUnsolved(a: { status: CompStatus; metrics: Metrics }, b: { status: CompStatus; metrics: Metrics }, useHeight: boolean): number {
+	if (useHeight && a.metrics.height !== b.metrics.height) return b.metrics.height - a.metrics.height;
+	if (TIER[a.status] !== TIER[b.status]) return TIER[a.status] - TIER[b.status];
+	return cmpMetrics(a.metrics, b.metrics, false);
+}
+
 /**
- * 완주·정답자 먼저, 그다음 미완주자를 지표 순으로. 앞 사람과 비교가 0이면 같은 순위(1, 2, 2, 4).
+ * 완주·정답자 먼저, 그다음 미완주자를 (등반은 높이,) 상태 단계, 지표 순으로. 앞 사람과 비교가 0이면 같은 순위(1, 2, 2, 4).
  * 입력 순서(game.players 삽입 순)가 같은 순위 안의 표시 순서다.
  */
-export function standings(game: CompGame, nameOf: (pid: Pid) => string): Standing[] {
+export function standings(game: CompGame, nameOf: (pid: Pid) => string, leftOf: (pid: Pid) => boolean = () => false): Standing[] {
 	const climb = game.settings.game === 'climb';
 	const all = Object.entries(game.players);
 	const done = all.filter(([, p]) => p.status === 'solved');
@@ -46,7 +56,8 @@ export function standings(game: CompGame, nameOf: (pid: Pid) => string): Standin
 		climb
 			? game.finishOrder.indexOf(a[0]) - game.finishOrder.indexOf(b[0])
 			: a[1].triesUsed - b[1].triesUsed || a[1].finishedAt! - b[1].finishedAt!;
-	const cmpRest = (a: (typeof all)[number], b: (typeof all)[number]) => cmpMetrics(metrics(a[1].board), metrics(b[1].board), climb);
+	const cmpRest = (a: (typeof all)[number], b: (typeof all)[number]) =>
+		cmpUnsolved({ status: a[1].status, metrics: metrics(a[1].board) }, { status: b[1].status, metrics: metrics(b[1].board) }, climb);
 
 	const out: Standing[] = [];
 	const place = (sorted: typeof all, cmp: typeof cmpDone, solved: boolean) => {
@@ -61,7 +72,8 @@ export function standings(game: CompGame, nameOf: (pid: Pid) => string): Standin
 				status: entry[1].status,
 				tries: entry[1].board.rows.length,
 				finishOrder: solved ? i + 1 : null,
-				...(climb && { height: entry[1].board.cleared })
+				...(climb && { height: entry[1].board.cleared }),
+				...(leftOf(entry[0]) && { left: true as const })
 			});
 		});
 	};

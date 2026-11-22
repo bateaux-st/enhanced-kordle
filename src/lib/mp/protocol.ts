@@ -67,6 +67,8 @@ export interface Standing {
 	finishOrder: number | null;
 	/** 등반에서만 있다. 나간 사람은 결과 스냅샷의 players에서 지워지므로 높이도 순위표가 들고 있다. */
 	height?: number;
+	/** 게임 중 스스로 나간 사람에게만 true. 나간 사람은 순위표에 이름·상태를 남기므로 결과 뒤에도 알 수 있게 들고 있다. */
+	left?: true;
 }
 
 /** 남의 보드는 이 필드만 보인다. rows(자모)와 hints는 만들지 않는다. */
@@ -261,7 +263,7 @@ export interface HostView {
 	/** 준비하지 않은 접속자 수. */
 	waiting: number;
 	reason: 'phase' | 'no_host' | 'alone' | 'waiting' | null;
-	/** 끊긴 채 자리를 지키는 사람. 시작에 `kickDisconnected`를 보내면 내보낸다. */
+	/** 끊긴 채 자리를 지키는 사람. 서버는 시작할 때 이 사람들을 항상 내보낸다. */
 	disconnected: Pid[];
 }
 

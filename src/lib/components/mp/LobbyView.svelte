@@ -3,7 +3,7 @@
 	import { listRooms, roomInfo } from '$lib/mp/api';
 	import { watchLobby } from '$lib/mp/lobby-feed';
 	import type { RoomSummary } from '$lib/mp/protocol';
-	import { CODE_LENGTH, MAX_PLAYERS, NAME_MAX, NAME_MIN, normalizeName } from '$lib/mp/rules';
+	import { CODE_LENGTH, MAX_PLAYERS, NAME_BAD_CHARS, NAME_MAX, NAME_MIN, nameProblem, normalizeName } from '$lib/mp/rules';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -37,7 +37,8 @@
 	let seq = 0;
 
 	const nameOk = $derived(normalizeName(nick) !== null);
-	const nameShort = $derived(nick.trim().length > 0 && !nameOk && [...nick.trim()].length < NAME_MIN);
+	const nameBadChars = $derived(nameProblem(nick) === 'chars');
+	const nameShort = $derived(!nameBadChars && nick.trim().length > 0 && !nameOk && [...nick.trim()].length < NAME_MIN);
 	const shownMsg = $derived(notice || message);
 
 	async function load(showSpinner: boolean) {
@@ -168,7 +169,7 @@
 				id="nick"
 				class="input"
 				type="text"
-				placeholder="이름"
+				placeholder="5~12자, 글자·숫자·기호·이모지"
 				maxlength={NAME_MAX}
 				autocomplete="off"
 				aria-describedby="nick-count"
@@ -184,7 +185,7 @@
 			/>
 			<span id="nick-count" class="note count"><span class="sr">글자 수 </span>{[...nick].length}/{NAME_MAX}</span>
 			<button class="btn primary" type="submit" disabled={!nameOk}>확인</button>
-			{#if !nameOk}<span class="note" role="status">{nameShort ? `${NAME_MIN}자 이상 입력하세요` : '닉네임을 입력해 주세요.'}</span>{/if}
+			{#if !nameOk}<span class="note" role="status">{nameBadChars ? NAME_BAD_CHARS : nameShort ? `${NAME_MIN}자 이상 입력하세요` : '닉네임을 입력해 주세요.'}</span>{/if}
 		</form>
 	{:else}
 		<button class="btn chip" type="button" aria-label="닉네임 수정: {nick}" onclick={startEdit}>
