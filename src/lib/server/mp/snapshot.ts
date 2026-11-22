@@ -41,7 +41,7 @@ function compView(s: RoomState, game: CompGame, pid: Pid): CompGameView {
 		endedAt: game.endedAt,
 		graceEnd: game.graceEnd,
 		me: mine ? ownBoardOf(mine) : null,
-		standings: result ? game.standings : mine && mine.status !== 'playing' ? standings(game, nameOf) : null
+		standings: result ? game.standings : mine && mine.status !== 'playing' ? standings(game, nameOf, (p) => s.players.find((q) => q.pid === p)?.left === true) : null
 	};
 	if (result) view.answers = reachedAnswers(game.answers, Math.max(...Object.values(game.players).map((p) => p.board.n)));
 	return view;

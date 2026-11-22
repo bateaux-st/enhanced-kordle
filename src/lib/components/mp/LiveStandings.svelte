@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PlayerView, Standing } from '$lib/mp/protocol';
 	import { liveRows } from '$lib/mp/live-rank';
-	import { statusLabel } from './labels';
+	import { standingLabel } from './labels';
 
 	let {
 		standings,
@@ -19,7 +19,7 @@
 	const waiting = $derived(standings.some((s) => s.status === 'playing'));
 	// 스테이지는 지금 서 있는 스테이지다. 순위표의 height는 클리어한 수라 하나 적다.
 	const stageOf = (s: Standing) => players.find((p) => p.pid === s.pid)?.panel?.stage ?? (s.height ?? 0) + 1;
-	const sub = (s: Standing) => (s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : statusLabel(s.status, climb));
+	const sub = (s: Standing) => (s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : standingLabel(s));
 </script>
 
 <section class="ls" aria-labelledby="ls-t">

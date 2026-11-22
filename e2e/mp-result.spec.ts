@@ -35,7 +35,7 @@ test.describe('경쟁 결과 화면', () => {
 		await expect(rows.nth(2)).toContainText('포기');
 	});
 
-	test('게임 중 나간 사람도 순위표에 탈락으로 남는다', async ({ page, openRoom, clock }) => {
+	test('게임 중 나간 사람은 순위표에 나감으로 남는다', async ({ page, openRoom, clock }) => {
 		const room = await started(page, openRoom);
 		room.as('철수').send({ type: 'leave' });
 		await submit(page, toJamo('바나나'));
@@ -44,7 +44,7 @@ test.describe('경쟁 결과 화면', () => {
 		await clock.run(1200);
 
 		const result = page.getByRole('dialog', { name: '결과' });
-		await expect(result.getByRole('row').filter({ hasText: '철수' })).toContainText('탈락');
+		await expect(result.getByRole('row').filter({ hasText: '철수' })).toContainText('나감');
 		await expect(result.getByRole('row')).toHaveCount(4);
 	});
 

@@ -67,6 +67,8 @@ export interface Standing {
 	finishOrder: number | null;
 	/** 등반에서만 있다. 나간 사람은 결과 스냅샷의 players에서 지워지므로 높이도 순위표가 들고 있다. */
 	height?: number;
+	/** 게임 중 스스로 나간 사람에게만 true. 나간 사람은 순위표에 이름·상태를 남기므로 결과 뒤에도 알 수 있게 들고 있다. */
+	left?: true;
 }
 
 /** 남의 보드는 이 필드만 보인다. rows(자모)와 hints는 만들지 않는다. */

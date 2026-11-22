@@ -24,7 +24,7 @@
 		compact?: boolean;
 		/** 협동 표시. 있으면 미니 격자 대신 그 사람의 단어(실시간 초안, 없으면 확정 제안)를 보인다. */
 		coop?: { state: 'playing' | 'proposed' | 'off' | 'idle'; word: string; confirmed: boolean; n: number; pass: boolean; lit: boolean } | null;
-		/** 등반이면 상대가 있는 스테이지를 보이고, 스테이지 실패를 '탈락'으로 말한다. */
+		/** 등반이면 상대가 있는 스테이지를 보인다. */
 		climb?: boolean;
 		onkick?: () => void;
 	} = $props();
@@ -35,7 +35,7 @@
 		if (coop) return coop.state === 'off' ? 'off' : coop.state === 'proposed' ? 'proposed' : coop.state === 'playing' ? 'playing' : 'idle';
 		return oppKind(player);
 	});
-	const label = $derived(kind === 'passed' ? '패스' : kind === 'proposed' ? '제안함' : kind === 'idle' ? '' : oppLabel(player, kind, rank, climb));
+	const label = $derived(kind === 'passed' ? '패스' : kind === 'proposed' ? '제안함' : kind === 'idle' ? '' : oppLabel(player, kind, rank));
 	const marks = $derived(panel?.marks ?? []);
 	const n = $derived(coop?.n ?? panel?.n ?? 0);
 	const word = $derived([...(coop?.word ?? '')]);

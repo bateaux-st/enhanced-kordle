@@ -4,7 +4,7 @@
 	import { LENGTH_MAX } from '$lib/mp/rules';
 	import ClimbPyramid from './ClimbPyramid.svelte';
 	import Icon from './Icon.svelte';
-	import { statusLabel } from './labels';
+	import { standingLabel } from './labels';
 	import MpModal from './MpModal.svelte';
 
 	let {
@@ -68,7 +68,7 @@
 				me: s.pid === snap.you,
 				rank: `${s.tied ? '공동 ' : ''}${s.rank}위`,
 				solved: s.finishOrder !== null,
-				result: s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : statusLabel(s.status, climb),
+				result: s.finishOrder !== null ? `${s.finishOrder}번째 ${climb ? '완주' : '정답'}` : standingLabel(s),
 				height: s.height,
 				tries: s.tries
 			};

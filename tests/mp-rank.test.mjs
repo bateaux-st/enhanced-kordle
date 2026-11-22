@@ -164,6 +164,13 @@ test('등반 순위표는 높이(board.cleared)를 싣는다. 나간 사람은 �
 	assert.deepEqual(standings(g, (p) => p).map((x) => [x.pid, x.status, x.height]), [['done', 'solved', 6], ['left', 'eliminated', 1], ['stuck', 'timeout', 0]]);
 });
 
+test('순위표 나감 표시는 leftOf가 참인 사람에게만 붙고 순위에는 영향이 없다', () => {
+	const g = game('single', { a: entry('eliminated', filler(1)), b: entry('eliminated', filler(1)) });
+	const s = standings(g, (p) => p, (p) => p === 'a');
+	assert.deepEqual(s.map((x) => [x.pid, x.rank, x.left]), [['a', 1, true], ['b', 1, undefined]]);
+	assert.ok(!('left' in s[1]));
+});
+
 test('단판 순위표에는 높이 필드가 없다', () => {
 	const g = game('single', { p1: entry('failed', filler(1), { cleared: 3 }) });
 	assert.ok(!('height' in standings(g, (p) => p)[0]));

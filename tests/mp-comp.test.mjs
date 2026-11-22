@@ -244,6 +244,18 @@ test('게임 중 나간 사람의 자리는 게임이 끝나면 치우고, 순�
 	assert.equal(s.phase, 'result');
 	assert.deepEqual(s.players.map((p) => p.pid), [host]);
 	assert.deepEqual(s.game.standings.map((x) => [x.name, x.status]), [['방장', 'gaveup'], ['가', 'eliminated']]);
+	assert.deepEqual(s.game.standings.map((x) => x.left), [undefined, true], '스스로 나간 사람만 나감 표시');
+	assert.ok(!('left' in s.game.standings[0]));
+});
+
+test('끊겨서 탈락하거나 방장이 탈락시킨 사람은 순위표에 나감 표시가 없다', () => {
+	const { s, pids } = started(['가']);
+	const [host, a] = pids;
+	disconnect(s, a, T0 + 5);
+	reduce(s, host, { type: 'eliminate', pid: a }, {}, T0 + 6, rng);
+	giveUp(s, host, T0 + 9);
+	assert.equal(s.phase, 'result');
+	assert.ok(s.game.standings.every((x) => !('left' in x)));
 });
 
 test('결과 단계 재입장: 끊겼다 돌아오면 내 줄 그대로, 나갔다 오면 새 자리이고 표는 그대로', () => {

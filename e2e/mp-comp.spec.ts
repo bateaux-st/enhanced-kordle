@@ -380,15 +380,15 @@ test.describe('경쟁 등반', () => {
 		await expect(result.getByRole('img', { name: /등반 단어/ })).toBeVisible();
 	});
 
-	test('등반에서 스테이지를 못 넘기면 실패가 아니라 탈락으로 말한다', async ({ page, openRoom }) => {
+	test('등반에서 스테이지를 못 넘기면 단판과 같이 실패로 말한다', async ({ page, openRoom }) => {
 		await startComp(page, openRoom, { settings: { ...CLIMB, tries: 4 } });
 		for (let i = 0; i < 4; i++) {
 			await guess(page, 'ㅍ'.repeat(11));
 			// 서버가 행을 받아 주기 전의 입력은 막히므로 판정이 온 뒤에 다음 추측을 친다.
 			await expectRowMarks(page, i, 'a'.repeat(11));
 		}
-		await expect(mpToast(page)).toHaveText('탈락했습니다');
-		await expect(page.locator('.mystate')).toContainText('탈락');
+		await expect(mpToast(page)).toHaveText('실패했습니다');
+		await expect(page.locator('.mystate')).toContainText('실패');
 	});
 
 	test('제한 시간이 켜진 등반은 띠에 남은 시간을 보이고 스테이지마다 줄어든 한도를 준다', async ({ page, openRoom, clock }) => {
