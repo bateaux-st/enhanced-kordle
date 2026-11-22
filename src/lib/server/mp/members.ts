@@ -149,34 +149,43 @@ export function nudge(s: RoomState, pid: Pid, now: number): Result<{ hostPid: Pi
 	return { ok: true, hostPid: s.hostPid };
 }
 
-/** 값이 바뀐 경우에만 전원 준비를 해제한다. */
-export function applySettings(s: RoomState, pid: Pid, raw: unknown): Result<{ changed: boolean }> {
+/**
+ * 대기실은 값이 바뀐 경우에만 전원 준비를 해제한다. 게임 중·결과는 현재 설정을 두고 보관 설정만 바꾼다.
+ * changed는 스냅샷에 보이는 변화, pending은 보관 설정만 바뀐 것(저장은 하고 방송은 하지 않는다).
+ */
+export function applySettings(s: RoomState, pid: Pid, raw: unknown): Result<{ changed: boolean; pending: boolean }> {
 	if (!isHost(s, pid)) return fail('forbidden', '방장만 설정을 바꿀 수 있습니다');
-	if (s.phase === 'playing') return fail('phase', '게임 중에는 설정을 바꿀 수 없습니다');
 	const next = parseSettings(raw);
 	if (!next) return fail('forbidden', '설정 값이 올바르지 않습니다');
+	if (s.phase !== 'lobby') {
+		const prev = s.pendingSettings ?? null;
+		s.pendingSettings = next;
+		return { ok: true, changed: false, pending: prev === null || !sameSettings(prev, next) };
+	}
 	const changed = !sameSettings(s.settings, next);
 	if (changed) {
 		s.settings = next;
 		for (const p of s.players) p.ready = false;
 	}
-	return { ok: true, changed };
+	return { ok: true, changed, pending: false };
 }
 
 /**
- * 결과 -> 대기실. 설정은 그대로 두거나 `raw`로 바꾼다. 이전 판 데이터는 모두 버리고 전원 준비를 푼다.
+ * 결과 -> 대기실. 설정은 `raw` > 보관 설정 > 현재 설정 순으로 정하고 보관 설정은 비운다.
+ * 이전 판 데이터는 모두 버리고 전원 준비를 푼다.
  * 끊긴 채 남은 사람은 자리를 지킨다. 회수는 정원이 찰 때(evictStale)와 시작할 때(removeDisconnected)의 기존 규칙에 맡긴다.
  */
 export function backToLobby(s: RoomState, pid: Pid, raw?: unknown): Result {
 	if (!isHost(s, pid)) return fail('forbidden', '방장만 다음 게임을 고를 수 있습니다');
 	if (s.phase !== 'result') return fail('phase', '결과 화면에서만 고를 수 있습니다');
-	let next = s.settings;
+	let next = s.pendingSettings ?? s.settings;
 	if (raw !== undefined) {
 		const parsed = parseSettings(raw);
 		if (!parsed) return fail('forbidden', '설정 값이 올바르지 않습니다');
 		next = parsed;
 	}
 	s.settings = next;
+	s.pendingSettings = null;
 	s.game = null;
 	s.phase = 'lobby';
 	for (const p of s.players) {

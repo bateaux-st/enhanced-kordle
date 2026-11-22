@@ -246,7 +246,7 @@ export class Room extends DurableObject<RoomEnv> {
 		await this.run((s, now) => {
 			const r = reduce(s, pid, msg, io, now, randomIndex);
 			this.deliver(r.events);
-			return { changed: r.changed, skipSave: r.skipSave, destroy: r.destroy };
+			return { changed: r.changed, skipSave: r.skipSave, silent: r.silent, destroy: r.destroy };
 		});
 	}
 
@@ -328,18 +328,20 @@ export class Room extends DurableObject<RoomEnv> {
 
 	// ---- 변경 공통 경로 ----
 
-	private async run(fn?: (s: RoomState, now: number) => { changed: boolean; skipSave?: boolean; destroy?: boolean }): Promise<void> {
+	private async run(fn?: (s: RoomState, now: number) => { changed: boolean; skipSave?: boolean; silent?: boolean; destroy?: boolean }): Promise<void> {
 		const s = this.state;
 		if (!s) return;
 		const now = Date.now();
 		const t = tick(s, now, randomIndex);
 		let changed = t.changed;
 		let save = t.changed;
+		let silent = false;
 		let destroy = t.destroy;
 		if (!destroy && fn) {
 			const r = fn(s, now);
 			changed ||= r.changed;
 			save ||= r.changed && !r.skipSave;
+			silent = r.silent ?? false;
 			destroy = r.destroy ?? false;
 		}
 		if (destroy) return this.destroy(s);
@@ -353,6 +355,9 @@ export class Room extends DurableObject<RoomEnv> {
 				await this.ctx.storage.put(STATE_KEY, s);
 			}
 			this.broadcast(s, now);
+		} else if (silent) {
+			// 보관 설정은 스냅샷에 없어 방송·seq가 필요 없지만, 재시작 뒤에도 남도록 저장한다.
+			await this.ctx.storage.put(STATE_KEY, s);
 		}
 		this.syncLobby(s, now);
 		await this.updateAlarm(s, now);

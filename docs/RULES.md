@@ -391,12 +391,12 @@
 | `start` 수락 | `lobby` | `playing` | M-START. 그 시점의 모든 자리가 참가자가 되고(`inGame`), 설정은 복사본이 게임에 고정된다 |
 | 경쟁: 마지막 풀이 중 참가자가 끝남 | `playing` | `result` | M-COMP-9. 순위표 고정, 준비 전원 해제, 나가기로 떠난 자리 삭제 |
 | 협동: 정답 / 시도 소진 / 제한 시간 / 방장 포기 | `playing` | `result` | M-COOP-13. 명단 고정, 준비 전원 해제, 나가기로 떠난 자리 삭제 |
-| `again` 또는 `next` 수락 | `result` | `lobby` | 설정 유지(`next`는 교체 가능), 게임 데이터 폐기, 전원 준비·`inGame` 해제 |
+| `again` 또는 `next` 수락 | `result` | `lobby` | 설정 = 요청 설정 > 보관 설정 > 현재 설정(M-SET-11), 보관 설정 비움, 게임 데이터 폐기, 전원 준비·`inGame` 해제 |
 | 방 소멸 | 어느 단계든 | 없음 | M-LIFE-1 |
 
 | ID | 규칙 | 근거 | 검증 |
 |---|---|---|---|
-| M-PHASE-1 | 게임은 시작 때의 설정 복사본으로 끝까지 진행한다. 진행 중에는 설정을 바꿀 수 없다(M-SET-3). | `comp.ts`·`coop.ts` `startGame` | t:mp-members |
+| M-PHASE-1 | 게임은 시작 때의 설정 복사본으로 끝까지 진행한다. 진행 중과 결과에서 온 설정 변경은 현재 설정을 바꾸지 않고 보관된다(M-SET-3, M-SET-11). | `comp.ts`·`coop.ts` `startGame` | t:mp-members |
 | M-PHASE-2 | 등반은 스테이지가 이어지는 동안 한 게임이다. 스테이지 사이에 단계는 바뀌지 않는다. | `climb.ts` | t:mp-climb |
 | M-PHASE-3 | `result`에서 `lobby`로 돌아올 때 이전 게임의 정답·순위표·패널·보드는 스냅샷에서 사라진다. 끊긴 채 남은 사람은 자리를 지키고, 결과 중 들어온 사람은 준비 전인 사람으로 들어와 있다. | `members.ts` `backToLobby` | t:mp-members, t:mp-snapshot |
 
@@ -436,7 +436,7 @@
 | M-START-4 | 대기실에서 방장이 시작을 요청하면 인원을 세기 전에 응답 없는 소켓을 먼저 정리한다(M-CONN-4, 방장의 소켓은 제외). 거절될 요청은 정답 조회를 하지 않는다. | `room.ts` `act` | t:mp-room-d1 |
 | M-START-5 | 시작할 때 끊긴 자리는 방에서 삭제하고, 삭제된 사람은 게임에 들어가지 않는다. `kickDisconnected`는 값과 무관하게 이렇게 처리한다. 서버는 그 필드를 검증만 하고 읽지 않으므로 `true`든 `false`든 없든 받아도 무시한다. 방장 화면은 끊긴 사람이 있으면 시작 버튼을 `{이름} 내보내고 시작`(여럿이면 `{이름} 외 {n}명 내보내고 시작`)으로 바꾸고 항상 `kickDisconnected:true`로 보낸다. | `members.ts` `removeDisconnected`, `reduce.ts` `start`, `WaitingRoom.svelte`, `MultiApp.svelte` | t:mp-members, e:mp-waiting |
 | M-START-6 | 시작 불가 사유 문구(방장 화면): `혼자서는 시작할 수 없습니다`(alone), `{n}명 대기 중`(waiting), `방장이 접속해야 합니다`(no_host). | `WaitingRoom.svelte` | e:mp-waiting |
-| M-START-7 | 결과 → 대기실: `again {}`은 설정을 그대로, `next {settings?}`는 설정이 있으면 교체하고 방장에게만 `{type:'opensettings'}`을 보낸다. 둘 다 방장만 되고(`forbidden` `방장만 다음 게임을 고를 수 있습니다`), 단계가 `result`가 아니면 `phase` `결과 화면에서만 고를 수 있습니다`. 설정 값이 틀리면 결과에 머문다. | `members.ts` `backToLobby`, `reduce.ts` | t:mp-members, t:mp-room-socket |
+| M-START-7 | 결과 → 대기실: `again {}`은 보관 설정이 있으면 그것을, 없으면 현재 설정을 그대로 쓰고, `next {settings?}`는 설정이 있으면 그것으로 교체하고(없으면 `again`과 같다. 순서는 M-SET-11) 방장에게만 `{type:'opensettings'}`을 보낸다. 둘 다 방장만 되고(`forbidden` `방장만 다음 게임을 고를 수 있습니다`), 단계가 `result`가 아니면 `phase` `결과 화면에서만 고를 수 있습니다`. 설정 값이 틀리면 결과에 머문다. | `members.ts` `backToLobby`, `reduce.ts` | t:mp-members, t:mp-room-socket |
 
 ### M-SET 방 설정
 
@@ -455,14 +455,15 @@
 |---|---|---|---|
 | M-SET-1 | 방 설정의 기본값은 위 표다(`DEFAULT_SETTINGS`). 방을 만들 때 설정을 주지 않으면 기본값으로 만들어진다. | `mp/rules.ts` | t:mp-parse, t:api-room |
 | M-SET-2 | 설정은 모든 필드가 위 표의 범위일 때만 받는다. 하나라도 어긋나면 통째로 거절한다. 알려진 필드만 복사하고 모르는 필드는 버린다. 통신으로 온 설정이 틀리면 메시지 전체가 `잘못된 요청입니다`(M-ROOM-10)다. | `rules.ts` `parseSettings`, `parse.ts` | t:mp-parse, t:api-room |
-| M-SET-3 | 설정 변경(`settings`)은 방장만, `playing`이 아닌 단계(대기실·결과)에서 할 수 있다. 평가 순서 ① 방장이 아니면 `forbidden` `방장만 설정을 바꿀 수 있습니다` ② `playing`이면 `phase` `게임 중에는 설정을 바꿀 수 없습니다`. 화면의 설정 창은 대기실에서만 연다([U-12](#u-12)). | `members.ts` `applySettings` | t:mp-members |
-| M-SET-4 | 설정 값이 현재와 다를 때만 바뀐다. 같은 값이면 아무 일도 없고 준비도 유지된다. 실제로 바뀌면 전원의 준비를 푼다(방장 포함). | `members.ts` `applySettings`, `rules.ts` `sameSettings` | t:mp-members, e:mp-waiting |
+| M-SET-3 | 설정 변경(`settings`)은 방장만 할 수 있고, 평가 순서는 ① 방장이 아니면 `forbidden` `방장만 설정을 바꿀 수 있습니다` ② 값이 올바르지 않으면 `forbidden` `설정 값이 올바르지 않습니다`다(M-SET-2). 통과하면 단계에 따라 갈린다. 대기실(`lobby`)이면 현재 설정을 바로 바꾼다(M-SET-4). 게임 중(`playing`)과 결과(`result`)이면 현재 설정은 그대로 두고 받은 값을 **보관 설정**에 둔다(M-SET-11). 게임 중이라고 거절하지 않는다. 보관할 때는 준비를 풀지 않는다. 화면의 설정 창은 대기실에서만 연다. | `members.ts` `applySettings` | t:mp-members |
+| M-SET-4 | 대기실에서는 설정 값이 현재와 다를 때만 바뀐다. 같은 값이면 아무 일도 없고 준비도 유지된다. 실제로 바뀌면 전원의 준비를 푼다(방장 포함). | `members.ts` `applySettings`, `rules.ts` `sameSettings` | t:mp-members, e:mp-waiting |
 | M-SET-5 | 설정 창의 설명 문구(종류): 협동 `한 보드에 단어를 제안하고 골라 함께 풉니다.` / 경쟁 `같은 정답을 각자 풉니다.` | `components/mp/RoomSettings.svelte` | 코드만 |
 | M-SET-6 | 설정 창의 설명 문구(선택 방식): 투표 `자기 제안에도 투표할 수 있습니다. 20초 안에 정하고, 동률이면 돌림판.` / 돌림판 `제안 중 하나를 무작위로 고릅니다.` | `RoomSettings.svelte` | 코드만 |
 | M-SET-7 | 설정 창의 설명 문구(게임): 단판 `한 단어.` / 등반 `시작 길이에서 12자까지 한 자모씩 올라갑니다.` | `RoomSettings.svelte` | 코드만 |
 | M-SET-8 | 설정 창의 하드 모드 설명은 S-HARD-3과 같은 문구다. | `RoomSettings.svelte` | 코드만 |
 | M-SET-9 | 설정 창의 힌트 설명: `노란 자모 하나의 실제 위치를 알려줍니다. ` 뒤에 등반은 `등반 전체에서 방 전체가 한 번.`(협동) / `등반 전체에서 한 사람이 한 번.`(경쟁), 단판은 `한 판에 한 번.`(협동) / `한 사람에 한 번.`(경쟁). | `RoomSettings.svelte` | 코드만 |
 | M-SET-10 | 설정 창의 제한 시간 설명: `단판 180초. 등반은 180초에서 스테이지마다 15초씩 줄어 60초까지.` | `RoomSettings.svelte` | 코드만 |
+| M-SET-11 | 보관 설정은 방 상태의 `pendingSettings`이고, 게임 중·결과의 `settings`를 받을 때마다 마지막 값으로 덮어쓴다(값이 현재 설정과 같아도 보관한다). 결과 → 대기실(`again`·`next`)이 되는 순간 적용할 설정은 **요청에 실린 설정 > 보관 설정 > 현재 설정** 순으로 정하고(`again`은 요청 설정이 없다), 적용한 뒤 보관 설정을 비운다(요청 설정을 썼어도 비운다). 요청 설정이 올바르지 않아 거절되면 결과에 머물고 보관 설정도 그대로다. 그래서 대기실에서는 보관 설정이 늘 비어 있고, 결과 화면의 `settings`와 로비 목록 요약은 보관 설정과 상관없이 끝난 게임 기준 그대로다. 보관 설정은 방장이 바뀌어도(승계·넘기기) 방에 남고 새 방장이 `again`·`next`를 누를 때 적용된다. 아무에게도 보이지 않는다(M-VIS-12). 방 상태와 함께 저장되어 DO가 다시 시작해도 남는다. 보관 설정이 없는 이전 저장본은 비어 있는 것으로 읽는다. | `members.ts` `applySettings`, `backToLobby`, `state.ts` `pendingSettings` | t:mp-members, t:mp-snapshot, t:mp-room-lifecycle |
 
 ### M-MSG 메시지 권한과 거절
 
@@ -474,7 +475,7 @@
 | `ready` | 자리 있는 사람 | `playing`이 아닐 때, 방장 제외 | M-READY-1 |
 | `nudge` | 방장이 아닌 사람 | `playing`이 아닐 때 | M-READY-3 |
 | `leave` | 자리 있는 사람 | 언제나 | M-LEAVE |
-| `settings` | 방장 | `playing`이 아닐 때 | M-SET-3 |
+| `settings` | 방장 | 언제나(`lobby`는 즉시 적용, `playing`·`result`는 보관) | M-SET-3, M-SET-11 |
 | `start` | 방장 | `lobby` | M-START |
 | `again`, `next` | 방장 | `result` | M-START-7 |
 | `transfer` | 방장 | `playing`이 아닐 때 | M-HOST-5 |
@@ -633,6 +634,7 @@
 | M-VIS-9 | 결과 모달(경쟁·협동)은 종료 1200ms 뒤에 열린다(채팅 시트가 열려 있으면 닫힌 뒤, 결과 단계에서 재접속하면 즉시). 방장의 선택지는 `같은 설정으로 한 판 더`(`again`), `설정 바꾸기`(`next`), `나가기`이고, 방장이 아닌 사람은 `대기실로`, `나가기`다. | `MpGame.svelte`, `MpResult.svelte` | e:mp-comp |
 | M-VIS-10 | 결과 단계에서 방장이 다음 게임을 고르는 동안 `between` 화면을 보는 사람: 결과에서 `대기실로`를 누른 이번 게임 참가자, 그리고 결과 중 들어와 방장을 넘겨받은 사람. 내용: 방장이면 `다음 게임을 골라 주세요.`, `고르면 모두 대기실로 이동합니다.`와 `같은 설정으로 한 판 더`·`설정 바꾸기`, 방장이 아니면 `방장이 다음 게임을 고르는 중입니다.`, `정해지면 대기실로 이동합니다.`. 이번 게임 참가자에게는 `결과 보기`, 모두에게 `나가기`가 있다. | `MultiApp.svelte` `between`, `lateJoiner` | e:mp-result, e:mp-comp |
 | M-VIS-11 | 결과 중 들어온 사람이 방장이 아니면 결과 대신 대기실 화면을 보는데, 결과 단계 동안 `준비` 버튼은 비활성이다(안내 `방장이 다음 게임을 고르는 중입니다.`는 그대로). 대기실이 되면 버튼이 켜진다. | `MultiApp.svelte` `lateJoiner`, `WaitingRoom.svelte` | e:mp-result |
+| M-VIS-12 | 보관 설정(M-SET-11)은 스냅샷에도 로비 목록에도 들어가지 않아 방장을 포함한 누구에게도 보이지 않는다. | `snapshot.ts` `personalize`, `rooms.ts` `summarize` | t:mp-snapshot |
 
 ### M-COOP 협동
 
@@ -862,7 +864,6 @@
 | ID | 현재 코드 동작 | 왜 문제인가 | 관련 규칙 |
 |---|---|---|---|
 | <a id="u-6"></a>U-6 | 닉네임은 길이(코드포인트 5~12)와 앞뒤 공백만 검사한다. 제어문자·보이지 않는 서식 문자·결합 문자 연속 등은 거르지 않는다. 채팅 본문에는 같은 종류의 걸러내기가 있다. | 보이지 않는 글자만으로 이름이 되거나, 표시 순서를 뒤집는 문자가 이름에 들어갈 수 있다. 채팅과 기준이 다르다. | M-ID-1, M-CHAT-2 |
-| <a id="u-12"></a>U-12 | 서버는 방장의 설정 변경을 `playing`이 아니면(결과 단계 포함) 받아들인다. 화면의 설정 창은 대기실에서만 연다. 결과 단계에서 방 설정이 바뀌어도 이미 끝난 게임에 고정된 설정은 그대로이지만, 스냅샷의 `settings`는 방 설정이라 결과 단계 화면이 바뀐 값(`game`(단판·등반)·`tries`·`hard`·`hints`)을 쓰고(협동·경쟁 종류는 `game.kind`라 바뀌지 않는다) 로비 목록의 요약도 바뀐 방 설정을 따른다. | 결과 단계의 설정 변경이 규칙으로 정해져 있지 않다. | M-SET-3, M-PHASE-1 |
 
 ### 결정된 항목
 
@@ -880,6 +881,7 @@
 | <a id="u-9"></a>U-9 | 게임 중 소켓 정리 점검 주기를 15000ms로 줄인다(경쟁 끊김 탈락 최대 약 120초, 대기실 180초는 그대로) (2026-11-17 결정) | M-CONN-5, M-CONN-11 |
 | <a id="u-10"></a>U-10 | 닿지 않는 등반 제한 시간 하한 60000ms를 지운다(동작 불변) (2026-11-17 결정) | M-TIME-1, M-TIME-6 |
 | <a id="u-11"></a>U-11 | 제한 시간을 끈 방은 기다려 주는 방이고, 접속 중 잠수의 대책은 제한 시간이다. 강퇴는 v1 제외 (2026-11-17 결정) | M-HOST-4 |
+| <a id="u-12"></a>U-12 | 게임 중·결과의 설정 변경은 보관 설정에 두고, 다음 게임 때 요청 > 보관 > 현재 순으로 적용한 뒤 비운다 (2026-11-17 결정, 적용 순서 2026-11-22 확인) | M-SET-3, M-SET-4, M-SET-11, M-PHASE-1, M-START-7, M-VIS-12 |
 | <a id="u-13"></a>U-13 | 협동도 게임 중 전원이 나가면 즉시 소멸한다(경쟁과 통일) (2026-11-17 결정) | M-LIFE-1, M-LIFE-2, M-LEAVE-8 |
 | <a id="u-14"></a>U-14 | 미정답자는 (등반은 높이 다음) 상태 단계 풀이 중 > 실패·시간 초과 > 포기 > 탈락 순으로 먼저 가른다 (2026-11-17 결정, 풀이 중 단계 2026-11-22) | M-RANK-4, M-RANK-9 |
 | <a id="u-15"></a>U-15 | 등반 스테이지 실패도 실패로, 결과 순위표에서 나간 사람은 나감으로 표시한다 (2026-11-17 결정) | M-COMP 상태 표, M-COMP-13, M-LEAVE-6, M-RANK-6 |

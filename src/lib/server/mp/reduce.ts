@@ -31,6 +31,8 @@ export interface ReduceResult {
 	changed: boolean;
 	/** changed여도 저장은 건너뛴다(초안만 바뀐 경우). 메모리 상태에는 남아 다음 저장 때 함께 나간다. */
 	skipSave: boolean;
+	/** 스냅샷에 보이지 않는 변경(보관 설정)만 있었다. 저장하되 seq와 방송은 건드리지 않는다. */
+	silent: boolean;
 	/** 방을 지워야 하는지(빈 방 유예 EMPTY_ROOM_MS 경과). */
 	destroy: boolean;
 }
@@ -49,11 +51,12 @@ const NOT_COMP = fail('phase', '경쟁 게임에서만 쓸 수 있습니다');
 /** 항상 tick(now)부터 돌려 만료된 마감을 먼저 처리한다. */
 export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: number, rng: Rng): ReduceResult {
 	const t = tick(s, now, rng);
-	if (t.destroy) return { events: [], changed: false, skipSave: false, destroy: true };
+	if (t.destroy) return { events: [], changed: false, skipSave: false, silent: false, destroy: true };
 
 	const events: Effect[] = [];
 	let changed = t.changed;
 	let destroy = false;
+	let silent = false;
 	const apply = (r: Result, mutated = true): void => {
 		if (!r.ok) events.push({ type: 'error', to: pid, code: r.code, msg: r.msg });
 		else if (mutated) changed = true;
@@ -62,7 +65,7 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 	const me = members.findPlayer(s, pid);
 	if (!me) {
 		apply(fail('forbidden', '방에 없는 사람입니다'));
-		return { events, changed, skipSave: false, destroy: false };
+		return { events, changed, skipSave: false, silent: false, destroy: false };
 	}
 
 	switch (msg.type) {
@@ -87,6 +90,7 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 		case 'settings': {
 			const r = members.applySettings(s, pid, msg.settings);
 			apply(r, r.ok && r.changed);
+			silent = r.ok && r.pending;
 			break;
 		}
 		case 'start':
@@ -153,7 +157,7 @@ export function reduce(s: RoomState, pid: Pid, msg: ClientMsg, io: Io, now: numb
 			apply(UNSUPPORTED);
 	}
 	// 초안만 바뀐 메시지: 타이핑마다 저장하면 SQLite 쓰기 한도(무료 10만 행/일)를 빨리 쓴다.
-	return { events, changed, skipSave: msg.type === 'draft' && changed && !t.changed, destroy };
+	return { events, changed, skipSave: msg.type === 'draft' && changed && !t.changed, silent, destroy };
 }
 
 const isCoop = (s: RoomState): boolean => s.game?.kind === 'coop';
