@@ -159,6 +159,13 @@ test('nameProblem: 쓸 수 없는 문자를 길이보다 먼저 가르고, 빈 �
 	assert.equal(nameProblem('철수​입니다'), 'chars');
 });
 
+test('nameProblem/normalizeName: 앞뒤 BOM은 trim으로 지워진 뒤 판정돼 저장 이름에 남지 않고, 가운데 BOM은 거절한다', () => {
+	assert.equal(normalizeName('﻿가나다라마'), '가나다라마');
+	assert.equal(normalizeName('가나다라마﻿'), '가나다라마');
+	assert.equal(normalizeName('가나﻿다라마'), null);
+	assert.equal(nameProblem('가나﻿다라마'), 'chars');
+});
+
 test('서명이 맞아도 이름에 쓸 수 없는 문자가 있으면 verify는 null이고 refresh는 새 uid를 발급한다(옛 토큰 이름)', async () => {
 	const { token } = await issue(undefined, '철수입니다', NOW, SECRET);
 	const uid = token.split('.')[1];
