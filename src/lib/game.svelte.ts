@@ -197,7 +197,7 @@ export class Game {
 	toast = $state<string | null>(null);
 	shake = $state(false);
 
-	/** 이 판의 시도 횟수. 판이 시작될 때(clearBoard) 정해 두고, 설정을 바꿔도 다음 판부터 쓴다. */
+	/** 이 판의 시도 횟수. 판(등반은 등반 전체)이 시작될 때 resetRun이 정해 두고, 설정을 바꿔도 다음 판·다음 등반부터 쓴다. */
 	maxTries = $state(isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries);
 	/** 원작처럼 판 도중에는 켤 수 없다 — 이미 낸 추측이 제약을 어겨 있을 수 있다. 끄는 건 언제나 된다. */
 	canEnableHard = $derived(this.status !== 'playing' || this.rows.length === 0);
@@ -339,6 +339,7 @@ export class Game {
 
 	/** 등반 진행을 처음(또는 일일 등반 저장본) 상태로 돌린다. */
 	private resetRun(saved: DailyClimbSave | null) {
+		this.maxTries = isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries;
 		this.stage = 1;
 		this.climbWords = [];
 		this.stageTimes = [];
@@ -355,7 +356,6 @@ export class Game {
 	}
 
 	private clearBoard() {
-		this.maxTries = isDaily(this.config.mode) ? DAILY_TRIES : this.settingTries;
 		this.status = 'loading';
 		this.stageStartAt = null;
 		this.rows = [];

@@ -52,7 +52,7 @@ test('endless: 판 도중 시도 횟수를 올려도 그 판의 한도는 그대
 	assert.equal(game.status, 'lost');
 });
 
-test('등반: 스테이지 도중 바꾼 시도 횟수는 다음 스테이지부터 쓴다', async (t) => {
+test('등반: 스테이지 도중 바꿔도 다음 스테이지는 옛 값이고 처음부터 누르면 새 값이다', async (t) => {
 	setup(t, routes);
 	const game = new Game();
 	game.config = { mode: 'climb-streak', length: { kind: 'fixed', n: 6 } };
@@ -66,6 +66,24 @@ test('등반: 스테이지 도중 바꾼 시도 횟수는 다음 스테이지부
 
 	await game.nextStage();
 	assert.equal(game.stage, 2);
+	assert.equal(game.maxTries, 6);
+
+	await game.newGame();
+	assert.equal(game.stage, 1);
+	assert.equal(game.maxTries, 4);
+});
+
+test('등반: 시도를 다 써서 끝난 뒤 다시 등반하면 새 값이다', async (t) => {
+	setup(t, routes);
+	const game = new Game();
+	game.config = { mode: 'climb-streak', length: { kind: 'fixed', n: 6 } };
+	await game.newGame();
+	game.setTries(4);
+	for (let i = 0; i < 6; i++) await guess(game, false);
+	assert.equal(game.status, 'lost');
+	assert.equal(game.maxTries, 6);
+	await game.newGame();
+	assert.equal(game.stage, 1);
 	assert.equal(game.maxTries, 4);
 });
 
