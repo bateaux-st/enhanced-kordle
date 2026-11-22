@@ -154,6 +154,25 @@ test.describe('대기실: 참가자 입장에서', () => {
 		await expect(page.locator('.cdbadge')).toHaveCount(0);
 	});
 
+	test('방장이 끊겨 있으면 재촉이 거절되고 로컬 쿨다운이 풀려 다시 누를 수 있다', async ({ page, openRoom }) => {
+		const room = await openRoom({ others: ['철수'] });
+		await room.open();
+		await page.getByRole('button', { name: '준비', exact: true }).click();
+		room.disconnect('철수');
+		const bell = page.getByRole('button', { name: '방장 재촉' });
+		await expect(bell).toBeEnabled();
+		await bell.click();
+		await room.nextSent('nudge');
+		await expect(mpToast(page)).toHaveText('방장이 접속 중이어야 합니다');
+		await expect(bell).toBeEnabled();
+		await expect(page.locator('.cdbadge')).toHaveCount(0);
+
+		room.reconnect('철수');
+		await bell.click();
+		await expect(bell).toBeDisabled();
+		await expect(page.locator('.cdbadge')).toHaveText('30');
+	});
+
 	test('새로고침으로 로컬 쿨다운을 잃어도 서버가 알려 준 남은 초에 맞춘다', async ({ page, openRoom, clock }) => {
 		const room = await openRoom({ others: ['철수'] });
 		await room.open();

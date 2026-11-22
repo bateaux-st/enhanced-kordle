@@ -188,6 +188,20 @@ test('재촉: 방장에게 이벤트, 1인당 30초 쿨다운, 다른 사람은 
 	assert.equal(errorOf(send(s, host, { type: 'nudge' }, T0)).code, 'forbidden');
 });
 
+test('재촉: 방장이 끊겨 있으면 forbidden으로 거절하고 쿨다운을 쓰지 않으며, 접속하면 바로 재촉할 수 있다', () => {
+	const s = lobby();
+	const [host, a] = joinAll(s, ['가']);
+	disconnect(s, host, T0 + 1);
+	const r = send(s, a, { type: 'nudge' }, T0 + 2);
+	assert.equal(errorOf(r).code, 'forbidden');
+	assert.equal(errorOf(r).msg, '방장이 접속 중이어야 합니다');
+	assert.equal(s.players.find((p) => p.pid === a).nudgedAt, null);
+	assert.equal(r.events.some((e) => e.type === 'nudge'), false);
+
+	join(s, { uid: 'uid-host', name: '방장' }, T0 + 3, rng);
+	assert.equal(send(s, a, { type: 'nudge' }, T0 + 4).events[0].type, 'nudge');
+});
+
 test('끊긴 사람은 시작을 막지 않고, kickDisconnected 값과 무관하게 시작할 때 방에서 빠져 게임에 들어가지 않는다', () => {
 	const make = () => {
 		const s = lobby();

@@ -125,6 +125,8 @@ export function nudge(s: RoomState, pid: Pid, now: number): Result<{ hostPid: Pi
 	const p = findPlayer(s, pid);
 	if (!p || s.hostPid === null || isHost(s, pid)) return fail('forbidden', '방장에게만 재촉할 수 있습니다');
 	if (s.phase === 'playing') return fail('phase', '게임 중에는 재촉할 수 없습니다');
+	// 받을 소켓이 없는 재촉은 쿨다운을 쓰지 않고 거절한다.
+	if (!findPlayer(s, s.hostPid)?.connected) return fail('forbidden', '방장이 접속 중이어야 합니다');
 	if (p.nudgedAt !== null && now - p.nudgedAt < NUDGE_COOLDOWN_MS) {
 		return fail('cooldown', `${Math.ceil((NUDGE_COOLDOWN_MS - (now - p.nudgedAt)) / 1000)}초 뒤에 다시 재촉할 수 있습니다`);
 	}

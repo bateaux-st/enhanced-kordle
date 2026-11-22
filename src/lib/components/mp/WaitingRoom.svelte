@@ -67,6 +67,14 @@
 		const e = client.error;
 		if (!e || e.id === lastErr) return;
 		lastErr = e.id;
+		// 방장이 끊겨 있으면 서버가 쿨다운을 쓰지 않고 거절하므로 미리 걸어 둔 로컬 쿨다운도 되돌린다.
+		if (e.code === 'forbidden' && e.msg === '방장이 접속 중이어야 합니다') {
+			untrack(() => {
+				cooldownUntil = 0;
+				preview = null;
+			});
+			return;
+		}
 		if (e.code !== 'cooldown') return;
 		const s = /(\d+)초/.exec(e.msg);
 		if (s) untrack(() => (cooldownUntil = Date.now() + Number(s[1]) * 1000));
