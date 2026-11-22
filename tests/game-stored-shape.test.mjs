@@ -147,6 +147,7 @@ test('끝난 daily 저장본(answer·hints 포함)은 그대로 복원된다', a
 });
 
 const win = () => Response.json({ ok: true, marks: Array(6).fill('c') });
+const win12 = () => Response.json({ ok: true, marks: Array(12).fill('c') });
 
 async function winEndless(t, raw) {
 	const { values } = setup(t, { '/api/guess': win });
@@ -185,4 +186,20 @@ test('정상 stats 저장본은 그대로 복원되고 이어서 쌓인다', asy
 	const { game, initial } = await winEndless(t, JSON.stringify(saved));
 	assert.deepEqual(initial, saved);
 	assert.deepEqual(game.stats, { played: 4, won: 3, streak: 2, maxStreak: 2, dist: [1, 1, 1] });
+});
+
+test('일일 등반에서 12자 스테이지를 맞히면 climb-length와 같은 완주 토스트를 띄운다', async (t) => {
+	const { values } = setup(t, {
+		'/api/game': () => Response.json({ n: 12, token: 'tok' }),
+		'/api/guess': win12
+	});
+	values.set(`nkordle:dclimb:${todayKST()}`, JSON.stringify({ stage: 8, n: 12, climbWords: Array(7).fill('가') }));
+	const game = new Game();
+	game.config = { mode: 'daily-climb', length: { kind: 'fixed', n: 5 } };
+	await game.newGame();
+	assert.equal(game.n, 12);
+	for (let i = 0; i < 12; i++) game.type('ㄱ');
+	await game.submit();
+	assert.equal(game.status, 'won');
+	assert.equal(game.toast, '12자까지 완주!');
 });

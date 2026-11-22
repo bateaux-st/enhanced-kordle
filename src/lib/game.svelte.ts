@@ -512,7 +512,8 @@ export class Game {
 		if (this.config.mode === 'daily-climb') this.saveDailyClimb();
 
 		if (won) {
-			if (this.config.mode === 'climb-length' && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
+			const completes = this.config.mode === 'climb-length' || this.config.mode === 'daily-climb';
+			if (completes && this.n === MAX_N) this.showToast(`${MAX_N}자까지 완주!`, 2500);
 			else if (isClimb(this.config.mode)) this.showToast(`스테이지 ${this.stage} 클리어`, 2000);
 			else this.showToast('정답입니다', 2000);
 		} else {
