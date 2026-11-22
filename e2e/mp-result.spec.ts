@@ -100,7 +100,7 @@ test.describe('경쟁 등반 결과 화면', () => {
 });
 
 test.describe('결과 중에 들어온 사람', () => {
-	test('이번 판 참가자가 아니면 결과 대신 대기실을 보고 준비할 수 있다', async ({ page, openRoom }) => {
+	test('이번 판 참가자가 아니면 결과 중에는 준비할 수 없고, 대기실이 되면 준비할 수 있다', async ({ page, openRoom }) => {
 		const room = await openRoom({ others: ['철수', '영희'], answer: answers });
 		room.startGame();
 		room.as('철수').send({ type: 'giveup' });
