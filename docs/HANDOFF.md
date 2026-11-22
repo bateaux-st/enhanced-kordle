@@ -4,7 +4,7 @@
 
 게임 규칙(판정·모드·멀티·시간·채팅)의 기준은 [`RULES.md`](RULES.md)다.
 
-마지막 갱신: 2026-11-05. 이후 바뀐 것은 `git log`가 우선한다.
+마지막 갱신: 2026-11-22. 이후 바뀐 것은 `git log`가 우선한다.
 
 ---
 
@@ -35,7 +35,7 @@
 - **배포**: 별도 Worker가 없다. adapter-cloudflare는 빌드마다 `_worker.js`를 템플릿으로 다시 쓰므로 `pnpm build`(`vite build && node scripts/postbuild-do.mjs`)가 끝에 `export { Room, Lobby } ...` 한 줄을 붙인다(멱등). `pnpm run deploy`와 CI 모두 이 `build`를 거친다.
 - **마이그레이션**: `wrangler.jsonc`의 `migrations` v1 `new_sqlite_classes: ["Room", "Lobby"]`는 첫 배포에서 적용되고 되돌릴 수 없다. 이후에는 항목을 추가만 하고, 태그를 지우거나 고치지 않는다.
 - **검증**: 멀티 화면·DO 규칙은 `pnpm e2e`·`pnpm test`(mock)로 보고, 실제 소켓·workerd 동작은 `pnpm build && pnpm preview`(wrangler dev, :8787)로 본다. `pnpm dev`(Vite)는 WS가 안 되고 WS 클라이언트가 끊기면 `ECONNRESET`으로 죽는다. preview는 로컬 D1이 픽스처라 smoke의 사전 항목은 실패해도 정상이고, 멀티 항목(`/api/room`, `/api/rooms`, `/ws-lobby`)만 통과하면 된다.
-- 상세(프로토콜·타이머·결정): [`MULTIPLAYER.md`](MULTIPLAYER.md), [`MULTIPLAYER_TASKS.md`](MULTIPLAYER_TASKS.md).
+- 현재 멀티 규칙은 [`RULES.md`](RULES.md) M절이 기준이다. 설계 당시의 프로토콜·타이머·결정과 이력은 [`MULTIPLAYER.md`](MULTIPLAYER.md), [`MULTIPLAYER_TASKS.md`](MULTIPLAYER_TASKS.md).
 
 **정답 좌표의 뜻**: `t`는 정답 풀 임계값(§5), `n`은 자모 수, `idx`는 그 (t, n) 풀 안에서의 순번. D1 `pool` 테이블이 `(t, n, idx) → word, jamo`를 미리 펼쳐 두고 있어 조회가 PK 한 행이다.
 
@@ -48,18 +48,18 @@
 | `d1/import.sh` | 위 SQL을 D1에 실행 (`--local`/`--remote`) | `schema.sql`이 `DROP TABLE`로 시작 → 원격 임포트 중 10초쯤 서비스가 빈 사전을 본다 |
 | `wrangler.jsonc` | Worker 이름, D1 바인딩(`DB`), 정적 자산 | `database_id`는 계정에 묶임 |
 | `src/lib/jamo.ts` | 자모 24종, 키보드 배열, 물리키 매핑 | `JAMO` 순서·구성은 `build_dict.py`와 같은 집합 |
-| `src/lib/types.ts` | `GameMode`, API 계약 | 모드를 추가하면 `POOL_THRESHOLD`·`MODE_LABEL`·`isClimb/isDaily`도 |
+| `src/lib/types.ts` | `GameMode`, API 계약 | 모드를 추가하면 `POOL_THRESHOLD`·`MODE_LABEL`도(`isClimb`/`isDaily`는 `game.svelte.ts`) |
 | `src/lib/day.ts` | KST 날짜 | 서버·클라이언트 공용. 바꾸면 데일리 저장 키가 어긋남 |
 | `src/lib/hard.ts` | 하드모드 검증(초록 자리·노랑 자모) | 순수 함수. 노랑은 자모 종류만 보고 **개수는 세지 않는다**(2026-09-09 사용자 결정) |
 | `src/lib/server/dict.ts` | D1 조회, `POOL_THRESHOLD` | 모든 조회는 PK 한 행이어야 함(§6) |
 | `src/lib/server/token.ts` | HMAC 토큰, 시드 해시 (Web Crypto) | payload 형식 `n.t.idx` |
 | `src/lib/server/judge.ts` | 워들 2-pass 판정 | 순수 함수. 바꾸면 게임 규칙이 바뀐다 |
 | `src/lib/server/env.ts` | `platform.env`에서 D1·시크릿 | Workers 밖에서 불리면 500 |
-| `src/routes/api/*/+server.ts` | 5개 엔드포인트 (`game`·`check`·`guess`·`hint`·`reveal`) | 전부 `async`, `platform` 필수. 서버가 받는 모드 allowlist는 별도 목록이 아니라 **`POOL_THRESHOLD`의 키**다(`body.mode in POOL_THRESHOLD`, 아니면 400) |
+| `src/routes/api/*/+server.ts` | 솔로 5개 엔드포인트 (`game`·`check`·`guess`·`hint`·`reveal`). 멀티용 `room`·`rooms`·`room/[code]`는 별도(§2 멀티 문단) | 전부 `async`, `platform` 필수. 서버가 받는 모드 allowlist는 별도 목록이 아니라 **`POOL_THRESHOLD`의 키**다(`body.mode in POOL_THRESHOLD`, 아니면 400) |
 | `src/routes/+page.ts` | `ssr=false, prerender=true` | 둘 다 있어야 정적 셸이 나온다 |
 | `src/lib/game.svelte.ts` | 클라이언트 상태 머신(`Game` 클래스) | localStorage 스키마(§7) |
 | `src/routes/+page.svelte` | 화면 조립, 물리 키보드, 하단 액션 버튼(힌트·포기·다음 단어/스테이지·결과), 종료 시 자동 모달 | 모드별 종료 후 버튼 분기가 여기 있다 |
-| `src/lib/components/` | `Board` `Keyboard` `Header` `Modal` `ModeModal`(모드 선택) `SettingsModal` `HelpModal` `StatsModal`(통계) `ClimbModal`(등반 결과 피라미드) `Countdown` — 모두 `.svelte` | 원작 꼬들 Tailwind 팔레트 값을 `src/app.css` CSS 변수로 옮김 |
+| `src/lib/components/` | `Board` `Keyboard` `Header` `Modal` `ModeModal`(모드 선택) `SettingsModal` `HelpModal` `StatsModal`(통계) `ClimbModal`(등반 결과 피라미드) `Countdown` `ClimbClock`(등반 소요 시간) — 모두 `.svelte`. 멀티 화면은 `components/mp/` | 원작 꼬들 Tailwind 팔레트 값을 `src/app.css` CSS 변수로 옮김 |
 | `src/lib/server/mp/**` | 멀티 DO(`Room`, `Lobby`)와 순수 로직 | `$lib` 값 import 금지, 상대 import에 `.ts` 확장자(DO 번들이 `$lib`를 못 푼다) |
 | `src/lib/mp/` | 멀티 프로토콜·규칙·클라이언트(`client.svelte.ts`) | 서버와 공유하는 상수는 `rules.ts` |
 | `src/hooks.server.ts` | `/ws/<code>`를 Room DO로, `/ws-lobby`를 Lobby DO로 넘김 | 101 응답이 그대로 나가야 한다 |
@@ -121,7 +121,7 @@ export_d1.py             POOL = "unit = '단어' AND pos = '명사' AND word NOT
 
 ### 4.4 데일리 계열은 6회 고정, 저장·복원
 
-`isDaily` = `daily` | `daily-climb`. 시도 횟수 6 고정(모두 같은 조건), 진행은 localStorage에 저장·복원. 다른 모드는 설정값 4~10.
+`isDaily` = `daily` | `daily-climb`. 시도 횟수 6 고정(모두 같은 조건), 진행은 localStorage에 저장·복원. 다른 모드는 설정값 4~10이고, 바꾼 값은 다음 판(등반은 다음 등반)부터 쓴다([RULES](RULES.md) S-TRY-2).
 
 `Game.dailyDay`는 페이지를 연 KST 날짜로 고정한다. 자정 뒤에도 일일 등반의 다음 스테이지 요청과 `daily`·`dclimb` 저장은 그 날짜를 쓰고, 새로고침으로 Game을 다시 만들면 새 날짜가 된다. `/api/game`은 선택적 `day`(실제 존재하는 오늘·과거 날짜)를 받으며 생략한 구버전 요청은 서버의 오늘 날짜를 쓴다. 시드 문자열과 토큰 형식은 그대로다. `Countdown`은 문제 날짜의 다음 자정까지 세고, 경계가 지나면 새로고침 안내를 표시한다. 오래 열린 탭의 저장 정리는 자기 날짜보다 오래된 키만 지워 새 날짜 탭의 진행을 보호한다.
 
@@ -205,7 +205,7 @@ T=1 구간은 등급 보유율이 19.8%로 떨어지고 절반(51.5%)이 등급 
 ### 6.1 코드 CI/CD
 
 `.github/workflows/ci.yml`:
-- PR → `pnpm install --frozen-lockfile` → `pnpm check` → `pnpm test` → `pnpm run build`.
+- PR → `pnpm install --frozen-lockfile` → `pnpm check` → `pnpm test` → `python3 -m unittest discover -s tests -p 'test_*.py'`(사전 빌드·export·smoke 짝 검사) → `pnpm run build`.
 - main push → 동일 검증 → `pnpm exec wrangler deploy` → 운영 smoke. 검증한 빌드를 같은 runner에서 배포한다.
 - Actions의 수동 실행도 main에서만 배포한다. 다른 브랜치에서는 검증만 한다.
 - 같은 ref의 실행은 직렬화하며 진행 중 배포를 새 push로 취소하지 않는다.
@@ -214,7 +214,7 @@ T=1 구간은 등급 보유율이 19.8%로 떨어지고 절반(51.5%)이 등급 
 
 개발 순서: 로컬 check·test 및 필요한 UI/API 검증 → 커밋·push·PR → CI 통과 → main 반영 → 배포·운영 smoke 통과 확인. smoke 실패 시 이미 배포된 상태이므로 §6.2에 따라 복구한다. 자동 롤백은 하지 않는다.
 
-`pnpm test`는 Node 22의 내장 테스트로 중복 자모 판정과 토큰 복원·변조 거부를 검증한다. 실제 D1/API 통합 검증은 운영 smoke이며, UI 검증은 별도로 필요하다. CI runner에는 전체 사전이 없으므로 배포 전 전체 사전 API smoke는 실행하지 않는다.
+`pnpm test`는 Node 22의 내장 테스트로 판정·토큰·저장 로직과 멀티 DO·API 라우트(서버·D1 mock)를 검증한다. 실제 D1/API 통합 검증은 운영 smoke이며, UI 검증은 별도로 필요하다. CI runner에는 전체 사전이 없으므로 배포 전 전체 사전 API smoke는 실행하지 않는다.
 
 사전 갱신은 §6.3의 수동 절차를 유지한다. 새 임계값이 필요한 코드의 main 반영 전에 D1 갱신과 smoke 기대값 준비를 끝낸다. 코드 배포 중에는 수동 D1 갱신을 겹쳐 실행하지 않는다.
 
@@ -224,6 +224,7 @@ T=1 구간은 등급 보유율이 19.8%로 떨어지고 절반(51.5%)이 등급 
 pnpm install --frozen-lockfile
 pnpm check
 pnpm test
+python3 -m unittest discover -s tests -p 'test_*.py'
 pnpm run deploy
 python3 scripts/smoke.py https://enhanced-kordle.bateaux.workers.dev
 ```
@@ -341,6 +342,8 @@ pnpm preview        # wrangler dev — 실제 workerd 런타임
 | `climbtime:<mode>:<lengthKey>` | `{best: {stage, ms} \| null, stages: {<스테이지>: ms}}` | 솔로 등반 3종의 소요 시간. `best` = 최고 스테이지와 그때까지 클리어한 스테이지 시간의 합(스테이지가 높을수록, 같으면 짧을수록 좋음), `stages` = 스테이지별 최단. `best:`와 같은 키 조합을 쓰고 함께 갱신하지만 `best:`의 형식은 그대로다. 시간 기록 이전에 `best:`만 있던 사용자는 그 스테이지 미만 클리어로 `best`가 덮이지 않는다. 순수 계산은 `src/lib/climbtime.ts` |
 | `mp-session` | `{token?, name, exp?}` | 멀티 임시 계정. `name`은 마지막 닉네임(접미사 전), `token`·`exp`(만료 ms)는 서버가 준 세션이고 닉네임만 저장한 상태에서는 없다. 형식이 틀리거나 만료되면 지운다. 코드는 `src/lib/mp/identity.ts` |
 
+저장값은 읽을 때 형식을 검사한다. 어긋난 값은 기본값(없는 것)으로 읽고 저장값을 고쳐 쓰지 않는다. 검사 규칙은 [RULES](RULES.md) S-SAVE-3이 기준이다(예: `maxTries`는 정수면 4~10으로 자르고 아니면 6).
+
 키 형식을 바꾸면 기존 사용자의 진행·통계가 사라진다. 마이그레이션은 없다(토이).
 
 ## 8. 원본 데이터 확보 (처음부터 재현)
@@ -403,8 +406,8 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 - **Docker/compose/NAS/ghcr 배포 경로** — 2026-09-08 제거(`git log -- Dockerfile`). Cloudflare 단일 타깃. 두 런타임을 유지하면 `dict.ts`·`token.ts`가 둘이 되어 기능마다 두 번 손대야 한다. Node 버전이 필요하면 커밋 `0c7a4bf` 직전 히스토리에 있다(`node:sqlite`, `adapter-node`, HMAC은 `node:crypto`).
 - GitHub Pages 정적 전환 — 사전 2MB를 브라우저에 실어야 하고 정답이 노출된다. Cloudflare가 무료이면서 서버를 유지할 수 있어 택하지 않음.
 - GitHub Actions 코드 CI/CD — PR 검증, main 배포·smoke (§6.1). 사전 자동 갱신은 아직 없음.
-- 공유(이모지 격자 복사), 다크 모드, 계정/서버 저장 — 요청되지 않음.
-- 멀티플레이(방 기반 협동·경쟁) — 2단계(경쟁 단판)는 2026-11-05(PR #6), 3단계 협동 단판(PR #8)과 4단계 등반(PR #9)은 2026-11-06 배포됐다. 5단계(제한 시간·무입력 경고·모바일 띠·재접속·경쟁 끊김 자동 탈락)는 `feat/mp-stage5`에서 구현돼 preview E2E를 통과했고 이 PR로 반영된다. 결정 전부와 아키텍처는 [`MULTIPLAYER.md`](MULTIPLAYER.md), 배포 구조는 §2. 개인 플레이 코드 경로는 바꾸지 않는 것이 전제다.
+- 공유(이모지 격자 복사), 계정/서버 저장 — 요청되지 않음. (다크 모드는 설정의 테마 `system`/`light`/`dark`로 추가됨.)
+- 멀티플레이(방 기반 협동·경쟁) — 경쟁·협동 단판·등반·제한 시간·재접속·채팅까지 배포 완료(2026-11-05~). 현재 규칙의 기준은 [`RULES.md`](RULES.md) M절이고 [`MULTIPLAYER.md`](MULTIPLAYER.md)·`MULTIPLAYER_TASKS.md`는 설계 당시 결정과 이력이다. 배포 구조는 §2. 개인 플레이 코드 경로는 바꾸지 않는 것이 전제다.
 
 작업 완료 기준: 코드는 로컬 검증 → 커밋·push·PR → CI 통과 → main 반영 → Actions 배포·운영 smoke 통과. 사전 수동 갱신은 운영 smoke 통과 후 커밋·push. 문서만 수정한 작업은 로컬 실행 검증을 생략할 수 있다.
 
@@ -421,3 +424,7 @@ soffice --headless --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,f
 | 09-08 | NAS 배포 준비(ghcr 워크플로우) → 같은 날 **Cloudflare Workers + D1로 전환**, Docker 경로 제거. `bateaux.workers.dev` |
 | 09-11 | NIADic 명사 추가 — **판정 전용**(인명·브랜드·장소 입력 가능, 정답 풀 무영향). 전문 분야 감점을 기초사전 등급 보유 단어에 면제. 무한·연속 클리어 T=2 → T=1 |
 | 09-14 | 자정 뒤에도 페이지를 연 날짜의 일일 문제·등반·저장 유지. 새로고침 시 새 날짜 전환, 카운트다운의 24시간 재시작 수정 |
+| 11-05~14 | 멀티플레이 1~5단계와 채팅·방장 넘기기 배포(PR #6~#22). 솔로 등반 소요 시간 기록(PR #18) |
+| 11-15 | 서버·D1 mock 기반 UI e2e와 테스트 스위트 정비(PR #23~#25) |
+| 11-17 | 게임 규칙 명세 `docs/RULES.md` 추가, 미결·모순 목록 작성(PR #26) |
+| 11-22 | 미결 U 결정 반영: 솔로(PR #27), 멀티(PR #28). 시도 횟수는 다음 판부터, 저장값 형식 검사, 멀티 목록·준비·닉네임 규칙 등. 결정 이력은 RULES.md "결정된 항목" |
