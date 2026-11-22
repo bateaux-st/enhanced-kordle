@@ -281,7 +281,8 @@
 			{#if isHost}
 				<button class="btn primary big wide" class:glow={nudgeCount > 0} type="button" disabled={!snap.host?.canStart} onclick={onstart}>{startLabel}</button>
 			{:else}
-				<button class="btn big wide" class:primary={!me?.ready} type="button" onclick={() => client.ready(!me?.ready)}>
+				<!-- 결과 중 들어온 사람은 대기실 화면을 보지만 준비는 다음 대기실에서만 받는다(M-READY-1, M-VIS-11). -->
+				<button class="btn big wide" class:primary={!me?.ready} type="button" disabled={snap.phase === 'result'} onclick={() => client.ready(!me?.ready)}>
 					{me?.ready ? '준비 취소' : '준비'}
 				</button>
 			{/if}

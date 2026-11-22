@@ -38,6 +38,23 @@ test('playing 중 신규 입장은 거부하고 기존 참가자의 같은 uid �
 	assert.equal(s.players[1].disconnectedAt, null);
 });
 
+test('준비는 대기실에서만 받는다: 게임 중과 결과 중에는 거절하고 준비 상태를 바꾸지 않는다', () => {
+	const { s, pids } = started(['가', '나']);
+	const during = send(s, pids[1], { type: 'ready', on: true });
+	assert.equal(errorOf(during).code, 'phase');
+	assert.equal(errorOf(during).msg, '대기실에서만 준비할 수 있습니다');
+
+	const { s: r, pids: rp } = resultRoom();
+	const late = join(r, { uid: 'uid-새', name: '새' }, T0 + 5000, rng).pid;
+	assert.equal(errorOf(send(r, late, { type: 'ready', on: true }, T0 + 5001)).code, 'phase', '결과 중 들어온 사람도 거절');
+	const off = send(r, rp[1], { type: 'ready', on: false }, T0 + 5002);
+	assert.equal(errorOf(off).msg, '대기실에서만 준비할 수 있습니다');
+	assert.equal(r.players.find((p) => p.pid === rp[1]).ready, true, '거절은 준비를 건드리지 않는다');
+
+	assert.equal(send(r, rp[0], { type: 'again' }, T0 + 5003).changed, true);
+	assert.equal(send(r, late, { type: 'ready', on: true }, T0 + 5004).changed, true, '대기실이 되면 준비할 수 있다');
+});
+
 test('result에서는 신규 입장이 가능하고 이번 게임 참가자가 아니다', () => {
 	const { s, pids } = started(['가']);
 	send(s, pids[1], { type: 'giveup' });

@@ -111,7 +111,12 @@ test.describe('결과 중에 들어온 사람', () => {
 		await expect(page.getByRole('heading', { name: '방 코드 ABC 234' })).toBeVisible();
 		await expect(page.getByText('방장이 다음 게임을 고르는 중입니다.')).toBeVisible();
 		await expect(page.getByRole('dialog')).toHaveCount(0);
-		await expect(page.getByRole('button', { name: '준비', exact: true })).toBeVisible();
+		const ready = page.getByRole('button', { name: '준비', exact: true });
+		await expect(ready).toBeVisible();
+		await expect(ready).toBeDisabled();
+
+		room.as('철수').send({ type: 'again' });
+		await expect(page.getByRole('button', { name: '준비', exact: true })).toBeEnabled();
 	});
 
 	test('방장을 넘겨받았다면 다음 게임을 고르는 화면이 열린다', async ({ page, openRoom }) => {

@@ -115,7 +115,7 @@ export function leave(s: RoomState, pid: Pid, now: number): void {
 export function setReady(s: RoomState, pid: Pid, on: boolean): Result {
 	const p = findPlayer(s, pid);
 	if (!p) return fail('forbidden', '방에 없는 사람입니다');
-	if (s.phase === 'playing') return fail('phase', '게임 중에는 준비를 바꿀 수 없습니다');
+	if (s.phase !== 'lobby') return fail('phase', '대기실에서만 준비할 수 있습니다');
 	if (isHost(s, pid)) return fail('forbidden', '방장은 준비하지 않습니다');
 	p.ready = on;
 	return { ok: true };
