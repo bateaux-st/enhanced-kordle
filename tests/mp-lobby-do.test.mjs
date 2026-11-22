@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LOBBY_LIST_MAX, LOBBY_STALE_MS } from '../src/lib/mp/rules.ts';
+import { DISCONNECT_GRACE_MS, LOBBY_LIST_MAX, LOBBY_STALE_MS } from '../src/lib/mp/rules.ts';
 import { FakeCtx, lobbyRig, NAMES, rig, summary, T0 } from './do-runtime.mjs';
 
 test('upsert: 받은 시각을 updatedAt으로 적고 저장한다. 목록은 그 값을 돌려준다', async (t) => {
@@ -225,9 +225,15 @@ test('Room 연동: 입장·인원 변화·접속자 소멸이 실제 Lobby 목�
 	await r.settle();
 	assert.equal(lastPush()[0].players, 2);
 
+	r.advance(10_000);
 	await r.drop(guest.ws);
 	await r.settle();
-	assert.equal(lastPush()[0].players, 1);
+	assert.deepEqual(sub.take(), [], '끊긴 직후는 자리를 맡아 둬서 인원이 그대로라 푸시하지 않는다');
+	r.advance(DISCONNECT_GRACE_MS);
+	r.ctx.ping(host.ws);
+	await r.fireAlarm({ stay: true });
+	await r.settle();
+	assert.equal(lastPush()[0].players, 1, '자리가 풀리는 시각의 알람이 구독자에게 줄어든 인원을 보낸다');
 
 	await r.send(host.ws, { type: 'leave' });
 	await r.settle();

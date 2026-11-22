@@ -21,9 +21,24 @@ export function uniqueName(players: Player[], name: string, exceptPid?: Pid): st
 
 export type JoinResult = { ok: true; pid: Pid; name: string; rejoined: boolean } | { ok: false; reason: 'full' | 'in_progress' };
 
+/** 입장 때 회수하지 않는 자리다: 방장, 접속 중인 자리, 끊긴 지 DISCONNECT_GRACE_MS가 안 된 자리. */
+const holdsSeat = (s: RoomState, p: Player, now: number): boolean =>
+	p.pid === s.hostPid || p.connected || p.disconnectedAt === null || now - p.disconnectedAt < DISCONNECT_GRACE_MS;
+
+/** 지금 들어오면 정원 판정(M-ROOM-7 ④)에 쓰일 자리 수. 방 목록·입장 전 확인의 인원이다. */
+export const heldCount = (s: RoomState, now: number): number => s.players.filter((p) => holdsSeat(s, p, now)).length;
+
+/** 지금 맡아 둔 자리가 풀리는 가장 이른 시각(그 시각부터 holdsSeat가 거짓). 풀릴 자리가 없으면 null. */
+export function nextSeatReleaseAt(s: RoomState, now: number): number | null {
+	const times = s.players
+		.filter((p) => holdsSeat(s, p, now) && !p.connected && p.disconnectedAt !== null && p.pid !== s.hostPid)
+		.map((p) => p.disconnectedAt! + DISCONNECT_GRACE_MS);
+	return times.length ? Math.min(...times) : null;
+}
+
 /** 정원이 찼을 때만 호출한다. 끊긴 지 60초가 넘은 사람(방장 제외)의 자리를 비운다. */
 function evictStale(s: RoomState, now: number): void {
-	s.players = s.players.filter((p) => p.pid === s.hostPid || p.connected || p.disconnectedAt === null || now - p.disconnectedAt < DISCONNECT_GRACE_MS);
+	s.players = s.players.filter((p) => holdsSeat(s, p, now));
 }
 
 /**

@@ -79,8 +79,9 @@ export class Room extends DurableObject<RoomEnv> {
 			this.alarmAt = await ctx.storage.getAlarm();
 			// 깨어난 것만으로는 upsert하지 않도록 저장된 상태의 요약을 이미 알린 것으로 둔다.
 			// 알림 시각은 저장값을 쓴다: 깨어난 시각으로 두면 180초 점검이 300초 재알림을 계속 밀어 STALE로 목록에서 빠진다. 값이 없으면 0이라 한 번 알린다.
-			this.lastSummary = this.state && isListed(this.state) ? summarize(this.state, Date.now()) : null;
+			// 인원은 시각에 따라 달라지므로 Lobby가 아는 값은 마지막 알림 시각 기준이다. 깨어난 시각으로 만들면 자리 해제 알람이 깨운 변화를 이미 알린 것으로 착각한다.
 			this.lastUpsert = (stored.get(UPSERT_KEY) as number | undefined) ?? 0;
+			this.lastSummary = this.state && isListed(this.state) ? summarize(this.state, this.lastUpsert) : null;
 			// 깨어났을 때는 직전에 올렸는지 모르므로 올라가 있다고 보고, 첫 동기화에서 필요하면 한 번 지운다.
 			this.listed = this.state !== null;
 			await this.reconcileSockets();
@@ -418,9 +419,9 @@ export class Room extends DurableObject<RoomEnv> {
 			});
 	}
 
-	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
+	/** 알람은 가장 이른 마감 하나(빈 방·방장 유예·제한 시간 등), Lobby 재알림, 자리 해제 시각, 소켓 정리 점검 중 이른 것. 값이 바뀔 때만 쓴다. */
 	private async updateAlarm(s: RoomState, now: number): Promise<void> {
-		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length, s.phase));
+		const target = alarmTarget(s, this.lastUpsert, reapCheckAt(this.lastReap, this.ctx.getWebSockets().length, s.phase), now);
 		const change = alarmChange(this.alarmAt, target, now);
 		if (change === 'keep') return;
 		if (change === 'delete') {

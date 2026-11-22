@@ -2,7 +2,7 @@
 import { EMPTY_ROOM_MS, LOBBY_REFRESH_MS, REAP_CHECK_IDLE_MS, REAP_CHECK_PLAYING_MS, SOCKET_IDLE_MS } from '../../mp/rules.ts';
 import { eliminationAt, expireCompPlayers } from './comp.ts';
 import { expireDeadline, expireHintVote, expireVote } from './coop.ts';
-import { hostSuccessionAt, succeedHost } from './members.ts';
+import { hostSuccessionAt, nextSeatReleaseAt, succeedHost } from './members.ts';
 import { isListed } from './rooms.ts';
 import type { Rng, RoomState } from './state.ts';
 
@@ -46,13 +46,16 @@ export const reapCheckAt = (lastCheck: number, socketCount: number, phase: RoomS
 	socketCount > 0 ? lastCheck + (phase === 'playing' ? REAP_CHECK_PLAYING_MS : REAP_CHECK_IDLE_MS) : null;
 
 /**
- * 알람을 걸 시각. 마감, Lobby 재알림, 소켓 정리 점검 중 가장 이른 것, 모두 없으면 null.
+ * 알람을 걸 시각. 마감, Lobby 재알림, 맡아 둔 자리가 풀리는 시각, 소켓 정리 점검 중 가장 이른 것, 모두 없으면 null.
  * 재알림은 목록에 올라 있을 때만 후보다: 접속자가 없으면 syncLobby가 upsert를 하지 않아 lastUpsert가 낡은 채로 남고,
  * 그 값으로 만든 과거 시각이 후보가 되면 알람이 곧바로 다시 울리는 루프가 유예 시간 내내 돈다.
+ * 자리 해제 시각은 목록 인원이 바뀌는 때라 마감이 아니다(tick이 처리할 것이 없다). 목록에 있고 아직 오지 않은 시각만 후보다.
  */
-export function alarmTarget(s: RoomState, lastUpsert: number, reapAt: number | null = null): number | null {
-	const refreshAt = isListed(s) ? lastUpsert + LOBBY_REFRESH_MS : null;
-	const cands = [nextDeadline(s), refreshAt, reapAt].filter((x): x is number => x !== null);
+export function alarmTarget(s: RoomState, lastUpsert: number, reapAt: number | null, now: number): number | null {
+	const listed = isListed(s);
+	const refreshAt = listed ? lastUpsert + LOBBY_REFRESH_MS : null;
+	const releaseAt = listed ? nextSeatReleaseAt(s, now) : null;
+	const cands = [nextDeadline(s), refreshAt, releaseAt, reapAt].filter((x): x is number => x !== null);
 	return cands.length ? Math.min(...cands) : null;
 }
 

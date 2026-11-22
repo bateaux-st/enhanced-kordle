@@ -206,16 +206,30 @@ test('게임 중 나가기와 끊김이 섞이면 소멸하지 않고 30초 유�
 test('알람 시각: 접속자가 없으면 낡은 lastUpsert로 만든 재알림을 후보에 넣지 않는다', () => {
 	// 생성 직후(lastUpsert=0, 생성자 미접속)에 과거 값이 후보가 되면 알람이 곧바로 반복된다.
 	const s = initRoom('ABC234', { uid: 'uid-creator', name: '생성자' }, DEFAULT_SETTINGS, T0, rng);
-	assert.equal(alarmTarget(s, 0), T0 + EMPTY_ROOM_MS);
-	assert.ok(alarmTarget(s, 0) > T0, '과거 시각이 아니다');
+	assert.equal(alarmTarget(s, 0, null, 0), T0 + EMPTY_ROOM_MS);
+	assert.ok(alarmTarget(s, 0, null, 0) > T0, '과거 시각이 아니다');
 });
 
 test('알람 시각: 접속자가 있으면 재알림과 마감 중 이른 것, 마감이 없으면 재알림', () => {
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + LOBBY_REFRESH_MS);
 	disconnect(s, s.hostPid, T0 + 1000);
-	assert.equal(alarmTarget(s, T0), T0 + 1000 + HOST_GRACE_MS, '방장 유예가 재알림보다 이르다');
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + 1000 + HOST_GRACE_MS, '방장 유예가 재알림보다 이르다');
+});
+
+test('알람 시각: 끊긴 지 60000ms가 안 된 자리가 풀리는 시각이 후보다. 지났거나 방장·접속자 0이면 후보가 아니다', () => {
+	const s = lobby();
+	const [, a] = joinAll(s, ['가', '나']);
+	disconnect(s, a, T0 + 1000);
+	const release = T0 + 1000 + DISCONNECT_GRACE_MS;
+	assert.equal(alarmTarget(s, T0, null, T0 + 2000), release, '재알림(300초)보다 이른 해제 시각');
+	assert.equal(alarmTarget(s, T0, null, release - 1), release);
+	assert.equal(alarmTarget(s, T0, null, release), T0 + LOBBY_REFRESH_MS, '시각이 되면 후보에서 빠져 알람이 반복되지 않는다');
+	assert.equal(nextDeadline(s), null, '해제 시각은 tick이 처리할 마감이 아니다');
+	assert.equal(tick(s, release, rng).changed, false);
+	for (const p of s.players) disconnect(s, p.pid, T0 + 1000);
+	assert.equal(alarmTarget(s, T0, null, T0 + 2000), T0 + 1000 + EMPTY_ROOM_MS, '접속자 0이면 목록에서 빠져 후보가 아니다');
 });
 
 test('알람 시각: 접속자도 마감도 없으면 null(알람을 걸지 않는다)', () => {
@@ -224,7 +238,7 @@ test('알람 시각: 접속자도 마감도 없으면 null(알람을 걸지 않�
 	for (const p of s.players) p.connected = false;
 	s.emptySince = null;
 	for (const p of s.players) p.disconnectedAt = null;
-	assert.equal(alarmTarget(s, 0), null);
+	assert.equal(alarmTarget(s, 0, null, 0), null);
 });
 
 test('빈 방 유예는 30초', () => {
@@ -240,9 +254,9 @@ test('심장박동: 접속자가 있는 방만 LOBBY_REFRESH_MS(300초)마다 �
 	assert.equal(LOBBY_STALE_MS, 2.5 * LOBBY_REFRESH_MS, 'STALE은 재알림의 2.5배');
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + LOBBY_REFRESH_MS);
 	for (const p of s.players) disconnect(s, p.pid, T0 + 5);
-	assert.equal(alarmTarget(s, T0), T0 + 5 + EMPTY_ROOM_MS, '접속자 0: 심장박동 없이 소멸 마감만');
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + 5 + EMPTY_ROOM_MS, '접속자 0: 심장박동 없이 소멸 마감만');
 });
 
 test('재시작 화해 뒤의 방: 소켓이 없으면 emptySince가 시작돼 30초 뒤 소멸한다', () => {
@@ -259,7 +273,7 @@ test('등반 유예 마감: 첫 완주 뒤 playing인 동안만 마감 후보, �
 	assert.equal(nextDeadline(s), null);
 	for (let n = 10; n <= 12; n++) applyGuess(s, pids[0], stageAnswer(n).jamo, true, T0 + 5);
 	assert.equal(nextDeadline(s), T0 + 5 + CLIMB_GRACE_MS);
-	assert.equal(alarmTarget(s, T0 + 30_000), T0 + 5 + CLIMB_GRACE_MS, '재알림이 더 늦으면 유예 마감이 알람 시각');
+	assert.equal(alarmTarget(s, T0 + 30_000, null, T0 + 30_000), T0 + 5 + CLIMB_GRACE_MS, '재알림이 더 늦으면 유예 마감이 알람 시각');
 	s.phase = 'lobby';
 	assert.equal(nextDeadline(s), null, '게임이 끝나면 마감이 남지 않는다');
 });
@@ -548,32 +562,32 @@ test('소켓 정리 점검은 소켓이 있을 때만 알람 후보이고, 다�
 	for (const phase of ['lobby', 'playing', 'result']) assert.equal(reapCheckAt(T0, 0, phase), null);
 	const s = lobby();
 	joinAll(s, ['가']);
-	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + REAP_CHECK_IDLE_MS, '대기실 점검(180초)이 재알림(300초)보다 이르다');
-	assert.equal(alarmTarget(s, T0, T0 + 2 * LOBBY_REFRESH_MS), T0 + LOBBY_REFRESH_MS);
+	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby'), T0), T0 + REAP_CHECK_IDLE_MS, '대기실 점검(180초)이 재알림(300초)보다 이르다');
+	assert.equal(alarmTarget(s, T0, T0 + 2 * LOBBY_REFRESH_MS, T0), T0 + LOBBY_REFRESH_MS);
 	for (const p of s.players) p.connected = false;
 	s.emptySince = null;
 	for (const p of s.players) p.disconnectedAt = null;
-	assert.equal(alarmTarget(s, 0, null), null);
-	assert.equal(alarmTarget(s, 0, T0), T0, '접속자가 없어도 소켓이 남아 있으면 점검은 걸린다');
+	assert.equal(alarmTarget(s, 0, null, 0), null);
+	assert.equal(alarmTarget(s, 0, T0, 0), T0, '접속자가 없어도 소켓이 남아 있으면 점검은 걸린다');
 });
 
 test('방장 승계·재접속 유예 같은 마감은 점검 주기가 길어져도 더 이른 후보로 남는다', () => {
 	const s = lobby();
 	joinAll(s, ['가']);
 	disconnect(s, s.hostPid, T0 + 1000);
-	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + 1000 + HOST_GRACE_MS, '승계 5초 마감이 대기실 점검(180초)보다 이르다');
+	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby'), T0), T0 + 1000 + HOST_GRACE_MS, '승계 5초 마감이 대기실 점검(180초)보다 이르다');
 	const g = started(['가']);
 	disconnect(g.s, g.pids[1], T0 + 10 * SEC);
-	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing')), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 15초가 끊김 탈락(70초)보다 이르다');
-	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 60 * SEC, 2, 'playing')), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing'), T0), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 15초가 끊김 탈락(70초)보다 이르다');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 60 * SEC, 2, 'playing'), T0), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
 });
 
 test('제한 시간이 있는 방의 알람은 마감 하나로 걸리고, 점검이 더 이르면 점검이 우선한다', () => {
 	const { s } = started(['가'], ON);
-	assert.equal(alarmTarget(s, T0, null), T0 + TIME_LIMIT_MS, '제한 시간 180초가 재알림 300초보다 이르다');
-	assert.equal(alarmTarget(started(['가']).s, T0, null), T0 + LOBBY_REFRESH_MS, '제한 시간 없이는 재알림');
-	assert.equal(alarmTarget(s, T0 + 200 * SEC, null), T0 + TIME_LIMIT_MS);
-	assert.equal(alarmTarget(s, T0 + 200 * SEC, T0 + REAP_CHECK_PLAYING_MS), T0 + REAP_CHECK_PLAYING_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + TIME_LIMIT_MS, '제한 시간 180초가 재알림 300초보다 이르다');
+	assert.equal(alarmTarget(started(['가']).s, T0, null, T0), T0 + LOBBY_REFRESH_MS, '제한 시간 없이는 재알림');
+	assert.equal(alarmTarget(s, T0 + 200 * SEC, null, T0 + 200 * SEC), T0 + TIME_LIMIT_MS);
+	assert.equal(alarmTarget(s, T0 + 200 * SEC, T0 + REAP_CHECK_PLAYING_MS, T0 + 200 * SEC), T0 + REAP_CHECK_PLAYING_MS);
 });
 
 // ---- 5단계: 스냅샷 ----

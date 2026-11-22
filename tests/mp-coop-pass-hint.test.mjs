@@ -342,7 +342,7 @@ test('마감은 DO 알람이 건다: nextDeadline이 투표 마감을 포함하�
 	assert.equal(nextDeadline(s), null);
 	coop.useHint(s, pids[0], T0 + 2);
 	assert.equal(nextDeadline(s), T0 + 2 + HINT_VOTE_MS);
-	assert.equal(alarmTarget(s, T0, null), T0 + 2 + HINT_VOTE_MS);
+	assert.equal(alarmTarget(s, T0, null, T0), T0 + 2 + HINT_VOTE_MS);
 	assert.deepEqual(tick(s, T0 + 2 + HINT_VOTE_MS), { changed: true, destroy: false });
 	assert.equal(s.game.lastHintVote.outcome, 'timeout');
 	assert.equal(nextDeadline(s), null);
