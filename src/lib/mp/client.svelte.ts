@@ -259,7 +259,7 @@ export class MpClient {
 	settings(settings: Settings) {
 		return this.sendRaw({ type: 'settings', settings });
 	}
-	/** kickDisconnected: 끊긴 사람을 내보내고 시작. */
+	/** 서버는 시작 때 끊긴 자리를 항상 내보내고 `kickDisconnected` 값은 읽지 않는다. */
 	start(kickDisconnected = false) {
 		return this.sendRaw({ type: 'start', kickDisconnected });
 	}

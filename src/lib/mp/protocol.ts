@@ -263,7 +263,7 @@ export interface HostView {
 	/** 준비하지 않은 접속자 수. */
 	waiting: number;
 	reason: 'phase' | 'no_host' | 'alone' | 'waiting' | null;
-	/** 끊긴 채 자리를 지키는 사람. 시작에 `kickDisconnected`를 보내면 내보낸다. */
+	/** 끊긴 채 자리를 지키는 사람. 서버는 시작할 때 이 사람들을 항상 내보낸다. */
 	disconnected: Pid[];
 }
 
