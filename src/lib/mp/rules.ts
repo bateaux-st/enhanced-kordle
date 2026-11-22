@@ -27,7 +27,7 @@ export const STAGE_CLEAR_MS = 2_000;
 /** 자동 응답(ping)이 이 시간 넘게 없는 소켓은 서버가 닫는다. 클라이언트 ping 주기는 25초. */
 export const SOCKET_IDLE_MS = 45_000;
 /** 소켓 정리 점검 주기. 게임 중에는 끊김이 탈락·결과를 막으므로 짧게, 대기실·결과는 시작 직전 점검이 있어 길게 둔다. */
-export const REAP_CHECK_PLAYING_MS = 45_000;
+export const REAP_CHECK_PLAYING_MS = 15_000;
 export const REAP_CHECK_IDLE_MS = 180_000;
 /** 클라이언트 ping 주기. 서버는 'pong'을 DO를 깨우지 않고 자동 응답한다. */
 export const HEARTBEAT_MS = 25_000;

@@ -36,7 +36,7 @@ test('대기실: 점검은 180초 주기로 울리고 Lobby 재알림은 300초�
 	assert.ok(r.alarmAt() < sec(480 + REAP_CHECK_IDLE_MS / 1000));
 });
 
-test('게임 중에는 점검 주기가 45초로 줄어든다', async (t) => {
+test('게임 중에는 점검 주기가 15초로 줄어든다', async (t) => {
 	const r = await rig(t, { pool: POOL });
 	const players = await r.players();
 	await r.send(players[0].ws, { type: 'start' });
@@ -55,7 +55,7 @@ test('제한 시간이 있는 판: 점검 알람 사이에 마감이 오면 마�
 	guest.ws.take();
 
 	const fired = await fireUntil(r, players, sec(TIME_LIMIT_MS / 1000));
-	assert.deepEqual(fired.map((ms) => ms / 1000), [30, 75, 120, 165, 180]);
+	assert.deepEqual(fired.map((ms) => ms / 1000), [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]);
 	assert.equal(r.state().phase, 'result');
 	assert.deepEqual(Object.values(r.state().game.players).map((p) => p.status), ['timeout', 'timeout']);
 	const [snap] = ofType(host.ws.take(), 'snap').slice(-1);
@@ -145,12 +145,11 @@ test('협동 후보 투표는 마감 알람이 울리면 그 시점 표로 집�
 	await r.send(host.ws, { type: 'propose', jamo: 'ㅂㅏㄴㅏㄴㅏ' });
 	await r.send(guest.ws, { type: 'propose', jamo: 'ㅋㅋㅋㅋㅋㅋ' });
 	assert.equal(r.state().game.step.kind, 'vote');
-	assert.equal(r.alarmAt(), T0 + VOTE_MS);
+	assert.equal(r.alarmAt(), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 15초가 투표 마감 20초보다 이르다');
 	host.ws.take();
 
 	await r.send(host.ws, { type: 'vote', candidate: 0 });
-	beat(r, host, guest);
-	await r.fireAlarm();
+	await fireUntil(r, [host, guest], T0 + VOTE_MS);
 	const g = r.state().game;
 	assert.equal(g.step.kind, 'propose', '표를 집계한 뒤 다음 행의 제안 단계로 간다');
 	assert.equal(g.board.rows.length, 1);
@@ -233,6 +232,8 @@ test('목록에서 지우는 호출이 실패하면 다음 동기화에서 다�
 	assert.equal(r.state().seq, seq, '재시도는 상태를 다시 쓰지 않는다');
 });
 
-test('상수: 소켓 무응답 한도는 점검 주기와 같은 45초다', () => {
-	assert.equal(SOCKET_IDLE_MS, REAP_CHECK_PLAYING_MS);
+test('상수: 게임 중 점검 주기는 무응답 한도보다 짧아 넘긴 소켓을 한도 뒤 주기 안에 잡는다', () => {
+	assert.equal(SOCKET_IDLE_MS, 45_000);
+	assert.equal(REAP_CHECK_PLAYING_MS, 15_000);
+	assert.ok(REAP_CHECK_PLAYING_MS < SOCKET_IDLE_MS);
 });

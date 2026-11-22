@@ -513,8 +513,8 @@ test('무응답 소켓 판정: 45초까지는 정상, 넘으면 정리 대상', 
 	assert.equal(isStaleSocket(T0, T0 + SOCKET_IDLE_MS + 1), true);
 });
 
-test('소켓 정리 점검 주기는 phase별: 게임 중 45초, 대기실·결과 180초', () => {
-	assert.equal(REAP_CHECK_PLAYING_MS, 45_000);
+test('소켓 정리 점검 주기는 phase별: 게임 중 15초, 대기실·결과 180초', () => {
+	assert.equal(REAP_CHECK_PLAYING_MS, 15_000);
 	assert.equal(REAP_CHECK_IDLE_MS, 180_000);
 	assert.equal(reapCheckAt(T0, 2, 'playing'), T0 + REAP_CHECK_PLAYING_MS);
 	assert.equal(reapCheckAt(T0, 2, 'lobby'), T0 + REAP_CHECK_IDLE_MS);
@@ -542,8 +542,8 @@ test('방장 승계·재접속 유예 같은 마감은 점검 주기가 길어�
 	assert.equal(alarmTarget(s, T0, reapCheckAt(T0, 2, 'lobby')), T0 + 1000 + HOST_GRACE_MS, '승계 5초 마감이 대기실 점검(180초)보다 이르다');
 	const g = started(['가']);
 	disconnect(g.s, g.pids[1], T0 + 10 * SEC);
-	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing')), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 45초가 끊김 탈락(70초)보다 이르다');
-	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 40 * SEC, 2, 'playing')), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0, 2, 'playing')), T0 + REAP_CHECK_PLAYING_MS, '게임 중 점검 15초가 끊김 탈락(70초)보다 이르다');
+	assert.equal(alarmTarget(g.s, T0, reapCheckAt(T0 + 60 * SEC, 2, 'playing')), T0 + 10 * SEC + DISCONNECT_GRACE_MS, '탈락 마감이 더 이르면 그쪽');
 });
 
 test('제한 시간이 있는 방의 알람은 마감 하나로 걸리고, 점검이 더 이르면 점검이 우선한다', () => {

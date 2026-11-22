@@ -35,7 +35,7 @@ export function nextDeadline(s: RoomState): number | null {
 export const isStaleSocket = (seenAt: number, now: number): boolean => now - seenAt > SOCKET_IDLE_MS;
 
 /**
- * 소켓 정리 점검 시각. 소켓이 있을 때만 후보다. 주기는 phase별이다: 게임 중 45초, 대기실·결과 180초.
+ * 소켓 정리 점검 시각. 소켓이 있을 때만 후보다. 주기는 phase별이다: 게임 중 15초, 대기실·결과 180초.
  * 소켓별 마지막 응답 시각이 아니라 점검 주기로 잡는다: ping은 DO를 깨우지 않으므로 응답 시각에 맞추면 25초마다 알람이 울린다.
  */
 export const reapCheckAt = (lastCheck: number, socketCount: number, phase: RoomState['phase']): number | null =>
