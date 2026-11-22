@@ -6,8 +6,12 @@ import { hostSuccessionAt, succeedHost } from './members.ts';
 import { isListed } from './rooms.ts';
 import type { Rng, RoomState } from './state.ts';
 
-/** 자리가 하나도 없다: 전원이 나가기로 떠났다. 끊김이 하나라도 섞이면 자리가 남아 해당하지 않는다. */
-export const abandoned = (s: RoomState): boolean => s.players.length === 0;
+/**
+ * 전원이 나가기로 떠났다: 자리가 하나도 없거나, 게임 중인데 남은 자리가 모두 나간 사람이다.
+ * 경쟁은 마지막 사람이 나가는 순간 게임이 끝나며 자리가 치워지지만, 협동은 끝나기 전에는 나간 자리를 남기므로 두 번째 조건으로 같은 시점을 잡는다.
+ * 끊김이 하나라도 섞이면 해당하지 않는다.
+ */
+export const abandoned = (s: RoomState): boolean => s.players.length === 0 || (s.phase === 'playing' && s.players.every((p) => p.left));
 
 /** 다음 알람 시각. 걸 마감이 없으면 null. */
 export function nextDeadline(s: RoomState): number | null {

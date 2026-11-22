@@ -169,6 +169,28 @@ test('게임 중 전원이 나가기로 떠나면 게임이 끝나는 순간 자
 	assert.equal(s.players.length, 0);
 });
 
+test('협동도 게임 중 전원이 나가기로 떠나면 즉시 소멸', () => {
+	const { s, pids } = coopStarted(['가']);
+	const [host, a] = pids;
+	assert.equal(reduce(s, a, { type: 'leave' }, {}, T0 + 1, rng).destroy, false);
+	assert.equal(s.phase, 'playing');
+	const last = reduce(s, host, { type: 'leave' }, {}, T0 + 2, rng);
+	assert.equal(last.destroy, true);
+	assert.equal(tick(s, T0 + 2).destroy, true, '알람이 먼저 와도 같다');
+});
+
+test('협동에서 나가기와 끊김이 섞이면 소멸하지 않고 30초 유예', () => {
+	const { s, pids } = coopStarted(['가']);
+	const [host, a] = pids;
+	disconnect(s, a, T0 + 1);
+	const last = reduce(s, host, { type: 'leave' }, {}, T0 + 2, rng);
+	assert.equal(last.destroy, false);
+	assert.equal(s.phase, 'playing');
+	assert.equal(s.emptySince, T0 + 2);
+	assert.equal(tick(s, T0 + 2 + EMPTY_ROOM_MS - 1).destroy, false);
+	assert.equal(tick(s, T0 + 2 + EMPTY_ROOM_MS).destroy, true);
+});
+
 test('게임 중 나가기와 끊김이 섞이면 소멸하지 않고 30초 유예', () => {
 	const { s, pids } = started(['가']);
 	const [host, a] = pids;
